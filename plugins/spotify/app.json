@@ -1,0 +1,79 @@
+{
+  "id": "com.stulp.spotify",
+  "version": "1.0.0",
+  "sdk": 3,
+  "compatibility": ">=12.0.0",
+  "name": { "en": "Spotify", "nl": "Spotify" },
+  "description": {
+    "en": "Play a track on a Spotify Connect device, and control what is playing.",
+    "nl": "Speel een nummer af op een Spotify Connect-apparaat, en bedien wat er speelt."
+  },
+  "author": { "name": "Stulp" },
+  "category": ["music"],
+  "capabilities": {
+    "speaker_next": {
+      "type": "boolean",
+      "title": { "en": "Next", "nl": "Volgende" },
+      "getable": false,
+      "setable": true
+    },
+    "speaker_prev": {
+      "type": "boolean",
+      "title": { "en": "Previous", "nl": "Vorige" },
+      "getable": false,
+      "setable": true
+    }
+  },
+  "drivers": [
+    {
+      "id": "player",
+      "name": { "en": "Spotify Connect player", "nl": "Spotify Connect-speler" },
+      "class": "speaker",
+      "capabilities": [
+        "speaker_playing",
+        "speaker_prev",
+        "speaker_next",
+        "speaker_track",
+        "speaker_artist",
+        "speaker_album",
+        "volume_set"
+      ],
+      "pair": [
+        { "id": "list_devices", "template": "list_devices", "navigation": { "next": "add_devices" } },
+        { "id": "add_devices", "template": "add_devices" }
+      ]
+    }
+  ],
+  "flow": {
+    "actions": [
+      {
+        "id": "play_track",
+        "title": { "en": "Play a track", "nl": "Speel een nummer af" },
+        "titleFormatted": {
+          "en": "Play [[track]]",
+          "nl": "Speel [[track]] af"
+        },
+        "hint": {
+          "en": "Searches Spotify while you type. Remote control requires Spotify Premium.",
+          "nl": "Zoekt bij Spotify terwijl je typt. Bedienen op afstand vraagt Spotify Premium."
+        },
+        "args": [
+          { "name": "device", "type": "device", "filter": "driver_id=player" },
+          {
+            "name": "track",
+            "type": "autocomplete",
+            "title": { "en": "Track", "nl": "Nummer" },
+            "placeholder": { "en": "Search for a track…", "nl": "Zoek een nummer…" }
+          }
+        ]
+      }
+    ]
+  },
+  "api": {
+    "status": { "method": "POST", "path": "/status" },
+    "authorize": { "method": "POST", "path": "/authorize" },
+    "exchange": { "method": "POST", "path": "/exchange" },
+    "check": { "method": "POST", "path": "/check" },
+    "disconnect": { "method": "POST", "path": "/disconnect" }
+  }
+}

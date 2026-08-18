@@ -1,0 +1,237 @@
+{
+  "id": "com.stulp.somfy",
+  "version": "1.0.0",
+  "sdk": 3,
+  "compatibility": ">=1.0.0",
+  "name": {
+    "en": "Somfy TaHoma",
+    "nl": "Somfy TaHoma"
+  },
+  "description": {
+    "en": "Sun screens, blinds and roller shutters from a Somfy TaHoma or Connexoon box",
+    "nl": "Zonwering, jaloezieën en rolluiken van een Somfy TaHoma- of Connexoon-doos"
+  },
+  "author": {
+    "name": "Stulp"
+  },
+  "category": [
+    "appliances",
+    "climate"
+  ],
+  "drivers": [
+    {
+      "id": "io_roller_shutter",
+      "name": {
+        "en": "Roller shutter (io)",
+        "nl": "Rolluik (io)"
+      },
+      "class": "blinds",
+      "capabilities": [
+        "windowcoverings_state",
+        "windowcoverings_set"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "io_vertical_exterior_blind",
+      "name": {
+        "en": "Vertical exterior blind (io)",
+        "nl": "Verticale buitenzonwering (io)"
+      },
+      "class": "sunshade",
+      "capabilities": [
+        "windowcoverings_state",
+        "windowcoverings_set"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "io_exterior_venetian_blind",
+      "name": {
+        "en": "Exterior venetian blind (io)",
+        "nl": "Buitenjaloezie (io)"
+      },
+      "class": "blinds",
+      "capabilities": [
+        "windowcoverings_state",
+        "windowcoverings_set"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "io_horizontal_awning",
+      "name": {
+        "en": "Horizontal awning (io)",
+        "nl": "Zonneluifel (io)"
+      },
+      "class": "sunshade",
+      "capabilities": [
+        "windowcoverings_state",
+        "windowcoverings_set"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "io_velux_roller_shutter",
+      "name": {
+        "en": "Velux roller shutter (io)",
+        "nl": "Velux-rolluik (io)"
+      },
+      "class": "blinds",
+      "capabilities": [
+        "windowcoverings_state",
+        "windowcoverings_set"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "io_velux_interior_blind",
+      "name": {
+        "en": "Velux interior blind (io)",
+        "nl": "Velux-binnenzonwering (io)"
+      },
+      "class": "sunshade",
+      "capabilities": [
+        "windowcoverings_state",
+        "windowcoverings_set"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "io_velux_roof_window",
+      "name": {
+        "en": "Velux roof window (io)",
+        "nl": "Velux-dakraam (io)"
+      },
+      "class": "windowcoverings",
+      "capabilities": [
+        "windowcoverings_state",
+        "windowcoverings_set"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    }
+  ],
+  "flow": {
+    "actions": [
+      {
+        "id": "activate_scenario",
+        "title": {
+          "en": "Play scenario",
+          "nl": "Scenario afspelen"
+        },
+        "args": [
+          {
+            "name": "scenario",
+            "type": "autocomplete",
+            "placeholder": {
+              "en": "Which scenario?",
+              "nl": "Welk scenario?"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "api": {
+    "status": {
+      "method": "POST",
+      "path": "/status"
+    },
+    "test": {
+      "method": "POST",
+      "path": "/test"
+    },
+    "save": {
+      "method": "POST",
+      "path": "/save"
+    },
+    "forget": {
+      "method": "POST",
+      "path": "/forget"
+    }
+  }
+}

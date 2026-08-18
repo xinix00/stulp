@@ -1,0 +1,28 @@
+<link rel="stylesheet" href="style.css">
+
+<div class="page-title">
+  <h1>Matter-netwerk</h1>
+  <div class="actions">
+    <button id="refresh">Ververs</button>
+    <button id="scan">Scan het netwerk</button>
+    <button id="mesh">Teken de mesh</button>
+  </div>
+</div>
+
+<p class="hint">Alles hier komt van de Matter-nodes zelf of uit hun
+DNS-SD-aankondiging. Er wordt niets gemeten en niets afgeleid: wat een node niet
+rapporteert blijft leeg in plaats van geraden.</p>
+
+<p id="status" class="hint"></p>
+
+<div id="mesh-view" class="mesh-view hidden">
+  <div id="mesh-warnings"></div>
+  <div id="mesh-canvas" class="mesh-canvas"></div>
+  <div id="mesh-legend" class="mesh-legend"></div>
+</div>
+
+<div id="network"><p class="empty">Laden…</p></div>
+
+<script src="vendor/vis-network.min.js"></script>
+<script src="mesh.js"></script>
+<script src="page.js"></script>

@@ -1,0 +1,2872 @@
+{
+  "id": "com.stulp.weather",
+  "version": "1.0.0",
+  "sdk": 3,
+  "compatibility": ">=12.0.0",
+  "name": {
+    "en": "Weather",
+    "nl": "Weer"
+  },
+  "description": {
+    "en": "The weather at one or more locations, with Flow cards for rain, wind and the sky. Uses Open-Meteo; no account needed.",
+    "nl": "Het weer op een of meer locaties, met Flow-kaarten voor regen, wind en de lucht. Gebruikt Open-Meteo; geen account nodig."
+  },
+  "author": {
+    "name": "Stulp"
+  },
+  "category": [
+    "climate"
+  ],
+  "capabilities": {
+    "weather_state": {
+      "type": "enum",
+      "title": {
+        "en": "Weather",
+        "nl": "Weer"
+      },
+      "getable": true,
+      "setable": false,
+      "values": [
+        {
+          "id": "clear",
+          "title": {
+            "en": "Clear",
+            "nl": "Onbewolkt"
+          }
+        },
+        {
+          "id": "partly",
+          "title": {
+            "en": "Partly cloudy",
+            "nl": "Half bewolkt"
+          }
+        },
+        {
+          "id": "cloudy",
+          "title": {
+            "en": "Overcast",
+            "nl": "Zwaar bewolkt"
+          }
+        },
+        {
+          "id": "fog",
+          "title": {
+            "en": "Fog",
+            "nl": "Mist"
+          }
+        },
+        {
+          "id": "drizzle",
+          "title": {
+            "en": "Drizzle",
+            "nl": "Motregen"
+          }
+        },
+        {
+          "id": "rain",
+          "title": {
+            "en": "Rain",
+            "nl": "Regen"
+          }
+        },
+        {
+          "id": "freezing",
+          "title": {
+            "en": "Freezing rain",
+            "nl": "IJzel"
+          }
+        },
+        {
+          "id": "snow",
+          "title": {
+            "en": "Snow",
+            "nl": "Sneeuw"
+          }
+        },
+        {
+          "id": "showers",
+          "title": {
+            "en": "Showers",
+            "nl": "Buien"
+          }
+        },
+        {
+          "id": "thunderstorm",
+          "title": {
+            "en": "Thunderstorm",
+            "nl": "Onweer"
+          }
+        }
+      ]
+    },
+    "weather_description": {
+      "type": "string",
+      "title": {
+        "en": "Description",
+        "nl": "Beschrijving"
+      },
+      "getable": true,
+      "setable": false
+    },
+    "cloud_cover": {
+      "type": "number",
+      "title": {
+        "en": "Cloud cover",
+        "nl": "Bewolking"
+      },
+      "units": {
+        "en": "%",
+        "nl": "%"
+      },
+      "min": 0,
+      "max": 100,
+      "getable": true,
+      "setable": false
+    },
+    "measure_temperature.feels": {
+      "type": "number",
+      "title": {
+        "en": "Feels like",
+        "nl": "Gevoelstemperatuur"
+      },
+      "units": {
+        "en": "°C",
+        "nl": "°C"
+      },
+      "getable": true,
+      "setable": false
+    },
+    "measure_wind_strength": {
+      "type": "number",
+      "title": {
+        "en": "Wind force",
+        "nl": "Windkracht"
+      },
+      "units": {
+        "en": "m/s",
+        "nl": "m/s"
+      },
+      "min": 0,
+      "max": 40,
+      "getable": true,
+      "setable": false
+    },
+    "measure_gust_strength": {
+      "type": "number",
+      "title": {
+        "en": "Gusts",
+        "nl": "Windstoten"
+      },
+      "units": {
+        "en": "m/s",
+        "nl": "m/s"
+      },
+      "min": 0,
+      "max": 40,
+      "getable": true,
+      "setable": false
+    },
+    "measure_rain": {
+      "type": "number",
+      "title": {
+        "en": "Precipitation",
+        "nl": "Neerslag"
+      },
+      "units": {
+        "en": "mm",
+        "nl": "mm"
+      },
+      "min": 0,
+      "getable": true,
+      "setable": false
+    },
+    "measure_wind_angle": {
+      "type": "number",
+      "title": {
+        "en": "Wind direction",
+        "nl": "Windrichting"
+      },
+      "units": {
+        "en": "°",
+        "nl": "°"
+      },
+      "min": 0,
+      "max": 360,
+      "getable": true,
+      "setable": false
+    },
+    "measure_ultraviolet": {
+      "type": "number",
+      "title": {
+        "en": "UV index",
+        "nl": "UV-index"
+      },
+      "min": 0,
+      "max": 12,
+      "getable": true,
+      "setable": false
+    },
+    "measure_temperature.dewpoint": {
+      "type": "number",
+      "title": {
+        "en": "Dew point",
+        "nl": "Dauwpunt"
+      },
+      "units": {
+        "en": "°C",
+        "nl": "°C"
+      },
+      "getable": true,
+      "setable": false
+    },
+    "measure_temperature.soil": {
+      "type": "number",
+      "title": {
+        "en": "Soil",
+        "nl": "Bodem"
+      },
+      "units": {
+        "en": "°C",
+        "nl": "°C"
+      },
+      "getable": true,
+      "setable": false
+    },
+    "visibility": {
+      "type": "number",
+      "title": {
+        "en": "Visibility",
+        "nl": "Zicht"
+      },
+      "units": {
+        "en": "km",
+        "nl": "km"
+      },
+      "min": 0,
+      "getable": true,
+      "setable": false
+    },
+    "rain_chance": {
+      "type": "number",
+      "title": {
+        "en": "Chance of rain today",
+        "nl": "Regenkans vandaag"
+      },
+      "units": {
+        "en": "%",
+        "nl": "%"
+      },
+      "min": 0,
+      "max": 100,
+      "getable": true,
+      "setable": false
+    },
+    "irrigation_need": {
+      "type": "number",
+      "title": {
+        "en": "Garden shortfall",
+        "nl": "Tuin tekort"
+      },
+      "units": {
+        "en": "mm",
+        "nl": "mm"
+      },
+      "min": 0,
+      "getable": true,
+      "setable": false
+    }
+  },
+  "drivers": [
+    {
+      "id": "location",
+      "name": {
+        "en": "Location",
+        "nl": "Locatie"
+      },
+      "class": "sensor",
+      "capabilities": [
+        "weather_state",
+        "weather_description",
+        "measure_temperature",
+        "measure_temperature.feels",
+        "measure_humidity",
+        "measure_pressure",
+        "measure_rain",
+        "measure_wind_strength",
+        "measure_gust_strength",
+        "measure_wind_angle",
+        "cloud_cover",
+        "measure_ultraviolet",
+        "measure_temperature.dewpoint",
+        "measure_temperature.soil",
+        "visibility",
+        "rain_chance",
+        "irrigation_need"
+      ],
+      "pair": [
+        {
+          "id": "search"
+        },
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    }
+  ],
+  "flow": {
+    "triggers": [
+      {
+        "id": "rain_started",
+        "title": {
+          "en": "It starts raining",
+          "nl": "Het begint te regenen"
+        },
+        "hint": {
+          "en": "Fires when precipitation is measured where there was none.",
+          "nl": "Vuurt zodra er neerslag gemeten wordt waar er geen was."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      },
+      {
+        "id": "rain_stopped",
+        "title": {
+          "en": "It stops raining",
+          "nl": "Het stopt met regenen"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      },
+      {
+        "id": "rain_expected",
+        "title": {
+          "en": "Rain is coming",
+          "nl": "Er komt regen"
+        },
+        "titleFormatted": {
+          "en": "Rain within [[within]]",
+          "nl": "Er komt regen binnen [[within]]"
+        },
+        "hint": {
+          "en": "Uses the 15-minute forecast, so an awning can come in before it starts instead of after.",
+          "nl": "Kijkt naar de kwartierverwachting, zodat de zonwering vóór de bui naar binnen kan in plaats van erna."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "within",
+            "type": "dropdown",
+            "title": {
+              "en": "Within",
+              "nl": "Binnen"
+            },
+            "values": [
+              {
+                "id": "15",
+                "label": {
+                  "en": "15 min",
+                  "nl": "15 min"
+                }
+              },
+              {
+                "id": "30",
+                "label": {
+                  "en": "30 min",
+                  "nl": "30 min"
+                }
+              },
+              {
+                "id": "60",
+                "label": {
+                  "en": "60 min",
+                  "nl": "60 min"
+                }
+              },
+              {
+                "id": "120",
+                "label": {
+                  "en": "120 min",
+                  "nl": "120 min"
+                }
+              }
+            ]
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      },
+      {
+        "id": "wind_changed",
+        "title": {
+          "en": "Wind rises above a force",
+          "nl": "Windkracht komt boven een grens"
+        },
+        "titleFormatted": {
+          "en": "Wind force rises above [[speed]]",
+          "nl": "Windkracht komt boven [[speed]]"
+        },
+        "hint": {
+          "en": "Fires once, when the force crosses the limit -- not on every change above it.",
+          "nl": "Vuurt één keer, als de grens gepasseerd wordt -- niet bij elke verandering erboven."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "speed",
+            "type": "number",
+            "title": {
+              "en": "Wind",
+              "nl": "Wind"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            },
+            "min": 0,
+            "max": 40,
+            "step": 0.5
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      },
+      {
+        "id": "gust_changed",
+        "title": {
+          "en": "Gusts rise above a force",
+          "nl": "Windstoten komen boven een grens"
+        },
+        "titleFormatted": {
+          "en": "Gusts rise above [[speed]]",
+          "nl": "Windstoten komen boven [[speed]]"
+        },
+        "hint": {
+          "en": "Gusts, not the average. An awning breaks on a gust.",
+          "nl": "De uitschieters, niet het gemiddelde. Een zonwering breekt op een windstoot."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "speed",
+            "type": "number",
+            "title": {
+              "en": "Wind",
+              "nl": "Wind"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            },
+            "min": 0,
+            "max": 40,
+            "step": 0.5
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      },
+      {
+        "id": "temperature_rose",
+        "title": {
+          "en": "Temperature rises above",
+          "nl": "Temperatuur komt boven"
+        },
+        "titleFormatted": {
+          "en": "Temperature rises above [[celsius]]",
+          "nl": "Temperatuur komt boven [[celsius]]"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "celsius",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "min": -40,
+            "max": 50,
+            "step": 0.5,
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      },
+      {
+        "id": "temperature_fell",
+        "title": {
+          "en": "Temperature drops below",
+          "nl": "Temperatuur komt onder"
+        },
+        "titleFormatted": {
+          "en": "Temperature drops below [[celsius]]",
+          "nl": "Temperatuur komt onder [[celsius]]"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "celsius",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "min": -40,
+            "max": 50,
+            "step": 0.5,
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      },
+      {
+        "id": "uv_changed",
+        "title": {
+          "en": "UV index rises above",
+          "nl": "UV-index komt boven"
+        },
+        "titleFormatted": {
+          "en": "UV index rises above [[index]]",
+          "nl": "UV-index komt boven [[index]]"
+        },
+        "hint": {
+          "en": "The UV index right now, not today's maximum.",
+          "nl": "De UV-index van nu, niet het dagmaximum."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "index",
+            "type": "dropdown",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            },
+            "values": [
+              {
+                "id": "3",
+                "label": {
+                  "en": "3",
+                  "nl": "3"
+                }
+              },
+              {
+                "id": "4",
+                "label": {
+                  "en": "4",
+                  "nl": "4"
+                }
+              },
+              {
+                "id": "5",
+                "label": {
+                  "en": "5",
+                  "nl": "5"
+                }
+              },
+              {
+                "id": "6",
+                "label": {
+                  "en": "6",
+                  "nl": "6"
+                }
+              },
+              {
+                "id": "7",
+                "label": {
+                  "en": "7",
+                  "nl": "7"
+                }
+              },
+              {
+                "id": "8",
+                "label": {
+                  "en": "8",
+                  "nl": "8"
+                }
+              },
+              {
+                "id": "9",
+                "label": {
+                  "en": "9",
+                  "nl": "9"
+                }
+              },
+              {
+                "id": "10",
+                "label": {
+                  "en": "10",
+                  "nl": "10"
+                }
+              }
+            ]
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      },
+      {
+        "id": "visibility_changed",
+        "title": {
+          "en": "Visibility drops below",
+          "nl": "Het zicht wordt slechter dan"
+        },
+        "titleFormatted": {
+          "en": "Visibility drops below [[distance]]",
+          "nl": "Het zicht wordt slechter dan [[distance]]"
+        },
+        "hint": {
+          "en": "Fog. Below 1000 m is officially fog; below 200 m is dense fog.",
+          "nl": "Mist. Onder 1000 m heet het officieel mist, onder 200 m dichte mist."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "distance",
+            "type": "number",
+            "title": {
+              "en": "Visibility",
+              "nl": "Zicht"
+            },
+            "units": {
+              "en": "km",
+              "nl": "km"
+            },
+            "min": 0,
+            "max": 50,
+            "step": 0.1
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      },
+      {
+        "id": "thunder_near",
+        "title": {
+          "en": "A thunderstorm is brewing",
+          "nl": "Er komt onweer aan"
+        },
+        "titleFormatted": {
+          "en": "Thunderstorm risk rises above [[energy]]",
+          "nl": "Onweerskans komt boven [[energy]]"
+        },
+        "hint": {
+          "en": "From the atmospheric energy in the next two hours (CAPE). Above 1000 J/kg means showers with thunder are likely; above 2500 it can get heavy.",
+          "nl": "Uit de energie in de lucht voor de komende twee uur (CAPE). Boven 1000 J/kg zijn onweersbuien waarschijnlijk, boven 2500 kan het zwaar worden."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "energy",
+            "type": "dropdown",
+            "title": {
+              "en": "Energy",
+              "nl": "Energie"
+            },
+            "values": [
+              {
+                "id": "500",
+                "label": {
+                  "en": "500 J/kg",
+                  "nl": "500 J/kg"
+                }
+              },
+              {
+                "id": "1000",
+                "label": {
+                  "en": "1000 J/kg",
+                  "nl": "1000 J/kg"
+                }
+              },
+              {
+                "id": "1500",
+                "label": {
+                  "en": "1500 J/kg",
+                  "nl": "1500 J/kg"
+                }
+              },
+              {
+                "id": "2500",
+                "label": {
+                  "en": "2500 J/kg",
+                  "nl": "2500 J/kg"
+                }
+              }
+            ]
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      },
+      {
+        "id": "weather_changed",
+        "title": {
+          "en": "The weather changes",
+          "nl": "Het weer slaat om"
+        },
+        "titleFormatted": {
+          "en": "The weather becomes [[state]]",
+          "nl": "Het weer wordt [[state]]"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "state",
+            "type": "dropdown",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            },
+            "values": [
+              {
+                "id": "clear",
+                "label": {
+                  "en": "Clear",
+                  "nl": "Onbewolkt"
+                }
+              },
+              {
+                "id": "partly",
+                "label": {
+                  "en": "Partly cloudy",
+                  "nl": "Half bewolkt"
+                }
+              },
+              {
+                "id": "cloudy",
+                "label": {
+                  "en": "Overcast",
+                  "nl": "Zwaar bewolkt"
+                }
+              },
+              {
+                "id": "fog",
+                "label": {
+                  "en": "Fog",
+                  "nl": "Mist"
+                }
+              },
+              {
+                "id": "drizzle",
+                "label": {
+                  "en": "Drizzle",
+                  "nl": "Motregen"
+                }
+              },
+              {
+                "id": "rain",
+                "label": {
+                  "en": "Rain",
+                  "nl": "Regen"
+                }
+              },
+              {
+                "id": "freezing",
+                "label": {
+                  "en": "Freezing rain",
+                  "nl": "IJzel"
+                }
+              },
+              {
+                "id": "snow",
+                "label": {
+                  "en": "Snow",
+                  "nl": "Sneeuw"
+                }
+              },
+              {
+                "id": "showers",
+                "label": {
+                  "en": "Showers",
+                  "nl": "Buien"
+                }
+              },
+              {
+                "id": "thunderstorm",
+                "label": {
+                  "en": "Thunderstorm",
+                  "nl": "Onweer"
+                }
+              },
+              {
+                "id": "any",
+                "label": {
+                  "en": "Any change",
+                  "nl": "Elke omslag"
+                }
+              }
+            ]
+          }
+        ],
+        "tokens": [
+          {
+            "name": "description",
+            "type": "string",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            }
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "wind_speed",
+            "type": "number",
+            "title": {
+              "en": "Wind force",
+              "nl": "Windkracht"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "gust_speed",
+            "type": "number",
+            "title": {
+              "en": "Gusts",
+              "nl": "Windstoten"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            }
+          },
+          {
+            "name": "wind",
+            "type": "string",
+            "title": {
+              "en": "Wind direction",
+              "nl": "Windrichting"
+            }
+          },
+          {
+            "name": "rain",
+            "type": "number",
+            "title": {
+              "en": "Precipitation",
+              "nl": "Neerslag"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "rain_soon",
+            "type": "number",
+            "title": {
+              "en": "Rain next hour",
+              "nl": "Neerslag komend uur"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            }
+          },
+          {
+            "name": "uv",
+            "type": "number",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            }
+          },
+          {
+            "name": "humidity",
+            "type": "number",
+            "title": {
+              "en": "Humidity",
+              "nl": "Luchtvochtigheid"
+            },
+            "units": {
+              "en": "%",
+              "nl": "%"
+            }
+          },
+          {
+            "name": "max_today",
+            "type": "number",
+            "title": {
+              "en": "Max today",
+              "nl": "Max vandaag"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "min_tonight",
+            "type": "number",
+            "title": {
+              "en": "Min tonight",
+              "nl": "Min vannacht"
+            },
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          },
+          {
+            "name": "code",
+            "type": "number",
+            "title": {
+              "en": "WMO code",
+              "nl": "WMO-code"
+            }
+          }
+        ]
+      }
+    ],
+    "conditions": [
+      {
+        "id": "is_raining",
+        "title": {
+          "en": "It is raining",
+          "nl": "Het regent"
+        },
+        "titleFormatted": {
+          "en": "It is!{{| not}} raining",
+          "nl": "Het regent!{{| niet}}"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          }
+        ]
+      },
+      {
+        "id": "rain_today",
+        "title": {
+          "en": "Rain is likely today",
+          "nl": "Kans op regen vandaag"
+        },
+        "titleFormatted": {
+          "en": "Chance of rain today is!{{| not}} above [[chance]]",
+          "nl": "Kans op regen vandaag is!{{| niet}} boven [[chance]]"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "chance",
+            "type": "dropdown",
+            "title": {
+              "en": "Chance",
+              "nl": "Kans"
+            },
+            "values": [
+              {
+                "id": "20",
+                "label": {
+                  "en": "20 %",
+                  "nl": "20 %"
+                }
+              },
+              {
+                "id": "30",
+                "label": {
+                  "en": "30 %",
+                  "nl": "30 %"
+                }
+              },
+              {
+                "id": "40",
+                "label": {
+                  "en": "40 %",
+                  "nl": "40 %"
+                }
+              },
+              {
+                "id": "50",
+                "label": {
+                  "en": "50 %",
+                  "nl": "50 %"
+                }
+              },
+              {
+                "id": "60",
+                "label": {
+                  "en": "60 %",
+                  "nl": "60 %"
+                }
+              },
+              {
+                "id": "70",
+                "label": {
+                  "en": "70 %",
+                  "nl": "70 %"
+                }
+              },
+              {
+                "id": "80",
+                "label": {
+                  "en": "80 %",
+                  "nl": "80 %"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "wind_above",
+        "title": {
+          "en": "Wind is above a force",
+          "nl": "Windkracht is boven een grens"
+        },
+        "titleFormatted": {
+          "en": "Wind force is!{{| not}} above [[speed]]",
+          "nl": "Windkracht is!{{| niet}} boven [[speed]]"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "speed",
+            "type": "number",
+            "title": {
+              "en": "Wind",
+              "nl": "Wind"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            },
+            "min": 0,
+            "max": 40,
+            "step": 0.5
+          }
+        ]
+      },
+      {
+        "id": "gust_above",
+        "title": {
+          "en": "Gusts are above a force",
+          "nl": "Windstoten zijn boven een grens"
+        },
+        "titleFormatted": {
+          "en": "Gusts are!{{| not}} above [[speed]]",
+          "nl": "Windstoten zijn!{{| niet}} boven [[speed]]"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "speed",
+            "type": "number",
+            "title": {
+              "en": "Wind",
+              "nl": "Wind"
+            },
+            "units": {
+              "en": "m/s",
+              "nl": "m/s"
+            },
+            "min": 0,
+            "max": 40,
+            "step": 0.5
+          }
+        ]
+      },
+      {
+        "id": "temperature_above",
+        "title": {
+          "en": "Temperature is above",
+          "nl": "Temperatuur is boven"
+        },
+        "titleFormatted": {
+          "en": "Temperature is!{{| not}} above [[celsius]]",
+          "nl": "Temperatuur is!{{| niet}} boven [[celsius]]"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "celsius",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "min": -40,
+            "max": 50,
+            "step": 0.5,
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          }
+        ]
+      },
+      {
+        "id": "warmer_today",
+        "title": {
+          "en": "It gets warmer today than",
+          "nl": "Het wordt vandaag warmer dan"
+        },
+        "titleFormatted": {
+          "en": "Today's maximum is!{{| not}} above [[celsius]]",
+          "nl": "Het maximum van vandaag is!{{| niet}} boven [[celsius]]"
+        },
+        "hint": {
+          "en": "The forecast maximum, so this answers 'open the windows or keep the blinds shut' in the morning.",
+          "nl": "Het verwachte maximum, dus hiermee beslis je 's ochtends: ramen open of de zonwering dicht."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "celsius",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "min": -20,
+            "max": 45,
+            "step": 0.5,
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          }
+        ]
+      },
+      {
+        "id": "frost_tonight",
+        "title": {
+          "en": "It freezes tonight",
+          "nl": "Het vriest vannacht"
+        },
+        "titleFormatted": {
+          "en": "Tonight's minimum is!{{| not}} at or below [[celsius]]",
+          "nl": "Het minimum van vannacht is!{{| niet}} [[celsius]] of lager"
+        },
+        "hint": {
+          "en": "Looks at tomorrow's minimum -- that is the night ahead. Today's minimum is already behind us.",
+          "nl": "Kijkt naar het minimum van morgen: dat is de nacht die komt. Het minimum van vandaag lag al achter ons."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "celsius",
+            "type": "number",
+            "title": {
+              "en": "Temperature",
+              "nl": "Temperatuur"
+            },
+            "min": -20,
+            "max": 10,
+            "step": 0.5,
+            "units": {
+              "en": "°C",
+              "nl": "°C"
+            }
+          }
+        ]
+      },
+      {
+        "id": "uv_above",
+        "title": {
+          "en": "UV index is above",
+          "nl": "UV-index is boven"
+        },
+        "titleFormatted": {
+          "en": "UV index is!{{| not}} above [[index]]",
+          "nl": "UV-index is!{{| niet}} boven [[index]]"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "index",
+            "type": "dropdown",
+            "title": {
+              "en": "UV index",
+              "nl": "UV-index"
+            },
+            "values": [
+              {
+                "id": "3",
+                "label": {
+                  "en": "3",
+                  "nl": "3"
+                }
+              },
+              {
+                "id": "4",
+                "label": {
+                  "en": "4",
+                  "nl": "4"
+                }
+              },
+              {
+                "id": "5",
+                "label": {
+                  "en": "5",
+                  "nl": "5"
+                }
+              },
+              {
+                "id": "6",
+                "label": {
+                  "en": "6",
+                  "nl": "6"
+                }
+              },
+              {
+                "id": "7",
+                "label": {
+                  "en": "7",
+                  "nl": "7"
+                }
+              },
+              {
+                "id": "8",
+                "label": {
+                  "en": "8",
+                  "nl": "8"
+                }
+              },
+              {
+                "id": "9",
+                "label": {
+                  "en": "9",
+                  "nl": "9"
+                }
+              },
+              {
+                "id": "10",
+                "label": {
+                  "en": "10",
+                  "nl": "10"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "is_sunny",
+        "title": {
+          "en": "The sun is out",
+          "nl": "De zon schijnt"
+        },
+        "titleFormatted": {
+          "en": "The sun is!{{| not}} out (cloud below [[cloud]])",
+          "nl": "De zon schijnt!{{| niet}} (bewolking onder [[cloud]])"
+        },
+        "hint": {
+          "en": "Daylight and few clouds. At night this is never true.",
+          "nl": "Daglicht en weinig bewolking. 's Nachts is dit nooit waar."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "cloud",
+            "type": "dropdown",
+            "title": {
+              "en": "Cloud below",
+              "nl": "Bewolking onder"
+            },
+            "values": [
+              {
+                "id": "10",
+                "label": {
+                  "en": "10 %",
+                  "nl": "10 %"
+                }
+              },
+              {
+                "id": "20",
+                "label": {
+                  "en": "20 %",
+                  "nl": "20 %"
+                }
+              },
+              {
+                "id": "30",
+                "label": {
+                  "en": "30 %",
+                  "nl": "30 %"
+                }
+              },
+              {
+                "id": "50",
+                "label": {
+                  "en": "50 %",
+                  "nl": "50 %"
+                }
+              },
+              {
+                "id": "70",
+                "label": {
+                  "en": "70 %",
+                  "nl": "70 %"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "is_day",
+        "title": {
+          "en": "It is daytime",
+          "nl": "Het is dag"
+        },
+        "titleFormatted": {
+          "en": "It is!{{ daytime| night}}",
+          "nl": "Het is!{{ dag| nacht}}"
+        },
+        "hint": {
+          "en": "Between sunrise and sunset at this location.",
+          "nl": "Tussen zonsopkomst en zonsondergang op deze plek."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          }
+        ]
+      },
+      {
+        "id": "garden_dry",
+        "title": {
+          "en": "The garden needs water",
+          "nl": "De tuin heeft water nodig"
+        },
+        "titleFormatted": {
+          "en": "The garden is!{{| not}} short [[millimetres]]",
+          "nl": "De tuin komt!{{| geen}} [[millimetres]] tekort"
+        },
+        "hint": {
+          "en": "Today's reference evaporation minus what fell. Zero means the rain did the work.",
+          "nl": "De referentieverdamping van vandaag min wat er gevallen is. Nul betekent dat de regen het werk deed."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "millimetres",
+            "type": "number",
+            "title": {
+              "en": "Shortfall",
+              "nl": "Tekort"
+            },
+            "units": {
+              "en": "mm",
+              "nl": "mm"
+            },
+            "min": 0,
+            "max": 20,
+            "step": 0.5
+          }
+        ]
+      },
+      {
+        "id": "weather_is",
+        "title": {
+          "en": "The weather is",
+          "nl": "Het weer is"
+        },
+        "titleFormatted": {
+          "en": "The weather is!{{| not}} [[state]]",
+          "nl": "Het weer is!{{| niet}} [[state]]"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=location"
+          },
+          {
+            "name": "state",
+            "type": "dropdown",
+            "title": {
+              "en": "Weather",
+              "nl": "Weer"
+            },
+            "values": [
+              {
+                "id": "clear",
+                "label": {
+                  "en": "Clear",
+                  "nl": "Onbewolkt"
+                }
+              },
+              {
+                "id": "partly",
+                "label": {
+                  "en": "Partly cloudy",
+                  "nl": "Half bewolkt"
+                }
+              },
+              {
+                "id": "cloudy",
+                "label": {
+                  "en": "Overcast",
+                  "nl": "Zwaar bewolkt"
+                }
+              },
+              {
+                "id": "fog",
+                "label": {
+                  "en": "Fog",
+                  "nl": "Mist"
+                }
+              },
+              {
+                "id": "drizzle",
+                "label": {
+                  "en": "Drizzle",
+                  "nl": "Motregen"
+                }
+              },
+              {
+                "id": "rain",
+                "label": {
+                  "en": "Rain",
+                  "nl": "Regen"
+                }
+              },
+              {
+                "id": "freezing",
+                "label": {
+                  "en": "Freezing rain",
+                  "nl": "IJzel"
+                }
+              },
+              {
+                "id": "snow",
+                "label": {
+                  "en": "Snow",
+                  "nl": "Sneeuw"
+                }
+              },
+              {
+                "id": "showers",
+                "label": {
+                  "en": "Showers",
+                  "nl": "Buien"
+                }
+              },
+              {
+                "id": "thunderstorm",
+                "label": {
+                  "en": "Thunderstorm",
+                  "nl": "Onweer"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "api": {
+    "status": {
+      "method": "POST",
+      "path": "/status"
+    },
+    "search": {
+      "method": "POST",
+      "path": "/search"
+    },
+    "peek": {
+      "method": "POST",
+      "path": "/peek"
+    }
+  }
+}

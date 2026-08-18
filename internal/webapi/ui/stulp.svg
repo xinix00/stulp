@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 66" role="img" aria-labelledby="title">
+  <title id="title">Stulp-tulp</title>
+  <defs>
+    <linearGradient id="red" x1="0" y1="0" x2="0.55" y2="1">
+      <stop offset="0" stop-color="#ff3b2f"/>
+      <stop offset="1" stop-color="#ff271d"/>
+    </linearGradient>
+    <mask id="petal-cuts" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
+      <rect width="64" height="66" fill="#fff"/>
+      <path d="M23.5 20c-3.2 7.8-2.8 18.8 1.2 26.1 1.2 2.3 1.2 4.2 2.3 5.8" fill="none" stroke="#000" stroke-linecap="round" stroke-width="1.45"/>
+      <path d="M40.5 20c3.2 7.8 2.8 18.8-1.2 26.1-1.2 2.3-1.2 4.2-2.3 5.8" fill="none" stroke="#000" stroke-linecap="round" stroke-width="1.45"/>
+    </mask>
+  </defs>
+  <g mask="url(#petal-cuts)">
+    <path fill="url(#red)" d="M7 12.4c6.8.6 12.8 3.5 16.4 8-2.2 5.8-3.4 12-3.4 17.8 0 6.6 2.3 11.5 6.4 14.2C14 49 7 39.6 7 23.8V12.4Z"/>
+    <path fill="url(#red)" d="M32 7c-8.3 8.4-13 20-13 32.2 0 8.5 4.9 13.6 13 13.6s13-5.1 13-13.6C45 27 40.3 15.4 32 7Z"/>
+    <path fill="url(#red)" d="M57 12.4c-6.8.6-12.8 3.5-16.4 8 2.2 5.8 3.4 12 3.4 17.8 0 6.6-2.3 11.5-6.4 14.2C50 49 57 39.6 57 23.8V12.4Z"/>
+  </g>
+  <rect width="4.7" height="5.8" x="29.65" y="54.3" fill="url(#red)" rx="0.8"/>
+</svg>

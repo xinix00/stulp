@@ -1,0 +1,33 @@
+<h1>Sigenergy</h1>
+
+<p class="hint">Stulp praat rechtstreeks met het systeem over Modbus/TCP. Zet
+Modbus aan in de mySigen-app onder <em>Meer → Instellingen → Modbus</em> en vul
+hier het IP-adres van de omvormer in. Welke apparaten erachter zitten zoekt de
+app zelf op zodra je er een koppelt.</p>
+
+<form id="form">
+  <label>Adres
+    <input id="host" placeholder="192.168.1.42" autocomplete="off" autofocus>
+  </label>
+  <label>Poort
+    <input id="port" type="number" value="502" min="1" max="65535">
+  </label>
+  <label>Ritme <small>(seconden tussen twee metingen)</small>
+    <input id="interval" type="number" value="10" min="5" max="3600">
+  </label>
+  <label>Wachttijd <small>(seconden per vraag)</small>
+    <input id="timeout" type="number" value="5" min="1" max="60">
+  </label>
+  <label>Unit-ids om af te tasten
+    <input id="units" placeholder="1-32,247" autocomplete="off">
+  </label>
+  <div class="actions">
+    <button type="button" id="test">Proberen</button>
+    <button type="submit" id="save" class="primary">Opslaan</button>
+  </div>
+</form>
+
+<p id="status" class="hint"></p>
+<div id="found"></div>
+
+<script src="page.js"></script>

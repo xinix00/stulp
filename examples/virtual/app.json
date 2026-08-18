@@ -1,0 +1,39 @@
+{
+  "id": "com.stulp.virtual",
+  "version": "1.0.0",
+  "compatibility": ">=5.0.0",
+  "sdk": 3,
+  "name": { "en": "Stulp Virtual", "nl": "Stulp Virtueel" },
+  "description": { "en": "Compatibility fixture for Stulp." },
+  "permissions": [],
+  "api": {
+    "echo": { "method": "POST", "path": "/echo" }
+  },
+  "flow": {
+    "triggers": [
+      { "id": "signal", "title": { "en": "A signal was received" }, "args": [{ "name": "match", "type": "text", "title": { "en": "Filter" } }], "tokens": [{ "name": "value", "type": "string", "title": { "en": "Value" } }] }
+    ],
+    "actions": [
+      { "id": "ping", "title": { "en": "Ping" }, "args": [{ "name": "value", "type": "text", "title": { "en": "Value" } }] },
+      { "id": "device_name", "title": { "en": "Read device name" }, "args": [{ "name": "device", "type": "device", "title": { "en": "Device" }, "filter": "driver_id=switch" }] },
+      { "id": "choose", "title": { "en": "Choose a value" }, "args": [{ "name": "choice", "type": "autocomplete", "title": { "en": "Choice" } }] }
+    ]
+  },
+  "drivers": [
+    {
+      "id": "switch",
+      "name": { "en": "Virtual switch", "nl": "Virtuele schakelaar" },
+      "class": "socket",
+      "capabilities": ["onoff"],
+      "pair": [
+        { "id": "validate" },
+        { "id": "list_devices", "template": "list_devices" },
+        { "id": "add_devices", "template": "add_devices" }
+      ],
+      "settings": [
+        { "id": "label", "type": "text", "label": { "en": "Label", "nl": "Label" }, "value": "Stulp" }
+      ],
+      "platforms": ["local"]
+    }
+  ]
+}

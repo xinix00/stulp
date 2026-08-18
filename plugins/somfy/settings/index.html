@@ -1,0 +1,30 @@
+<h1>Somfy TaHoma</h1>
+
+<p class="hint">Stulp logt in bij tahomalink.com met hetzelfde account als de
+Somfy-app. Er is geen API-sleutel: dit ís je wachtwoord, en het blijft in Stulp.
+Het komt niet terug op dit scherm en staat niet bij de app-instellingen.</p>
+
+<form id="form">
+  <label>Gebruikersnaam
+    <input id="username" type="email" placeholder="jij@example.com" autocomplete="off" autofocus>
+  </label>
+  <label>Wachtwoord
+    <input id="password" type="password" placeholder="········" autocomplete="off">
+  </label>
+  <label>Kijken hoe vaak
+    <input id="interval" type="number" value="10" min="1" max="3600">
+    <small class="hint">Seconden. TaHoma meldt niets uit zichzelf, dus Stulp
+    vraagt het na. Korter is sneller in beeld en meer verkeer naar Somfy.</small>
+  </label>
+  <div class="actions">
+    <button type="button" id="test">Proberen</button>
+    <button type="submit" id="save" class="primary">Opslaan</button>
+  </div>
+</form>
+
+<p id="status" class="hint"></p>
+<div id="found"></div>
+
+<p class="hint"><button type="button" id="forget" class="quiet">Gegevens wissen</button></p>
+
+<script src="page.js"></script>

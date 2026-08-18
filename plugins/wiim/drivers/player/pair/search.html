@@ -1,0 +1,90 @@
+<p class="hint">Stulp roept de spelers op je netwerk op. Dat gaat over multicast,
+en dat komt niet overal doorheen: staat je speler op een gastnetwerk of loopt er
+een VPN, dan blijft deze lijst leeg terwijl de speler prima bereikbaar is.</p>
+
+<p id="status" class="hint"></p>
+<div id="found"></div>
+
+<div class="actions">
+  <button type="button" id="search">Opnieuw zoeken</button>
+</div>
+
+<section>
+  <h2>Toevoegen op adres</h2>
+  <p class="hint">Voor als het zoeken niets oplevert terwijl je de speler wel
+  kunt bereiken.</p>
+  <form id="form">
+    <label>Adres van de speler
+      <input id="address" placeholder="192.168.1.42" autocomplete="off">
+    </label>
+    <div class="actions">
+      <button type="submit" id="add" class="primary">Deze toevoegen</button>
+    </div>
+  </form>
+</section>
+
+<script>
+const status = document.getElementById('status');
+const found = document.getElementById('found');
+const search = document.getElementById('search');
+const add = document.getElementById('add');
+
+function say(message, kind) {
+  status.textContent = message || '';
+  status.className = 'hint' + (kind ? ' ' + kind : '');
+}
+
+function show(result) {
+  found.replaceChildren();
+  for (const player of result.players || []) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const name = document.createElement('span');
+    name.textContent = player.name;
+    const where = document.createElement('small');
+    where.textContent = [player.model, player.address].filter(Boolean).join(' — ');
+    row.append(name, where);
+    found.append(row);
+  }
+}
+
+async function run(event, data) {
+  search.disabled = true;
+  add.disabled = true;
+  try {
+    const result = await Stulp.emit(event, data || {});
+    show(result);
+    if (!result.found) {
+      say('Geen speler gevonden. Vul hieronder het adres in.', 'bad');
+      return;
+    }
+    // Meteen doorlopen naar de keuze: wie op zoeken drukt wil kiezen, en de
+    // lijst hierboven staat er alleen voor het geval de volgende stap iets
+    // anders laat zien dan verwacht.
+    Stulp.showView('list_devices');
+  } catch (error) {
+    say(error.message || String(error), 'bad');
+  } finally {
+    search.disabled = false;
+    add.disabled = false;
+  }
+}
+
+search.addEventListener('click', () => {
+  // Zoeken duurt: de speler krijgt een paar seconden om te antwoorden en
+  // daarna wordt elk antwoord nog gevraagd wie het is.
+  say('Zoeken naar spelers…', 'busy');
+  run('search');
+});
+
+document.getElementById('form').addEventListener('submit', event => {
+  event.preventDefault();
+  const address = document.getElementById('address').value.trim();
+  if (!address) { say('Vul eerst een adres in.', 'bad'); return; }
+  say('Kijken wat er op ' + address + ' staat…', 'busy');
+  run('manual', { address });
+});
+
+say('Zoeken naar spelers…', 'busy');
+run('search');
+</script>

@@ -1,0 +1,195 @@
+{
+  "id": "com.stulp.wiim",
+  "version": "1.0.0",
+  "sdk": 3,
+  "compatibility": ">=1.0.0",
+  "name": {
+    "en": "WiiM",
+    "nl": "WiiM"
+  },
+  "description": {
+    "en": "WiiM and other LinkPlay audio players on your own network",
+    "nl": "WiiM- en andere LinkPlay-audiospelers op je eigen netwerk"
+  },
+  "author": {
+    "name": "Stulp"
+  },
+  "category": [
+    "music"
+  ],
+  "drivers": [
+    {
+      "id": "player",
+      "name": {
+        "en": "Audio player",
+        "nl": "Audiospeler"
+      },
+      "class": "speaker",
+      "capabilities": [
+        "speaker_playing",
+        "speaker_prev",
+        "speaker_next",
+        "speaker_artist",
+        "speaker_album",
+        "speaker_track",
+        "speaker_duration",
+        "speaker_position",
+        "speaker_shuffle",
+        "speaker_repeat",
+        "volume_set",
+        "volume_mute",
+        "button.off",
+        "button.preset1",
+        "button.preset2",
+        "button.preset3",
+        "button.preset4"
+      ],
+      "capabilitiesOptions": {
+        "button.off": {
+          "title": {
+            "en": "Player off",
+            "nl": "Speler uit"
+          }
+        },
+        "button.preset1": {
+          "title": {
+            "en": "Preset 1",
+            "nl": "Voorkeur 1"
+          }
+        },
+        "button.preset2": {
+          "title": {
+            "en": "Preset 2",
+            "nl": "Voorkeur 2"
+          }
+        },
+        "button.preset3": {
+          "title": {
+            "en": "Preset 3",
+            "nl": "Voorkeur 3"
+          }
+        },
+        "button.preset4": {
+          "title": {
+            "en": "Preset 4",
+            "nl": "Voorkeur 4"
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "address",
+          "type": "text",
+          "label": {
+            "en": "Address",
+            "nl": "Adres"
+          },
+          "value": "",
+          "hint": {
+            "en": "The IP address of the player. Fill this in again when the player got a different address from your router.",
+            "nl": "Het IP-adres van de speler. Vul dit opnieuw in als de speler een ander adres van je router kreeg."
+          }
+        }
+      ],
+      "pair": [
+        {
+          "id": "search",
+          "navigation": {
+            "next": "list_devices"
+          }
+        },
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    }
+  ],
+  "flow": {
+    "actions": [
+      {
+        "id": "switch_off",
+        "title": {
+          "en": "Switch off",
+          "nl": "Uitzetten"
+        },
+        "titleFormatted": {
+          "en": "Switch off the player",
+          "nl": "Zet de speler uit"
+        },
+        "hint": {
+          "en": "Stops playback. A WiiM has no real power switch.",
+          "nl": "Stopt het afspelen. Een WiiM heeft geen echte aan-uitschakelaar."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=player"
+          }
+        ]
+      },
+      {
+        "id": "call_preset",
+        "title": {
+          "en": "Call preset",
+          "nl": "Voorkeur oproepen"
+        },
+        "titleFormatted": {
+          "en": "Call preset [[preset_number]]",
+          "nl": "Roep voorkeur [[preset_number]] op"
+        },
+        "hint": {
+          "en": "Presses one of the preset keys, the same ones as in the WiiM app.",
+          "nl": "Drukt op een van de voorkeurtoetsen, dezelfde als in de WiiM-app."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=player"
+          },
+          {
+            "name": "preset_number",
+            "type": "dropdown",
+            "title": {
+              "en": "Preset",
+              "nl": "Voorkeur"
+            },
+            "values": [
+              { "id": "1", "label": { "en": "1", "nl": "1" } },
+              { "id": "2", "label": { "en": "2", "nl": "2" } },
+              { "id": "3", "label": { "en": "3", "nl": "3" } },
+              { "id": "4", "label": { "en": "4", "nl": "4" } },
+              { "id": "5", "label": { "en": "5", "nl": "5" } },
+              { "id": "6", "label": { "en": "6", "nl": "6" } },
+              { "id": "7", "label": { "en": "7", "nl": "7" } },
+              { "id": "8", "label": { "en": "8", "nl": "8" } },
+              { "id": "9", "label": { "en": "9", "nl": "9" } },
+              { "id": "10", "label": { "en": "10", "nl": "10" } },
+              { "id": "11", "label": { "en": "11", "nl": "11" } },
+              { "id": "12", "label": { "en": "12", "nl": "12" } }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "api": {
+    "status": {
+      "method": "POST",
+      "path": "/status"
+    },
+    "search": {
+      "method": "POST",
+      "path": "/search"
+    }
+  }
+}

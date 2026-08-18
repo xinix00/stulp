@@ -1,0 +1,53 @@
+<h1>Spotify</h1>
+
+<p class="hint">Deze app zegt Spotify wat er moet spelen en waarop; het afspelen
+zelf doet Spotify, op een apparaat dat al met je account verbonden is. Er gaat
+dus geen geluid door Stulp heen. Bedienen op afstand vraagt <em>Spotify
+Premium</em> — zonder abonnement weigert Spotify elke opdracht.</p>
+
+<p class="hint">Maak een eigen registratie aan op <em>developer.spotify.com</em>.
+Een clientgeheim is niet nodig: deze app gebruikt PKCE, dus er staat nergens
+iets wat je account opent.</p>
+
+<form id="form">
+  <label>Client-id
+    <input id="clientId" autocomplete="off" autofocus placeholder="0000aaaa…">
+  </label>
+  <label>Redirect-URI (exact zoals bij Spotify geregistreerd)
+    <input id="redirectUri" autocomplete="off" placeholder="https://127.0.0.1:8081/spotify">
+    <small>Moet met <em>https</em> beginnen: Spotify weigert http, ook op een
+    loopback-adres. Er hoeft niets op dat adres te luisteren — je browser meldt
+    dat hij geen verbinding kan maken, en de code staat gewoon in de adresbalk.</small>
+  </label>
+  <div class="actions">
+    <button type="submit" id="submit" class="primary">Opslaan en autoriseren</button>
+  </div>
+</form>
+
+<section id="step2" hidden>
+  <h2>Toestemming geven</h2>
+  <p class="hint">Geef toestemming bij Spotify. Daarna komt de browser uit bij
+  je redirect-URI — die pagina meldt dat hij geen verbinding kan maken, en dat
+  hoort zo. Kopieer het hele adres uit de adresbalk en plak het hieronder.</p>
+  <div class="actions">
+    <button type="button" id="authorize" class="primary">Openen bij Spotify</button>
+  </div>
+  <form id="finish">
+    <label>Adres uit de adresbalk
+      <input id="redirect" autocomplete="off" placeholder="https://127.0.0.1:8081/spotify?code=…&amp;state=…">
+    </label>
+    <div class="actions">
+      <button type="submit" id="link" class="primary">Koppelen</button>
+    </div>
+  </form>
+</section>
+
+<p id="status" class="hint"></p>
+<div id="found"></div>
+
+<div class="actions">
+  <button type="button" id="check">Verbinding proberen</button>
+  <button type="button" id="disconnect">Koppeling verbreken</button>
+</div>
+
+<script src="page.js"></script>

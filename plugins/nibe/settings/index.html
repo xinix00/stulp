@@ -1,0 +1,70 @@
+<h1>Nibe (myUplink)</h1>
+
+<p class="hint">Deze app praat met de myUplink-cloud van Nibe, en die vraagt een
+eigen registratie. Maak er een aan op <em>dev.myuplink.com</em> en vul hieronder
+in wat je terugkrijgt.</p>
+
+<form id="registration">
+  <label>Client-id
+    <input id="clientId" autocomplete="off" autofocus placeholder="0000aaaa-…">
+  </label>
+  <label>Clientgeheim
+    <input id="clientSecret" type="password" autocomplete="off" placeholder="········">
+  </label>
+
+  <fieldset id="method">
+    <legend>Hoe wil je koppelen?</legend>
+    <label class="choice">
+      <input type="radio" name="method" value="machine" checked>
+      <span>Op naam van de registratie
+        <small>Eén knop, geen browser, niets om terug te plakken. Je ziet de
+        systemen waar deze registratie bij mag — bij een zelfgemaakte registratie
+        is dat je eigen pomp.</small>
+      </span>
+    </label>
+    <label class="choice">
+      <input type="radio" name="method" value="browser">
+      <span>Op naam van je myUplink-account
+        <small>Via de browser, met inloggen. Nodig als de registratie niet van
+        jou is of als je account meer systemen ziet dan de registratie.</small>
+      </span>
+    </label>
+  </fieldset>
+
+  <label id="redirectField" hidden>Redirect-URI (exact zoals bij myUplink geregistreerd)
+    <input id="redirectUri" autocomplete="off" placeholder="https://localhost/nibe/">
+    <small class="hint">Het adres hoeft nergens naartoe te gaan — het staat er
+    alleen om de code in je adresbalk te krijgen.</small>
+  </label>
+
+  <div class="actions">
+    <button type="submit" id="submit" class="primary">Opslaan en koppelen</button>
+  </div>
+</form>
+
+<section id="step2" hidden>
+  <p class="hint">Open deze link, log in bij Nibe en geef toestemming. Daarna komt
+  de browser uit bij je redirect-URI — die pagina mag best een foutmelding tonen.
+  Kopieer het hele adres uit de adresbalk en plak het hieronder.</p>
+  <div class="actions">
+    <button type="button" id="authorize" class="primary">Openen bij myUplink</button>
+  </div>
+  <form id="finish">
+    <label>Adres uit de adresbalk
+      <input id="redirect" autocomplete="off" placeholder="https://localhost/nibe/?code=…&amp;state=…">
+    </label>
+    <div class="actions">
+      <button type="submit" id="link" class="primary">Koppelen</button>
+    </div>
+  </form>
+</section>
+
+<p id="status" class="hint"></p>
+<div id="found"></div>
+
+<div class="actions">
+  <button type="button" id="check">Verbinding proberen</button>
+  <button type="button" id="disconnect">Koppeling verbreken</button>
+</div>
+
+<script src="page.js"></script>

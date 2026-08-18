@@ -1,0 +1,495 @@
+{
+  "id": "com.stulp.sigenergy",
+  "version": "1.0.0",
+  "sdk": 3,
+  "compatibility": ">=1.0.0",
+  "name": {
+    "en": "Sigenergy",
+    "nl": "Sigenergy"
+  },
+  "description": {
+    "en": "Inverters, batteries, grid meter and AC charger of a Sigenergy system over Modbus/TCP",
+    "nl": "Omvormers, batterijen, netmeter en AC-lader van een Sigenergy-systeem over Modbus/TCP"
+  },
+  "author": {
+    "name": "Stulp"
+  },
+  "category": [
+    "energy"
+  ],
+  "capabilities": {
+    "grid_status": {
+      "type": "string",
+      "title": {
+        "en": "Grid status",
+        "nl": "Netstand"
+      },
+      "getable": true,
+      "setable": false
+    },
+    "phase_control": {
+      "type": "string",
+      "title": {
+        "en": "Independent phase control",
+        "nl": "Individuele fasesturing"
+      },
+      "getable": true,
+      "setable": false
+    },
+    "firmware": {
+      "type": "string",
+      "title": {
+        "en": "Firmware",
+        "nl": "Firmware"
+      },
+      "getable": true,
+      "setable": false
+    },
+    "battery_charging_state": {
+      "type": "string",
+      "title": {
+        "en": "Battery state",
+        "nl": "Batterijstand"
+      },
+      "getable": true,
+      "setable": false
+    },
+    "evcharger_charging": {
+      "type": "boolean",
+      "title": {
+        "en": "Charging",
+        "nl": "Laden"
+      },
+      "getable": true,
+      "setable": true
+    },
+    "evcharger_charging_state": {
+      "type": "string",
+      "title": {
+        "en": "Charging state",
+        "nl": "Laadstand"
+      },
+      "getable": true,
+      "setable": false
+    }
+  },
+  "drivers": [
+    {
+      "id": "plant",
+      "name": {
+        "en": "System",
+        "nl": "Systeem"
+      },
+      "class": "other",
+      "capabilities": [
+        "measure_power.grid",
+        "measure_power.solar",
+        "measure_power.load",
+        "measure_power.battery",
+        "measure_power.evcharger",
+        "measure_battery",
+        "grid_status"
+      ],
+      "capabilitiesOptions": {
+        "measure_power.grid": {
+          "title": {
+            "en": "Grid",
+            "nl": "Net"
+          }
+        },
+        "measure_power.solar": {
+          "title": {
+            "en": "Solar",
+            "nl": "Zon"
+          }
+        },
+        "measure_power.load": {
+          "title": {
+            "en": "Consumption",
+            "nl": "Verbruik"
+          }
+        },
+        "measure_power.battery": {
+          "title": {
+            "en": "Battery",
+            "nl": "Batterij"
+          }
+        },
+        "measure_power.evcharger": {
+          "title": {
+            "en": "EV charger",
+            "nl": "Laadpaal"
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "modbus_unitId",
+          "type": "number",
+          "label": {
+            "en": "Modbus unit id",
+            "nl": "Modbus unit-id"
+          },
+          "value": 247,
+          "min": 1,
+          "max": 255,
+          "hint": {
+            "en": "The system registers live on unit 247.",
+            "nl": "De systeemregisters staan op unit 247."
+          }
+        }
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "inverter",
+      "name": {
+        "en": "Inverter",
+        "nl": "Omvormer"
+      },
+      "class": "solarpanel",
+      "capabilities": [
+        "measure_power",
+        "meter_power.daily",
+        "meter_power",
+        "measure_voltage.pv1",
+        "measure_voltage.pv2",
+        "measure_voltage.pv3",
+        "measure_voltage.pv4",
+        "measure_voltage.phaseA",
+        "measure_current.phaseA",
+        "measure_voltage.phaseB",
+        "measure_current.phaseB",
+        "measure_voltage.phaseC",
+        "measure_current.phaseC"
+      ],
+      "capabilitiesOptions": {
+        "meter_power.daily": {
+          "title": {
+            "en": "Yield today",
+            "nl": "Opbrengst vandaag"
+          }
+        },
+        "meter_power": {
+          "title": {
+            "en": "Total yield",
+            "nl": "Opbrengst totaal"
+          }
+        },
+        "measure_voltage.pv1": {
+          "title": {
+            "en": "PV1 voltage",
+            "nl": "Spanning PV1"
+          }
+        },
+        "measure_voltage.pv2": {
+          "title": {
+            "en": "PV2 voltage",
+            "nl": "Spanning PV2"
+          }
+        },
+        "measure_voltage.pv3": {
+          "title": {
+            "en": "PV3 voltage",
+            "nl": "Spanning PV3"
+          }
+        },
+        "measure_voltage.pv4": {
+          "title": {
+            "en": "PV4 voltage",
+            "nl": "Spanning PV4"
+          }
+        },
+        "measure_voltage.phaseA": {
+          "title": {
+            "en": "L1 voltage",
+            "nl": "Spanning L1"
+          }
+        },
+        "measure_current.phaseA": {
+          "title": {
+            "en": "L1 current",
+            "nl": "Stroom L1"
+          }
+        },
+        "measure_voltage.phaseB": {
+          "title": {
+            "en": "L2 voltage",
+            "nl": "Spanning L2"
+          }
+        },
+        "measure_current.phaseB": {
+          "title": {
+            "en": "L2 current",
+            "nl": "Stroom L2"
+          }
+        },
+        "measure_voltage.phaseC": {
+          "title": {
+            "en": "L3 voltage",
+            "nl": "Spanning L3"
+          }
+        },
+        "measure_current.phaseC": {
+          "title": {
+            "en": "L3 current",
+            "nl": "Stroom L3"
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "modbus_unitId",
+          "type": "number",
+          "label": {
+            "en": "Modbus unit id",
+            "nl": "Modbus unit-id"
+          },
+          "value": 1,
+          "min": 1,
+          "max": 255
+        }
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "battery",
+      "name": {
+        "en": "Battery",
+        "nl": "Batterij"
+      },
+      "class": "battery",
+      "capabilities": [
+        "measure_battery",
+        "battery_charging_state",
+        "measure_power",
+        "meter_power.charged",
+        "meter_power.discharged",
+        "measure_temperature.minCell",
+        "measure_temperature.maxCell",
+        "measure_temperature.pcs",
+        "firmware"
+      ],
+      "capabilitiesOptions": {
+        "meter_power.charged": {
+          "title": {
+            "en": "Charged energy",
+            "nl": "Geladen energie"
+          }
+        },
+        "meter_power.discharged": {
+          "title": {
+            "en": "Discharged energy",
+            "nl": "Ontladen energie"
+          }
+        },
+        "measure_temperature.minCell": {
+          "title": {
+            "en": "Lowest cell temperature",
+            "nl": "Laagste celtemperatuur"
+          }
+        },
+        "measure_temperature.maxCell": {
+          "title": {
+            "en": "Highest cell temperature",
+            "nl": "Hoogste celtemperatuur"
+          }
+        },
+        "measure_temperature.pcs": {
+          "title": {
+            "en": "Converter temperature",
+            "nl": "Temperatuur omvormerdeel"
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "modbus_unitId",
+          "type": "number",
+          "label": {
+            "en": "Modbus unit id",
+            "nl": "Modbus unit-id"
+          },
+          "value": 1,
+          "min": 1,
+          "max": 255
+        }
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "energy",
+      "name": {
+        "en": "Grid meter",
+        "nl": "Netmeter"
+      },
+      "class": "sensor",
+      "capabilities": [
+        "measure_power",
+        "measure_power.L1",
+        "measure_power.L2",
+        "measure_power.L3",
+        "meter_power.imported",
+        "meter_power.exported",
+        "grid_status",
+        "phase_control"
+      ],
+      "capabilitiesOptions": {
+        "measure_power.L1": {
+          "title": {
+            "en": "L1 power",
+            "nl": "Vermogen L1"
+          }
+        },
+        "measure_power.L2": {
+          "title": {
+            "en": "L2 power",
+            "nl": "Vermogen L2"
+          }
+        },
+        "measure_power.L3": {
+          "title": {
+            "en": "L3 power",
+            "nl": "Vermogen L3"
+          }
+        },
+        "meter_power.imported": {
+          "title": {
+            "en": "Imported energy",
+            "nl": "Afgenomen energie"
+          }
+        },
+        "meter_power.exported": {
+          "title": {
+            "en": "Exported energy",
+            "nl": "Teruggeleverde energie"
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "modbus_unitId",
+          "type": "number",
+          "label": {
+            "en": "Modbus unit id",
+            "nl": "Modbus unit-id"
+          },
+          "value": 247,
+          "min": 1,
+          "max": 255,
+          "hint": {
+            "en": "The grid meter lives in the system register space, on unit 247.",
+            "nl": "De netmeter staat in de systeemregisters, op unit 247."
+          }
+        }
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "evaccharger",
+      "name": {
+        "en": "AC charger",
+        "nl": "AC-laadpaal"
+      },
+      "class": "evcharger",
+      "capabilities": [
+        "evcharger_charging",
+        "evcharger_charging_state",
+        "measure_power",
+        "meter_power.charged"
+      ],
+      "capabilitiesOptions": {
+        "meter_power.charged": {
+          "title": {
+            "en": "Charged energy",
+            "nl": "Geladen energie"
+          }
+        }
+      },
+      "settings": [
+        {
+          "id": "modbus_unitId",
+          "type": "number",
+          "label": {
+            "en": "Modbus unit id",
+            "nl": "Modbus unit-id"
+          },
+          "value": 1,
+          "min": 1,
+          "max": 255
+        }
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    }
+  ],
+  "api": {
+    "status": {
+      "method": "POST",
+      "path": "/status"
+    },
+    "test": {
+      "method": "POST",
+      "path": "/test"
+    }
+  }
+}

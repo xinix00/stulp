@@ -1,0 +1,57 @@
+<p class="hint">Voer de koppelcode van het apparaat in. Dat is de QR-payload
+(<code>MT:…</code>) of de handmatige code van elf cijfers.</p>
+
+<form id="form">
+  <label>Koppelcode
+    <input id="code" placeholder="MT:… of 3497 011 2332" autocomplete="off" autofocus>
+  </label>
+  <label>Adres
+    <input id="address" placeholder="192.168.1.42" autocomplete="off">
+    <small>Alleen nodig als het apparaat niet vanzelf gevonden wordt.</small>
+  </label>
+  <div class="actions">
+    <button type="submit" id="submit" class="primary">Koppelen</button>
+  </div>
+</form>
+
+<p id="status" class="hint"></p>
+
+<script>
+const form = document.getElementById('form');
+const status = document.getElementById('status');
+const submit = document.getElementById('submit');
+
+// say zet de melding neer. busy zet er een draaiend teken bij, want een pagina
+// die op het netwerk wacht ziet er anders uit alsof hij vastzit.
+function say(message, kind) {
+  status.textContent = message || '';
+  status.className = 'hint' + (kind ? ' ' + kind : '');
+}
+
+form.addEventListener('submit', async event => {
+  event.preventDefault();
+  const code = document.getElementById('code').value.trim();
+  if (!code) { say('Vul eerst een koppelcode in.', 'bad'); return; }
+
+  // Commissioneren duurt: het apparaat moet wakker worden, een beveiligde
+  // sessie opzetten en zijn certificaten uitwisselen. Zolang dat loopt komt er
+  // niets terug, dus zeg dat er iets gebeurt.
+  submit.disabled = true;
+  say('Bezig met koppelen. Dit kan een halve minuut duren…', 'busy');
+
+  try {
+    const result = await Stulp.emit('commission', {
+      code, address: document.getElementById('address').value.trim(),
+    });
+    if (!result || !result.found) {
+      say('Het apparaat meldde niets om toe te voegen.', 'bad');
+      submit.disabled = false;
+      return;
+    }
+    Stulp.showView('list_devices');
+  } catch (error) {
+    say(error.message || String(error), 'bad');
+    submit.disabled = false;
+  }
+});
+</script>

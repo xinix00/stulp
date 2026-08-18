@@ -1,0 +1,10 @@
+<!doctype html>
+<html><head><script src="/stulp.js" data-origin="settings"></script></head>
+<body><label>Naam <input id="name"></label><button id="save">Opslaan</button>
+<script>
+function onStulpReady(Stulp) {
+  Stulp.get('displayName', (error, value) => { if (!error) document.getElementById('name').value = value || ''; });
+  document.getElementById('save').onclick = () => Stulp.set('displayName', document.getElementById('name').value);
+  Stulp.ready();
+}
+</script></body></html>

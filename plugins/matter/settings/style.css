@@ -1,0 +1,27 @@
+/* Alleen wat van Matter zelf is. De opmaak van de pagina -- koppen, formulier,
+   knoppen, rijen, kaarten -- komt van app-frame.css, dat Stulp erbij zet. */
+
+/* Een node is een tak: de regels eronder horen erbij en dat moet je zien. */
+.net-branch { border-left: 3px solid var(--line-strong); }
+.net-line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 4px 14px; margin-top: 9px; padding-top: 8px; border-top: 1px solid #2a2a2e; }
+.net-line-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.net-line-detail { color: var(--text-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
+.net-line.net-down .net-line-label { color: var(--bad); }
+.net-line.net-service .net-line-label { font-family: inherit; color: #7dd3fc; }
+.net-line.net-partial .net-line-label { color: #fbbf24; }
+.net-line.net-configuration .net-line-label { color: #f0abfc; }
+.net-sub { margin: 3px 0 0; color: var(--text-soft); font-size: 11px; overflow-wrap: anywhere; }
+
+.app-error { margin: 8px 0 0; color: var(--bad); font-size: 12px; overflow-wrap: anywhere; }
+
+/* De mesh is het enige dat echt ruimte vraagt. In een iframe is dat krapper dan
+   op een eigen pagina, dus de hoogte volgt wat er is. */
+.mesh-view { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.mesh-canvas { height: min(560px, 62vh); border-radius: 9px; background: #141416; }
+.mesh-canvas canvas { outline: none; }
+.mesh-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid #2a2a2e; color: var(--text-soft); font-size: 11px; }
+.mesh-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.mesh-dot { width: 10px; height: 10px; border-radius: 50%; }
+.mesh-dash { width: 18px; height: 3px; border-radius: 2px; }

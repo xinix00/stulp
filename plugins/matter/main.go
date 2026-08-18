@@ -1,0 +1,167 @@
+// Command com.stulp.matter is de Matter-controller als plugin.
+//
+// Stulp start hem als eigen proces. Wat hij doet is ongewijzigd -- dezelfde
+// controller die eerst binnen Stulp draaide -- maar hij praat nu via de
+// plugin-SDK in plaats van rechtstreeks met de store. Zie docs/plugins.md.
+//
+// Wat een plugin níet kan, kan hij dus ook niet meer: apparaten aanmaken of
+// verwijderen doet Stulp, en Flows raakt hij niet aan.
+package main
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/xinix00/stulp/internal/appsdk"
+	mattercontroller "github.com/xinix00/stulp/plugins/matter/internal/controller"
+)
+
+// matterDriver is de enige driver: elk gecommissioned apparaat hoort erbij,
+// ongeacht wat het is. Wat een apparaat kan staat in zijn capabilities.
+type matterDriver struct{ app *app }
+
+// Pair is wat de koppelpagina mag sturen.
+//
+// Koppelen begint bij een code: een QR-payload of de handmatige code op het
+// apparaat. Zonder die code is er niets te vinden -- een Matter-apparaat laat
+// zich niet ongevraagd toevoegen, en dat is precies de bedoeling.
+func (d matterDriver) Pair() map[string]appsdk.PairHandler {
+	return map[string]appsdk.PairHandler{
+		"commission": func(data any) (any, error) {
+			request, _ := data.(map[string]any)
+			code, _ := request["code"].(string)
+			address, _ := request["address"].(string)
+			if strings.TrimSpace(code) == "" {
+				return nil, fmt.Errorf("een koppelcode is nodig")
+			}
+			return d.app.commission(code, address)
+		},
+	}
+}
+
+// ListDevices levert wat er zojuist gecommissioneerd is.
+//
+// Anders dan bij een hub die je kunt afzoeken valt hier niets te ontdekken
+// zonder code: de vorige stap heeft het apparaat al in de fabric gehaald, en dit
+// is de keuze die de gebruiker daarna maakt.
+func (d matterDriver) ListDevices() ([]appsdk.PairedDevice, error) {
+	return d.app.candidates(), nil
+}
+
+func (d matterDriver) NewDevice(device *appsdk.Device) (appsdk.DeviceHandler, error) {
+	return &matterDevice{app: d.app, device: device}, nil
+}
+
+type matterDevice struct {
+	app    *app
+	device *appsdk.Device
+}
+
+// OnInit doet niets: de controller kent zijn nodes al uit de fabric en meldt hun
+// waarden zodra een subscription binnenkomt. Hier verbinding zoeken zou de start
+// ophouden voor een apparaat dat misschien uit staat.
+func (m *matterDevice) OnInit() error { return nil }
+
+// OnCapability is een opdracht uit de interface of een Flow: zet die lamp aan.
+func (m *matterDevice) OnCapability(name string, value any) error {
+	controller := m.app.controller
+	if controller == nil {
+		return fmt.Errorf("Matter controller is not running")
+	}
+	return controller.SetCapability(context.Background(), m.device.ID(), name, value)
+}
+
+type app struct {
+	controller *mattercontroller.Controller
+
+	mu    sync.Mutex
+	found []appsdk.PairedDevice
+
+	// Wat de config-pagina laat zien. Eén verkenning tegelijk per soort: de
+	// pagina mag zo vaak kijken als hij wil, de nodes worden er niet vaker om
+	// gevraagd.
+	discovery scan
+	mesh      scan
+}
+
+// commission haalt het apparaat in de fabric en onthoudt wat eruit kwam.
+//
+// De plugin maakt zelf geen apparaten aan: wat hier gevonden wordt gaat als
+// keuze naar de koppelpagina, en Stulp bewaart wat de gebruiker overneemt.
+func (a *app) commission(code, address string) (any, error) {
+	if a.controller == nil {
+		return nil, fmt.Errorf("Matter controller is not running")
+	}
+	// Ruim, want commissioneren is een gesprek van meerdere rondes met een
+	// apparaat dat net wakker wordt.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	prototypes, err := a.controller.Commission(ctx, mattercontroller.CommissionRequest{
+		Code: code, Address: address,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	found := make([]appsdk.PairedDevice, 0, len(prototypes))
+	for _, prototype := range prototypes {
+		found = append(found, appsdk.PairedDevice{
+			Name: prototype.Name,
+			// Wat dit apparaat moet onthouden staat bij het apparaat zelf: het
+			// node-id, het endpoint, waar het over gaat. Niet in de instellingen
+			// van de app -- er is er niet één van, en de volgende heeft andere.
+			Data:         prototype.Data,
+			Settings:     prototype.Settings,
+			Store:        prototype.Store,
+			Capabilities: prototype.Capabilities,
+		})
+	}
+
+	a.mu.Lock()
+	a.found = found
+	a.mu.Unlock()
+	return map[string]any{"found": len(found)}, nil
+}
+
+func (a *app) candidates() []appsdk.PairedDevice {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.found
+}
+
+func main() { start(plugin()) }
+
+// plugin bouwt de plugin-beschrijving; start (start_host.go/start_tamago.go)
+// kiest de gedaante: eigen proces naast stulp, of HopOS-slot-app.
+func plugin() appsdk.Plugin {
+	instance := &app{}
+	return appsdk.Plugin{
+		OnInit: func(stulp *appsdk.Stulp) error {
+			backing, err := newBacking(stulp)
+			if err != nil {
+				return err
+			}
+			// Via de SDK en niet rechtstreeks naar stderr: dan komt een
+			// waarschuwing bij Stulp ook als waarschuwing binnen, in plaats van
+			// als een INFO-regel met de echte melding erin geplakt.
+			controller, err := mattercontroller.New(context.Background(), backing, stulp.Logger())
+			if err != nil {
+				return fmt.Errorf("start Matter controller: %w", err)
+			}
+			instance.controller = controller
+			instance.registerAPI(stulp)
+			stulp.Log("Matter controller running")
+			return nil
+		},
+		Drivers: map[string]appsdk.Driver{"matter": matterDriver{app: instance}},
+		OnStop: func() {
+			if instance.controller != nil {
+				instance.controller.Close()
+			}
+		},
+	}
+}

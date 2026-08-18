@@ -1,0 +1,68 @@
+{
+  "id": "com.stulp.notify",
+  "version": "1.0.0",
+  "sdk": 3,
+  "compatibility": ">=1.0.0",
+  "name": { "en": "Notifications", "nl": "Meldingen" },
+  "description": {
+    "en": "Your phone or browser as a device, so a Flow can send a notification to it",
+    "nl": "Je telefoon of browser als apparaat, zodat een Flow er een melding naartoe kan sturen"
+  },
+  "author": { "name": "Stulp" },
+  "category": ["tools"],
+  "drivers": [
+    {
+      "id": "phone",
+      "name": { "en": "Phone or browser", "nl": "Telefoon of browser" },
+      "class": "phone",
+      "capabilities": ["onoff"],
+      "capabilitiesOptions": {
+        "onoff": { "title": { "en": "Notifications", "nl": "Meldingen" } }
+      },
+      "pair": [{ "id": "subscribe", "template": "push_subscription" }]
+    }
+  ],
+  "flow": {
+    "actions": [
+      {
+        "id": "send",
+        "title": { "en": "Send a notification", "nl": "Stuur een melding" },
+        "titleFormatted": {
+          "en": "Send [[message]] to [[device]]",
+          "nl": "Stuur [[message]] naar [[device]]"
+        },
+        "hint": {
+          "en": "Arrives on that phone even when nobody has Stulp open. A picture is optional and comes from a camera that offers one; Android shows it, Safari does not.",
+          "nl": "Komt op die telefoon aan, ook als niemand Stulp open heeft. Een foto is optioneel en komt van een camera die er een levert; Android toont hem, Safari niet."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=phone"
+          },
+          {
+            "name": "title",
+            "type": "text",
+            "title": { "en": "Heading", "nl": "Kop" },
+            "placeholder": { "en": "Stulp", "nl": "Stulp" },
+            "optional": true
+          },
+          {
+            "name": "message",
+            "type": "text",
+            "title": { "en": "Message", "nl": "Bericht" },
+            "placeholder": { "en": "Someone is at the door", "nl": "Iemand belt aan" }
+          },
+          {
+            "name": "image",
+            "type": "autocomplete",
+            "title": { "en": "Picture", "nl": "Foto" },
+            "placeholder": { "en": "No picture", "nl": "Geen foto" },
+            "optional": true
+          }
+        ]
+      }
+    ]
+  }
+}

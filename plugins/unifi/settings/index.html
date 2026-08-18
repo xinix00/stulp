@@ -1,0 +1,27 @@
+<h1>UniFi Protect</h1>
+
+<p class="hint">Stulp praat met de console over de integratie-API. Die vraagt een
+API-key en verder niets: geen wachtwoord, geen sessie die verloopt. Maak hem aan
+in UniFi onder <em>Instellingen → Beheer → API-sleutels</em> en geef hem toegang
+tot Protect.</p>
+
+<form id="form">
+  <label>Adres van de console
+    <input id="host" placeholder="192.168.1.1" autocomplete="off" autofocus>
+  </label>
+  <label>Poort
+    <input id="port" type="number" value="443" min="1" max="65535">
+  </label>
+  <label>API-key
+    <input id="apiKey" type="password" placeholder="········" autocomplete="off">
+  </label>
+  <div class="actions">
+    <button type="button" id="test">Proberen</button>
+    <button type="submit" id="save" class="primary">Opslaan</button>
+  </div>
+</form>
+
+<p id="status" class="hint"></p>
+<div id="found"></div>
+
+<script src="page.js"></script>

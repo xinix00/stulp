@@ -1,0 +1,514 @@
+{
+  "id": "com.stulp.nibe",
+  "version": "1.0.0",
+  "sdk": 3,
+  "compatibility": ">=1.0.0",
+  "name": {
+    "en": "Nibe",
+    "nl": "Nibe"
+  },
+  "description": {
+    "en": "Nibe heat pumps through the myUplink cloud",
+    "nl": "Nibe-warmtepompen via de myUplink-cloud"
+  },
+  "author": {
+    "name": "Stulp"
+  },
+  "category": [
+    "climate"
+  ],
+  "capabilities": {
+    "target_temperature": {
+      "type": "number",
+      "title": {
+        "en": "Indoor setpoint",
+        "nl": "Streeftemperatuur binnen"
+      },
+      "getable": true,
+      "setable": true,
+      "units": "°C",
+      "min": 5,
+      "max": 35,
+      "step": 0.5
+    },
+    "measure_temperature.outdoor": {
+      "type": "number",
+      "title": {
+        "en": "Outdoor",
+        "nl": "Buiten"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "°C",
+      "step": 0.1
+    },
+    "measure_temperature.hotwater": {
+      "type": "number",
+      "title": {
+        "en": "Hot water",
+        "nl": "Warm water"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "°C",
+      "step": 0.1
+    },
+    "measure_temperature.supply": {
+      "type": "number",
+      "title": {
+        "en": "Supply line",
+        "nl": "Aanvoer"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "°C",
+      "step": 0.1
+    },
+    "measure_temperature.return": {
+      "type": "number",
+      "title": {
+        "en": "Return line",
+        "nl": "Retour"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "°C",
+      "step": 0.1
+    },
+    "measure_temperature.calculated_supply": {
+      "type": "number",
+      "title": {
+        "en": "Calculated supply",
+        "nl": "Berekende aanvoer"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "°C",
+      "step": 0.1
+    },
+    "measure_power.heating": {
+      "type": "number",
+      "title": {
+        "en": "Power for heating",
+        "nl": "Vermogen verwarmen"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "W",
+      "min": 0,
+      "step": 1
+    },
+    "measure_power.hotwater": {
+      "type": "number",
+      "title": {
+        "en": "Power for hot water",
+        "nl": "Vermogen warm water"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "W",
+      "min": 0,
+      "step": 1
+    },
+    "meter_power.heating": {
+      "type": "number",
+      "title": {
+        "en": "Energy for heating",
+        "nl": "Verbruik verwarmen"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "kWh",
+      "min": 0,
+      "step": 0.001
+    },
+    "meter_power.hotwater": {
+      "type": "number",
+      "title": {
+        "en": "Energy for hot water",
+        "nl": "Verbruik warm water"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "kWh",
+      "min": 0,
+      "step": 0.001
+    },
+    "operating_priority": {
+      "type": "enum",
+      "title": {
+        "en": "Priority",
+        "nl": "Prioriteit"
+      },
+      "getable": true,
+      "setable": false,
+      "values": [
+        {
+          "id": "10",
+          "title": {
+            "en": "Off",
+            "nl": "Uit"
+          }
+        },
+        {
+          "id": "20",
+          "title": {
+            "en": "Hot water",
+            "nl": "Warm water"
+          }
+        },
+        {
+          "id": "25",
+          "title": {
+            "en": "External hot water",
+            "nl": "Extern warm water"
+          }
+        },
+        {
+          "id": "30",
+          "title": {
+            "en": "Heating",
+            "nl": "Verwarmen"
+          }
+        },
+        {
+          "id": "40",
+          "title": {
+            "en": "Pool",
+            "nl": "Zwembad"
+          }
+        },
+        {
+          "id": "41",
+          "title": {
+            "en": "Pool 2",
+            "nl": "Zwembad 2"
+          }
+        },
+        {
+          "id": "50",
+          "title": {
+            "en": "Transfer",
+            "nl": "Overdracht"
+          }
+        },
+        {
+          "id": "60",
+          "title": {
+            "en": "Cooling",
+            "nl": "Koelen"
+          }
+        }
+      ]
+    },
+    "compressor_frequency": {
+      "type": "number",
+      "title": {
+        "en": "Compressor frequency",
+        "nl": "Compressorfrequentie"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "Hz",
+      "min": 0,
+      "step": 1
+    },
+    "pump_speed": {
+      "type": "number",
+      "title": {
+        "en": "Pump speed",
+        "nl": "Pompsnelheid"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "%",
+      "min": 0,
+      "max": 100,
+      "step": 1
+    },
+    "airflow": {
+      "type": "number",
+      "title": {
+        "en": "Airflow",
+        "nl": "Luchtdebiet"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "m³/h",
+      "min": 0,
+      "step": 0.1
+    },
+    "additional_heat_power": {
+      "type": "number",
+      "title": {
+        "en": "Additional heat power",
+        "nl": "Bijverwarming vermogen"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "kW",
+      "min": 0,
+      "step": 0.01
+    },
+    "add_heat_time_heating": {
+      "type": "number",
+      "title": {
+        "en": "Additional heat hours (heating)",
+        "nl": "Bijverwarming uren (verwarmen)"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "h",
+      "min": 0,
+      "step": 0.1
+    },
+    "add_heat_time_hotwater": {
+      "type": "number",
+      "title": {
+        "en": "Additional heat hours (hot water)",
+        "nl": "Bijverwarming uren (warm water)"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "h",
+      "min": 0,
+      "step": 0.1
+    },
+    "hotwater_amount": {
+      "type": "number",
+      "title": {
+        "en": "Hot water left",
+        "nl": "Warm water resterend"
+      },
+      "getable": true,
+      "setable": false,
+      "units": "min",
+      "min": 0,
+      "step": 1
+    },
+    "hot_water_boost": {
+      "type": "boolean",
+      "title": {
+        "en": "Extra hot water",
+        "nl": "Extra warm water"
+      },
+      "getable": true,
+      "setable": true
+    },
+    "ventilation_boost": {
+      "type": "boolean",
+      "title": {
+        "en": "Increased ventilation",
+        "nl": "Verhoogde ventilatie"
+      },
+      "getable": true,
+      "setable": true
+    },
+    "ventilation_mode": {
+      "type": "enum",
+      "title": {
+        "en": "Ventilation mode",
+        "nl": "Ventilatiestand"
+      },
+      "getable": true,
+      "setable": true,
+      "values": [
+        {
+          "id": "0",
+          "title": {
+            "en": "Normal",
+            "nl": "Normaal"
+          }
+        },
+        {
+          "id": "1",
+          "title": {
+            "en": "Speed 1",
+            "nl": "Stand 1"
+          }
+        },
+        {
+          "id": "2",
+          "title": {
+            "en": "Speed 2",
+            "nl": "Stand 2"
+          }
+        },
+        {
+          "id": "3",
+          "title": {
+            "en": "Speed 3",
+            "nl": "Stand 3"
+          }
+        },
+        {
+          "id": "4",
+          "title": {
+            "en": "Speed 4",
+            "nl": "Stand 4"
+          }
+        }
+      ]
+    }
+  },
+  "drivers": [
+    {
+      "id": "heatpump",
+      "name": {
+        "en": "Nibe heat pump",
+        "nl": "Nibe-warmtepomp"
+      },
+      "class": "heatpump",
+      "capabilities": [
+        "measure_temperature",
+        "target_temperature",
+        "measure_temperature.outdoor",
+        "measure_temperature.hotwater",
+        "measure_temperature.supply",
+        "measure_temperature.return",
+        "measure_temperature.calculated_supply",
+        "operating_priority",
+        "compressor_frequency",
+        "pump_speed",
+        "airflow",
+        "hotwater_amount",
+        "additional_heat_power",
+        "add_heat_time_heating",
+        "add_heat_time_hotwater",
+        "measure_power",
+        "measure_power.heating",
+        "measure_power.hotwater",
+        "meter_power",
+        "meter_power.heating",
+        "meter_power.hotwater",
+        "hot_water_boost",
+        "ventilation_boost",
+        "ventilation_mode"
+      ],
+      "capabilitiesOptions": {
+        "measure_temperature": {
+          "title": {
+            "en": "Indoor",
+            "nl": "Binnen"
+          }
+        }
+      },
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    }
+  ],
+  "flow": {
+    "actions": [
+      {
+        "id": "boost_hot_water",
+        "title": {
+          "en": "Boost hot water",
+          "nl": "Warm water forceren"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=heatpump"
+          },
+          {
+            "name": "duration",
+            "type": "dropdown",
+            "title": {
+              "en": "Duration",
+              "nl": "Duur"
+            },
+            "values": [
+              {
+                "id": "0",
+                "label": {
+                  "en": "Off",
+                  "nl": "Uit"
+                }
+              },
+              {
+                "id": "2",
+                "label": {
+                  "en": "One-time increase",
+                  "nl": "Eenmalige verhoging"
+                }
+              },
+              {
+                "id": "3",
+                "label": {
+                  "en": "3 hours",
+                  "nl": "3 uur"
+                }
+              },
+              {
+                "id": "6",
+                "label": {
+                  "en": "6 hours",
+                  "nl": "6 uur"
+                }
+              },
+              {
+                "id": "12",
+                "label": {
+                  "en": "12 hours",
+                  "nl": "12 uur"
+                }
+              },
+              {
+                "id": "24",
+                "label": {
+                  "en": "24 hours",
+                  "nl": "24 uur"
+                }
+              },
+              {
+                "id": "48",
+                "label": {
+                  "en": "48 hours",
+                  "nl": "48 uur"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "api": {
+    "status": {
+      "method": "POST",
+      "path": "/status"
+    },
+    "authorize": {
+      "method": "POST",
+      "path": "/authorize"
+    },
+    "exchange": {
+      "method": "POST",
+      "path": "/exchange"
+    },
+    "connect": {
+      "method": "POST",
+      "path": "/connect"
+    },
+    "check": {
+      "method": "POST",
+      "path": "/check"
+    },
+    "disconnect": {
+      "method": "POST",
+      "path": "/disconnect"
+    }
+  }
+}

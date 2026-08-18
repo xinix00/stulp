@@ -1,0 +1,149 @@
+/* De opmaak van elke app-pagina: instellingen en koppelen.
+ *
+ * Stulp spuit dit blad in elke pagina die een app in een iframe toont. Het
+ * stond er eerst alleen voor kleur, en de opmaak zat in een style.css per
+ * plugin -- zes keer bijna hetzelfde, met net andere knopmaten, en een .row die
+ * bij de een een rij en bij de ander een kaart betekende. Een koppelpagina had
+ * helemaal niets en viel terug op de browserstandaard: labels en velden naast
+ * elkaar.
+ *
+ * Wat hier staat is de hele woordenschat. Een plugin schrijft alleen nog wat
+ * echt van hem is -- een mesh-tekening, een netwerkboom -- en hoeft voor een
+ * gewoon formulier niets meer te bedenken.
+ */
+
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --text: #f5f5f6;
+  --text-soft: #a0a0a8;
+  --page: #101012;
+  --surface: #1d1d20;
+  --surface-hover: #252529;
+  --line: #303034;
+  --line-strong: #45454b;
+  --accent: #1769e0;
+  --link: #6aa6ff;
+  --good: #4ade80;
+  --bad: #fb7185;
+
+  color: var(--text);
+  background: var(--page);
+}
+
+body {
+  margin: 0;
+  padding: 16px 18px 24px;
+  color: var(--text);
+  background: var(--page);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Koppen. Een pagina heeft er één, met eventueel knoppen ernaast. */
+h1 { margin: 0 0 4px; font-size: 17px; }
+h2 { margin: 22px 0 6px; font-size: 14px; }
+h3 { margin: 16px 0 4px; font-size: 13px; }
+h4 { margin: 14px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft); }
+
+.page-title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+/* Knoppen náást de titel horen niet omlaag geduwd te worden; de marge hieronder
+   is voor een rij knoppen ónder een formulier. */
+.page-title .actions { margin-top: 0; }
+
+/* Uitleg en bijschrift. */
+.hint, .muted, .empty { color: var(--text-soft); font-size: 12px; }
+.hint { margin: 10px 0; }
+.ok { color: var(--good); }
+.bad { color: var(--bad); }
+.hidden { display: none; }
+a { color: var(--link); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* Formulieren. Label boven het veld, veld over de volle breedte -- op een smal
+ * paneel in een iframe is naast elkaar niet te lezen. */
+label { display: block; margin: 12px 0; }
+label .hint, label small { display: block; margin: 4px 0 0; color: var(--text-soft); font-size: 12px; }
+
+input, select, textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font: inherit;
+  color-scheme: dark;
+  color: var(--text) !important;
+  border-color: var(--line-strong) !important;
+  background-color: var(--surface) !important;
+}
+input[type="checkbox"], input[type="radio"] { display: inline-block; width: auto; margin: 0; }
+
+/* Een keuze uit een handvol mogelijkheden: een rijtje met uitleg eronder leest
+ * beter dan een keuzelijst waar de afweging niet in past. */
+fieldset { margin: 14px 0 0; padding: 10px 12px 4px; border: 1px solid var(--line); border-radius: 9px; }
+legend { padding: 0 6px; color: var(--text-soft); font-size: 12px; }
+label.choice { display: flex; gap: 9px; align-items: flex-start; margin: 4px 0 10px; }
+label.choice input { flex: none; margin-top: 3px; }
+label.choice small { margin-top: 2px; }
+
+/* Knoppen. */
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+button {
+  padding: 7px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+  color-scheme: dark;
+  color: var(--text) !important;
+  border-color: var(--line-strong) !important;
+  background-color: var(--surface) !important;
+}
+button:hover:not(:disabled) { background-color: var(--surface-hover) !important; }
+button.primary { border-color: var(--accent) !important; background-color: var(--accent) !important; color: #fff !important; }
+button.quiet { padding: 4px 10px; font-size: 12px; color: var(--text-soft) !important; }
+button.danger { border-color: var(--bad) !important; color: var(--bad) !important; }
+button:disabled { opacity: .55; cursor: default; }
+
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid #ffffff38;
+  outline-offset: 1px;
+}
+
+/* Een gevonden ding op één regel: naam links, bijzonderheden rechts. */
+.row {
+  display: flex; justify-content: space-between; gap: 12px;
+  margin: 6px 0; padding: 9px 12px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--surface);
+}
+.row small { color: var(--text-soft); text-align: right; }
+.row.muted { background: none; border-style: dashed; }
+
+/* Een kaart draagt meer dan één regel: naam, bijzonderheden en eigen knoppen. */
+.card { margin: 8px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.card .name strong, .card .name small { display: block; }
+.card .name small { color: var(--text-soft); font-size: 12px; overflow-wrap: anywhere; }
+.card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+/* Een stap die pas later aan de beurt is. */
+section { margin-top: 18px; padding-top: 6px; border-top: 1px solid var(--line); }
+
+/* Bezig. Zonder teken lijkt een pagina die op het netwerk wacht vast te zitten. */
+.busy { display: flex; align-items: center; gap: 9px; }
+.busy::before {
+  content: ""; width: 13px; height: 13px; flex: none; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  animation: stulp-spin .7s linear infinite;
+}
+@keyframes stulp-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .busy::before { animation-duration: 2.4s; } }
+
+/* Wat Manage zelf in een pagina kan zetten. */
+.tab, .tabcontent { border-color: var(--line) !important; }
+.tab, .tab button { background-color: var(--surface) !important; }
+.tab button.active { color: #0b0b0c !important; border-color: #e7e7ea !important; background-color: #e7e7ea !important; }
+hr { border-color: var(--line) !important; }

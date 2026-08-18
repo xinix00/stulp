@@ -1,0 +1,437 @@
+{
+  "id": "com.stulp.unifi",
+  "version": "1.0.0",
+  "sdk": 3,
+  "compatibility": ">=1.0.0",
+  "name": {
+    "en": "UniFi Protect",
+    "nl": "UniFi Protect"
+  },
+  "description": {
+    "en": "Cameras, lights, sensors, chimes and relays from a UniFi Protect console",
+    "nl": "Camera's, lampen, sensoren, gongs en relais van een UniFi Protect-console"
+  },
+  "author": {
+    "name": "Stulp"
+  },
+  "category": [
+    "security"
+  ],
+  "drivers": [
+    {
+      "id": "camera",
+      "name": {
+        "en": "Camera",
+        "nl": "Camera"
+      },
+      "class": "camera",
+      "capabilities": [
+        "alarm_motion"
+      ],
+      "settings": [
+        {
+          "id": "mic_volume",
+          "type": "number",
+          "label": {
+            "en": "Microphone volume",
+            "nl": "Microfoonvolume"
+          },
+          "value": 100,
+          "min": 0,
+          "max": 100
+        }
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "light",
+      "name": {
+        "en": "Floodlight",
+        "nl": "Schijnwerper"
+      },
+      "class": "light",
+      "capabilities": [
+        "onoff",
+        "dim",
+        "alarm_motion"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "sensor",
+      "name": {
+        "en": "Sensor",
+        "nl": "Sensor"
+      },
+      "class": "sensor",
+      "capabilities": [
+        "alarm_contact",
+        "alarm_motion",
+        "alarm_tamper",
+        "measure_temperature",
+        "measure_humidity",
+        "measure_luminance",
+        "measure_battery",
+        "alarm_battery"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "chime",
+      "name": {
+        "en": "Chime",
+        "nl": "Gong"
+      },
+      "class": "speaker",
+      "capabilities": [
+        "onoff",
+        "volume_set"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    },
+    {
+      "id": "relay",
+      "name": {
+        "en": "Relay output",
+        "nl": "Relaisuitgang"
+      },
+      "class": "socket",
+      "capabilities": [
+        "onoff"
+      ],
+      "settings": [
+        {
+          "id": "pulse",
+          "type": "checkbox",
+          "label": {
+            "en": "Pulse instead of switch",
+            "nl": "Puls in plaats van schakelen"
+          },
+          "value": false,
+          "hint": {
+            "en": "A garage door or door opener wants a tap, not a switch that stays on.",
+            "nl": "Een garagedeur of deuropener wil een tik, geen schakelaar die aan blijft staan."
+          }
+        },
+        {
+          "id": "pulse_ms",
+          "type": "number",
+          "label": {
+            "en": "Pulse length (ms)",
+            "nl": "Pulslengte (ms)"
+          },
+          "value": 1000,
+          "min": 100,
+          "max": 10000
+        }
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    }
+  ],
+  "flow": {
+    "triggers": [
+      {
+        "id": "doorbell_pressed",
+        "title": {
+          "en": "Someone rang the doorbell",
+          "nl": "Er werd aangebeld"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=camera"
+          }
+        ]
+      },
+      {
+        "id": "smart_detection",
+        "title": {
+          "en": "Something was recognised",
+          "nl": "Er is iets herkend"
+        },
+        "titleFormatted": {
+          "en": "[[kind]] was recognised",
+          "nl": "[[kind]] werd herkend"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=camera"
+          },
+          {
+            "name": "kind",
+            "type": "dropdown",
+            "title": {
+              "en": "What",
+              "nl": "Wat"
+            },
+            "values": [
+              {
+                "id": "person",
+                "label": {
+                  "en": "Person",
+                  "nl": "Persoon"
+                }
+              },
+              {
+                "id": "vehicle",
+                "label": {
+                  "en": "Vehicle",
+                  "nl": "Voertuig"
+                }
+              },
+              {
+                "id": "animal",
+                "label": {
+                  "en": "Animal",
+                  "nl": "Dier"
+                }
+              },
+              {
+                "id": "package",
+                "label": {
+                  "en": "Package",
+                  "nl": "Pakket"
+                }
+              },
+              {
+                "id": "licensePlate",
+                "label": {
+                  "en": "Licence plate",
+                  "nl": "Kenteken"
+                }
+              },
+              {
+                "id": "any",
+                "label": {
+                  "en": "Anything",
+                  "nl": "Wat dan ook"
+                }
+              }
+            ]
+          }
+        ],
+        "tokens": [
+          {
+            "name": "kind",
+            "type": "string",
+            "title": {
+              "en": "What",
+              "nl": "Wat"
+            }
+          }
+        ]
+      },
+      {
+        "id": "audio_detection",
+        "title": {
+          "en": "A sound was recognised",
+          "nl": "Er is een geluid herkend"
+        },
+        "titleFormatted": {
+          "en": "[[kind]] was heard",
+          "nl": "[[kind]] werd gehoord"
+        },
+        "hint": {
+          "en": "UniFi Protect smart audio detection. The camera must have it switched on.",
+          "nl": "Slimme geluidsherkenning van UniFi Protect. De camera moet dat aan hebben staan."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=camera"
+          },
+          {
+            "name": "kind",
+            "type": "dropdown",
+            "title": {
+              "en": "Sound",
+              "nl": "Geluid"
+            },
+            "values": [
+              {
+                "id": "smoke",
+                "label": {
+                  "en": "Smoke alarm",
+                  "nl": "Rookmelder"
+                }
+              },
+              {
+                "id": "co",
+                "label": {
+                  "en": "CO alarm",
+                  "nl": "Koolmonoxidemelder"
+                }
+              },
+              {
+                "id": "siren",
+                "label": {
+                  "en": "Siren",
+                  "nl": "Sirene"
+                }
+              },
+              {
+                "id": "baby_cry",
+                "label": {
+                  "en": "Baby crying",
+                  "nl": "Huilende baby"
+                }
+              },
+              {
+                "id": "speaking",
+                "label": {
+                  "en": "Speech",
+                  "nl": "Spraak"
+                }
+              },
+              {
+                "id": "bark",
+                "label": {
+                  "en": "Dog barking",
+                  "nl": "Blaffende hond"
+                }
+              },
+              {
+                "id": "burglar_alarm",
+                "label": {
+                  "en": "Burglar alarm",
+                  "nl": "Inbraakalarm"
+                }
+              },
+              {
+                "id": "car_horn",
+                "label": {
+                  "en": "Car horn",
+                  "nl": "Claxon"
+                }
+              },
+              {
+                "id": "glass_break",
+                "label": {
+                  "en": "Breaking glass",
+                  "nl": "Brekend glas"
+                }
+              },
+              {
+                "id": "any",
+                "label": {
+                  "en": "Any sound",
+                  "nl": "Wat dan ook"
+                }
+              }
+            ]
+          }
+        ],
+        "tokens": [
+          {
+            "name": "kind",
+            "type": "string",
+            "title": {
+              "en": "Sound",
+              "nl": "Geluid"
+            }
+          }
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "id": "pulse_relay",
+        "title": {
+          "en": "Pulse the relay",
+          "nl": "Relais even schakelen"
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=relay"
+          },
+          {
+            "name": "milliseconds",
+            "type": "number",
+            "title": {
+              "en": "Length (ms)",
+              "nl": "Lengte (ms)"
+            },
+            "min": 100,
+            "max": 10000
+          }
+        ]
+      }
+    ]
+  },
+  "api": {
+    "status": {
+      "method": "POST",
+      "path": "/status"
+    },
+    "test": {
+      "method": "POST",
+      "path": "/test"
+    }
+  }
+}

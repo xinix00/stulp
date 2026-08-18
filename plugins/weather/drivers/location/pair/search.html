@@ -1,0 +1,124 @@
+<p class="hint">Zoek de plek waarvan je het weer wilt volgen. Een locatie valt niet
+te ontdekken — er is geen netwerk om af te tasten en geen account met plaatsen
+erin — dus je zoekt hem op naam. Je kunt er meer dan één toevoegen: thuis, het
+vakantiehuis, de plek waar je zo naartoe rijdt.</p>
+
+<form id="form">
+  <label>Plaats
+    <input id="name" placeholder="Nijmegen" autocomplete="off" autofocus>
+  </label>
+  <div class="actions">
+    <button type="submit" id="find" class="primary">Zoeken</button>
+  </div>
+</form>
+
+<p id="status" class="hint"></p>
+<div id="found"></div>
+
+<section>
+  <h2>Op coördinaat</h2>
+  <p class="hint">Voor een plek zonder naam — een dakterras, een weiland.</p>
+  <form id="manual">
+    <label>Naam
+      <input id="ownName" placeholder="Achtertuin" autocomplete="off">
+    </label>
+    <label>Breedte- en lengtegraad
+      <input id="coords" placeholder="52.09, 5.12" autocomplete="off">
+    </label>
+    <div class="actions">
+      <button type="submit" id="add" class="primary">Deze toevoegen</button>
+    </div>
+  </form>
+</section>
+
+<script>
+const { $, node, say } = Stulp;
+
+// add levert de kandidaat aan het add_devices-sjabloon. De identiteit is het
+// coördinaat: een naam mag de gebruiker later veranderen, een plek niet.
+async function add(name, latitude, longitude, where) {
+  try {
+    await Stulp.emit('add', { name, latitude, longitude, where });
+    Stulp.showView('list_devices');
+  } catch (error) {
+    say(error.message || String(error), 'bad');
+  }
+}
+
+function show(places) {
+  const found = $('found');
+  found.replaceChildren();
+  if (!places.length) return;
+  for (const place of places) {
+    const item = node('button', 'suggestion');
+    item.type = 'button';
+    const text = node('span', 'suggestion-text');
+    text.append(node('strong', '', place.where || place.name));
+    text.append(node('small', '', `${place.latitude.toFixed(3)}, ${place.longitude.toFixed(3)}`
+      + (place.people ? ` · ${place.people.toLocaleString('nl-NL')} inwoners` : '')));
+    item.append(text);
+    // Eerst kijken wat het daar nú doet: dan weet je dat je de goede plek hebt
+    // voordat je hem toevoegt. Twee keer "Nijmegen" in de lijst is anders een gok.
+    item.addEventListener('click', async () => {
+      say('Kijken wat het daar nu doet…', 'busy');
+      try {
+        const now = await Stulp.api('POST', 'peek', { latitude: place.latitude, longitude: place.longitude });
+        say(`${place.where}: ${now.description}, ${now.temperature.text}, wind ${now.wind.text} uit ${now.direction}.`, 'ok');
+      } catch (error) {
+        say(error.message || String(error), 'bad');
+      }
+      await add(place.name, place.latitude, place.longitude, place.where);
+    });
+    found.append(item);
+  }
+}
+
+$('form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const name = $('name').value.trim();
+  if (!name) { say('Vul eerst een plaatsnaam in.', 'bad'); return; }
+  $('find').disabled = true;
+  say('Zoeken…', 'busy');
+  try {
+    const result = await Stulp.api('POST', 'search', { name });
+    show(result.places || []);
+    say(result.found
+      ? `${result.found} plaats(en) gevonden — klik de goede aan.`
+      : 'Niets gevonden. Probeer een grotere plaats in de buurt, of vul hieronder een coördinaat in.',
+      result.found ? 'ok' : 'bad');
+  } catch (error) {
+    say(error.message || String(error), 'bad');
+  } finally {
+    $('find').disabled = false;
+  }
+});
+
+$('manual').addEventListener('submit', async event => {
+  event.preventDefault();
+  const name = $('ownName').value.trim();
+  // Komma of puntkomma als scheiding, en een komma als decimaalteken laten we
+  // niet toe: "52,09, 5,12" is niet te ontwarren en dat hoort de gebruiker te
+  // horen in plaats van ergens in de Noordzee uit te komen.
+  const parts = $('coords').value.split(/[;\s]*,[;\s]*|\s+/).filter(Boolean);
+  const latitude = Number(parts[0]);
+  const longitude = Number(parts[1]);
+  if (!name) { say('Geef de plek een naam.', 'bad'); return; }
+  if (parts.length !== 2 || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    say('Twee getallen graag, met een punt als decimaalteken: 52.09, 5.12', 'bad'); return;
+  }
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    say('Dat is geen plek op aarde: breedte -90 tot 90, lengte -180 tot 180.', 'bad'); return;
+  }
+  $('add').disabled = true;
+  say('Kijken wat het daar nu doet…', 'busy');
+  try {
+    const now = await Stulp.api('POST', 'peek', { latitude, longitude });
+    say(`${now.description}, ${now.temperature.text}.`, 'ok');
+    await add(name, latitude, longitude, `${latitude}, ${longitude}`);
+  } catch (error) {
+    say(error.message || String(error), 'bad');
+  } finally {
+    $('add').disabled = false;
+  }
+});
+</script>

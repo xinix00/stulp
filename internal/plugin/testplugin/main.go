@@ -19,21 +19,26 @@ import (
 // gekoppeld apparaat bij de app aflevert vóórdat hij het laat starten.
 type pairDriver struct{}
 
-type pairDevice struct{}
+type pairDevice struct{ device *appsdk.Device }
 
 func (pairDriver) NewDevice(device *appsdk.Device) (appsdk.DeviceHandler, error) {
 	id, _ := device.Data()["id"].(string)
 	if id == "" {
 		return nil, fmt.Errorf("dit apparaat heeft geen id")
 	}
-	return &pairDevice{}, nil
+	return &pairDevice{device: device}, nil
 }
 
 func (pairDriver) ListDevices() ([]appsdk.PairedDevice, error) {
 	return []appsdk.PairedDevice{{Name: "Ding", Data: map[string]any{"id": "ding-1"}}}, nil
 }
 
-func (*pairDevice) OnInit() error { return nil }
+// OnInit zet een spoor in zijn eigen store. Zo kan een test zien dát dit
+// apparaat bij de app is aangekomen -- device.init is anders van buiten niet te
+// onderscheiden van een apparaat dat de app nooit gekregen heeft.
+func (d *pairDevice) OnInit() error {
+	return d.device.SetStore(map[string]any{"testplugin.initialised": true})
+}
 
 func main() {
 	appsdk.Run(appsdk.Plugin{

@@ -476,3 +476,63 @@ func TestConcurrentStopAndCloseReleaseHungCall(t *testing.T) {
 		t.Fatal("hung call survived concurrent Stop/Close")
 	}
 }
+
+// Een apparaat dat buiten de start om verschijnt -- alles wat een backup
+// terugzet -- moet zijn device.init nog krijgen. Zonder dat heeft de app de
+// toestand wel en het apparaat niet, en dan volgt een weer-app 0 locaties
+// terwijl Stulp ze alle twee laat zien.
+func TestRestoredDeviceIsAdoptedByARunningApp(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.json"), []byte(`{
+  "id":"com.stulp.adopt","version":"1.0.0","sdk":3,"name":{"en":"Adopt"},
+  "drivers":[{"id":"thing","name":{"en":"Thing"},"class":"other","capabilities":[]}]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	appManifest, appRoot, err := manifest.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugintest.Install(t, appRoot, appManifest.ID)
+
+	database, err := store.Open(filepath.Join(t.TempDir(), "stulp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	if err := database.InstallApp(ctx, appManifest, appRoot, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetAppEnabled(ctx, appManifest.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	apps := New(database, plugin.Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	defer apps.Close()
+	if err := apps.Start(ctx, appManifest.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Zoals een restore hem neerzet: het apparaat staat er, de app draait al.
+	device, err := database.AddDevice(ctx, store.Device{
+		AppID: appManifest.ID, DriverID: "thing", Name: "Teruggezet",
+		Data: map[string]any{"id": "restored-1"}, Available: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		stored, err := database.Device(ctx, device.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.Store["testplugin.initialised"] == true {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("de app heeft het teruggezette apparaat niet geïnitialiseerd: %#v", stored.Store)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

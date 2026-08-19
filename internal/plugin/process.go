@@ -52,6 +52,9 @@ type Process struct {
 	mu      sync.Mutex
 	started bool
 	closed  bool
+	// adopted zijn de apparaten die hun device.init gehad hebben. Een apparaat
+	// dat er later bij komt hoort die ook te krijgen, en precies één keer.
+	adopted map[string]bool
 	done    chan struct{}
 	// ready gaat dicht zodra de app zich gemeld heeft. Pas daarna heeft het zin
 	// om hem iets te vragen.
@@ -686,9 +689,42 @@ func (p *Process) AddPairedDevice(ctx context.Context, driverID string, candidat
 }
 
 func (p *Process) startDevice(ctx context.Context, device store.Device) error {
-	return p.call(ctx, "device.init", map[string]any{
+	if err := p.call(ctx, "device.init", map[string]any{
 		"deviceId": device.ID, "driverId": device.DriverID,
-	}, nil)
+	}, nil); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	if p.adopted == nil {
+		p.adopted = map[string]bool{}
+	}
+	p.adopted[device.ID] = true
+	p.mu.Unlock()
+	return nil
+}
+
+// adopt geeft een apparaat dat deze app nog niet kent zijn driver en zijn init.
+// Zonder dit blijft een apparaat dat buiten de start om verschijnt -- alles wat
+// een backup terugzet -- voor de app onbekend: hij krijgt de toestand wel, maar
+// heeft geen apparaat dat erop reageert. Dat is precies wat een weer-app die
+// "0 locaties" volgt en een speler-app die zijn twee spelers niet kent zeggen.
+func (p *Process) adopt(ctx context.Context, device store.Device) {
+	p.mu.Lock()
+	known := p.adopted[device.ID]
+	p.mu.Unlock()
+	// De toestand gaat altijd eerst: device.init laat de driver het apparaat
+	// bouwen uit zijn eigen data, en die kent hij pas als hij hem gekregen heeft.
+	p.pushDevice(device)
+	if known {
+		return
+	}
+	if err := p.call(ctx, "driver.init", map[string]any{"driverId": device.DriverID}, nil); err != nil {
+		p.log("warn", "device "+device.ID+" could not start its driver: "+err.Error())
+		return
+	}
+	if err := p.startDevice(ctx, device); err != nil {
+		p.log("warn", "device "+device.ID+" could not be initialised: "+err.Error())
+	}
 }
 
 // InvokeAPI is hoe de settings-pagina van een app zijn eigen plugin aanspreekt.
@@ -868,7 +904,7 @@ func (p *Process) follow(events <-chan store.Event) {
 				p.pushSettings(ctx)
 				if devices, err := p.store.Devices(ctx, p.app.ID); err == nil {
 					for _, device := range devices {
-						p.pushDevice(device)
+						p.adopt(ctx, device)
 					}
 				}
 			}
@@ -883,7 +919,7 @@ func (p *Process) follow(events <-chan store.Event) {
 				continue
 			}
 			if device.AppID == p.app.ID {
-				p.pushDevice(device)
+				p.adopt(ctx, device)
 			}
 		case "apps":
 			if event.Type == "app.settings" && event.ID == p.app.ID {

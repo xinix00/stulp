@@ -154,6 +154,27 @@ func cleanAppAssetPath(name string) (string, bool) {
 	return clean, clean != "." && clean == name && fs.ValidPath(clean)
 }
 
+// hasBridgeScript zoekt een echt scripttag naar de brug, en niet elke vermelding
+// van dat pad.
+func hasBridgeScript(html string) bool {
+	for rest := html; ; {
+		start := strings.Index(rest, "<script")
+		if start < 0 {
+			return false
+		}
+		rest = rest[start:]
+		end := strings.Index(rest, ">")
+		if end < 0 {
+			return false
+		}
+		tag := rest[:end]
+		if strings.Contains(tag, "src=") && strings.Contains(tag, "stulp.js") {
+			return true
+		}
+		rest = rest[end:]
+	}
+}
+
 func (s *Server) decorateAppHTML(ctx context.Context, data []byte, context appUIContext, app store.App) ([]byte, error) {
 	contextJSON, err := json.Marshal(context)
 	if err != nil {
@@ -166,7 +187,11 @@ func (s *Server) decorateAppHTML(ctx context.Context, data []byte, context appUI
 	bootstrap := fmt.Sprintf(`<script>window.__STULP_CONTEXT__=%s;window.__STULP_LOCALE__=%s;</script>`, contextJSON, localeJSON)
 	html := string(data)
 	injection := `<meta name="color-scheme" content="dark"><link rel="stylesheet" href="/assets/app-frame.css">` + bootstrap
-	if !strings.Contains(html, "/stulp.js") {
+	// De brug hoort er altijd bij, tenzij de pagina hem zelf al binnenhaalt.
+	// Zoeken op het pad alleen was te ruim: een pagina die "/stulp.js" ergens in
+	// een commentaar of een fetch noemt kreeg geen brug, en dan meldt de eerste
+	// regel van zijn eigen script "Stulp is not defined".
+	if !hasBridgeScript(html) {
 		injection += `<script src="/stulp.js" data-origin="` + context.Origin + `"></script>`
 	}
 	if strings.Contains(html, "<head>") {

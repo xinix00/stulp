@@ -124,7 +124,21 @@ func (s *Store) RestoreSnapshot(ctx context.Context, snapshot *Snapshot) (string
 	// store's lock after it has become the live document.
 	snapshot.doc = nil
 	s.state = make(map[string]map[string]any)
-	s.manifests = make(map[string]map[string]any)
+	// Manifesten horen niet bij het document: een gebundelde app heeft het op
+	// schijf, een slot-app herhaalt het bij elke aanmelding. Ze hier weggooien
+	// laat juist die slot-app -- die al verbonden is en zich dus niet opnieuw
+	// meldt -- met een stub achter: geen instellingsvelden, geen drivers, geen
+	// eigen koppelpagina's. Wat weg is uit het teruggezette document gaat eruit,
+	// de rest wordt herlezen waar dat kan.
+	installed := make(map[string]bool, len(s.doc.Apps))
+	for _, app := range s.doc.Apps {
+		installed[app.ID] = true
+	}
+	for id := range s.manifests {
+		if !installed[id] {
+			delete(s.manifests, id)
+		}
+	}
 	s.reloadManifests()
 	s.mu.Unlock()
 

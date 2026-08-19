@@ -882,3 +882,37 @@ func TestInstallerenIsAccepteren(t *testing.T) {
 		t.Errorf("een onbekende app gaf %d, want 404", response.Code)
 	}
 }
+
+// De brug moet zonder sessiecookie te laden zijn. Een app-pagina draait in een
+// iframe met sandbox="allow-scripts allow-forms allow-modals" — zonder
+// allow-same-origin, dus met een opaque origin — en zo'n document stuurt bij een
+// subresource geen SameSite=Strict-cookie mee. Stond /stulp.js achter de sleutel,
+// dan kreeg élke koppel- en instelpagina een 404 op zijn brug en meldde de eerste
+// aanroep "Stulp is not defined".
+func TestBridgeScriptLoadsWithoutTheSessionCookie(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "stulp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	apps := supervisor.New(database, plugin.Options{})
+	defer apps.Close()
+	apiServer := New(database, apps, Options{Token: "secret"})
+	defer apiServer.Close()
+	handler := apiServer.Handler()
+
+	bridge := request(t, handler, http.MethodGet, "/stulp.js", nil, "")
+	if bridge.Code != http.StatusOK {
+		t.Fatalf("de brug gaf %d zonder cookie: een gesandboxte app-pagina kan hem dan nooit laden", bridge.Code)
+	}
+	if !bytes.Contains(bridge.Body.Bytes(), []byte("stulp-plugin-response")) {
+		t.Fatalf("dit is de brug niet: %.80s", bridge.Body.String())
+	}
+
+	// En de sleutel blijft staan waar hij hoort.
+	for _, path := range []string{"/", "/api/stulp/health"} {
+		if closed := request(t, handler, http.MethodGet, path, nil, ""); closed.Code == http.StatusOK {
+			t.Fatalf("%s is zonder sleutel open (%d)", path, closed.Code)
+		}
+	}
+}

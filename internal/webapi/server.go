@@ -146,8 +146,21 @@ func (s *Server) Handler() stulphttp.Handler {
 
 			// CSS, JS, iconen en de PWA-hulpen vertellen niets over het huis en
 			// moeten al kunnen laden terwijl de zojuist gezette cookie landt.
+			//
+			// /stulp.js hoort in dezelfde rij, en niet uit gemak: een app-pagina
+			// draait in een iframe met sandbox="allow-scripts allow-forms
+			// allow-modals" — ZONDER allow-same-origin, dus met een opaque origin.
+			// Zo'n document krijgt bij het laden van een subresource geen
+			// SameSite=Strict-cookie mee, hoe geldig de sessie ook is. Achter de
+			// sleutel stond de brug dus altijd op 404, en dan meldt de eerste
+			// Stulp-aanroep van die pagina "Stulp is not defined": geen
+			// koppelpagina, en een instelpagina die zijn eigen waardes niet kan
+			// opvragen (gemeten 19-08 op de node). De brug is statische code, gelijk
+			// in élke installatie, en zegt net zo weinig over dit huis als de CSS.
+			// De sleutel blijft staan waar hij hoort: op /api/ en op de pagina's.
 			public := strings.HasPrefix(requestPath, "/assets/") || strings.HasPrefix(requestPath, "/image/") ||
-				requestPath == "/sw.js" || requestPath == "/manifest.webmanifest"
+				requestPath == "/sw.js" || requestPath == "/manifest.webmanifest" ||
+				requestPath == "/stulp.js"
 			if !public && !s.hasAccessCookie(request) {
 				if strings.HasPrefix(requestPath, "/api/") {
 					writeError(response, stulphttp.StatusUnauthorized, errors.New("open /<key> before using Stulp"))

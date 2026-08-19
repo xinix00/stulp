@@ -58,6 +58,9 @@ func coordinate(value any) (float64, bool) {
 }
 
 func (l *location) OnInit() error {
+	if err := l.device.SetClass("weather"); err != nil {
+		l.device.Error(err.Error())
+	}
 	instance.watch(l.device.ID(), l)
 	instance.refreshSoon()
 	return nil

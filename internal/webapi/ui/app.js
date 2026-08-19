@@ -522,6 +522,7 @@ function deviceClassIcon(deviceClass) {
 function deviceClassSymbol(deviceClass) {
   return {
     light: 'lightbulb', socket: 'outlet', camera: 'videocam', lock: 'lock', sensor: 'sensors',
+    weather: 'partly_cloudy_day',
     phone: 'phone_iphone',
     thermostat: 'thermostat', speaker: 'speaker', blinds: 'blinds', sunshade: 'blinds',
     windowcoverings: 'curtains', battery: 'battery_5_bar', solarpanel: 'solar_power',
@@ -1089,13 +1090,19 @@ const standaloneApp = navigator.standalone === true || window.matchMedia('(displ
 
 function pushBlocker() {
   if (!window.isSecureContext) return 'Alleen via https of op localhost. Zet Stulp achter een https-adres met een certificaat dat je telefoon vertrouwt.';
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
-    return 'Deze browser kan geen pushberichten ontvangen.';
+  // Deze volgorde is het hele punt. Safari geeft de push-API niet aan een
+  // tabblad maar alleen aan een webapp op het beginscherm -- in een tabblad
+  // bestaan Notification en PushManager domweg niet. Stond de test hieronder
+  // eerst, dan kreeg juist de iPhone te horen dat hij geen meldingen kan
+  // ontvangen, terwijl hij dat prima kan zodra Stulp op het beginscherm staat.
+  if (iOSLike && !standaloneApp) {
+    return 'Op een iPhone of iPad mogen alleen webapps meldingen ontvangen. Voeg Stulp toe via Deel → Zet op beginscherm, open hem daar en koppel dit apparaat opnieuw.';
   }
-  // Safari op iOS levert de push-API wel, maar weigert een abonnement zolang de
-  // pagina in een tabblad staat. Dat is geen fout die je pas bij het aanzetten
-  // wil zien.
-  if (iOSLike && !standaloneApp) return 'Voeg Stulp eerst toe via Deel → Zet op beginscherm, en zet het daarna aan vanuit die app.';
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    return iOSLike
+      ? 'Deze iOS-versie kan nog geen pushberichten ontvangen; dat kan vanaf iOS 16.4.'
+      : 'Deze browser kan geen pushberichten ontvangen.';
+  }
   if (Notification.permission === 'denied') return 'Meldingen staan geblokkeerd voor deze site. Zet ze aan in de instellingen van je browser.';
   return '';
 }

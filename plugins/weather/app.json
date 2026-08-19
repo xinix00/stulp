@@ -283,7 +283,7 @@
         "en": "Location",
         "nl": "Locatie"
       },
-      "class": "sensor",
+      "class": "weather",
       "capabilities": [
         "weather_state",
         "weather_description",

@@ -185,6 +185,23 @@ func (d *Device) SetAvailable() error {
 	return d.host.SetDeviceField(d.id, "available", true)
 }
 
+// Class is de soort waaronder Stulp het apparaat toont -- daar hangt het icoon
+// aan. Het manifest legt hem vast bij het koppelen; SetClass is er voor het
+// apparaat dat pas draaiend weet wat het is, en voor een driver die van soort
+// verandert: bestaande apparaten houden anders de soort van hun koppeldag.
+func (d *Device) Class() string {
+	value, _ := d.host.state.DeviceField(d.id, "class")
+	class, _ := value.(string)
+	return class
+}
+
+func (d *Device) SetClass(class string) error {
+	if class == d.Class() {
+		return nil
+	}
+	return d.host.SetDeviceField(d.id, "class", class)
+}
+
 // SetUnavailable zet het apparaat op onbereikbaar, met een reden die de
 // gebruiker te zien krijgt. Een lege reden is toegestaan maar zelden nuttig.
 func (d *Device) SetUnavailable(reason string) error {

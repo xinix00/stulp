@@ -22,8 +22,8 @@ header .tab.active { color: #1769e0; border-bottom-color: #1769e0; }
 #connection { margin-left: auto; color: #666; font-size: 13px; }
 main { width: min(980px, calc(100% - 32px)); margin: 28px auto; }
 .page { display: none; }.page.active { display: block; }
-.page-title, .dialog-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.page-actions { display: flex; gap: 8px; }
-h1 { font-size: 24px; margin: 0 0 18px; } h2 { font-size: 18px; margin: 0; }
+.page-title, .dialog-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.page-title { margin-bottom: 18px; }.page-actions { display: flex; gap: 8px; }
+h1 { font-size: 24px; margin: 0; } h2 { font-size: 18px; margin: 0; }
 .list { display: grid; gap: 16px; }
 .row { background: white; border: 1px solid #ddd; border-radius: 7px; padding: 14px; }
 .row-head { display: flex; align-items: center; gap: 12px; }.row-head .name { flex: 1; }.name strong, .name small { display: block; }.name small, .muted, .empty { color: #70757a; font-size: 12px; }
@@ -154,7 +154,7 @@ form label { display: block; margin: 12px 0; font-size: 13px; }.actions { displa
 .device-order-hint { position: fixed; z-index: 1001; top: 72px; left: 50%; display: flex; align-items: center; gap: 7px; transform: translateX(-50%); padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 18px; color: var(--text); background: #252529ed; box-shadow: 0 10px 30px #0008; font-size: 12px; pointer-events: none; }.device-order-hint .material-symbols-rounded { color: var(--accent-hover); font-size: 18px; }
 body.device-ordering { user-select: none; cursor: grabbing; }
 @media (max-width: 760px) { header { padding: 0 12px; gap: 9px; } header strong { display: none; } header nav { flex: 1; } #connection { display: none; } .control { grid-template-columns: 1fr auto; }.control > :first-child { grid-column: 1/-1; }.row-head { flex-wrap: wrap; } .flow-dialog { width: 100%; height: 100%; max-height: 100%; border-radius: 0; }.flow-toolbar { flex-wrap: wrap; }.flow-heading { order: 1; }.flow-name-field { order: 4; flex-basis: 100%; grid-template-columns: 44px 1fr; margin: 0 !important; }.flow-enabled { margin-left: auto !important; }.flow-step { width: 276px; }.flow-type-choices { grid-template-columns: 1fr; }.flow-type-choices button { min-height: 72px; grid-template-columns: auto 1fr; align-items: center; }.flow-type-choices button small { grid-column: 2; }.flow-drag-hint { display: none; } }
-@media (max-width: 600px) { .page-title { align-items: flex-start; }.page-actions { flex-direction: column-reverse; }.page-actions button { width: 100%; }.device-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }.device-meta { gap: 6px 12px; }.device-popover { width: 100%; height: 100%; max-height: 100%; border-radius: 0; }.frame-dialog.settings-shell { width: 100%; height: 100%; max-height: 100%; border-radius: 0; }.split-actions { grid-template-columns: 1fr 1fr; }.split-actions span { display: none; }.split-actions .danger { grid-column: 1/-1; } }
+@media (max-width: 600px) { header { height: 50px; padding: 0 10px; } header .tab { padding: 15px 7px 12px; font-size: 14px; } main { width: calc(100% - 24px); margin: 16px auto; } h1 { font-size: 20px; }.page-title { margin-bottom: 14px; }.page-actions { gap: 6px; }.page-actions .action-label { display: none; }.page-actions .button-with-icon { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; }.page-actions .button-with-icon .material-symbols-rounded { font-size: 21px; }.device-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }.device-meta { gap: 6px 12px; }.device-popover { width: 100%; height: 100%; max-height: 100%; border-radius: 0; }.frame-dialog.settings-shell { width: 100%; height: 100%; max-height: 100%; border-radius: 0; }.split-actions { grid-template-columns: 1fr 1fr; }.split-actions span { display: none; }.split-actions .danger { grid-column: 1/-1; } }
 
 /* The graph needs a box with a real height: the library draws onto a canvas
    that fills its container, and a container of height auto collapses. */
@@ -218,7 +218,8 @@ header .tab.active { color: var(--accent-hover); border-bottom-color: var(--acce
 .name small, .muted, .empty, .hint, .flow-last-run, .settings-status, .settings-hint,
 .device-meta, .net-line-detail, .net-sub, .flow-name-field, .flow-argument,
 .flow-choice-copy small, .flow-type-choices small, .notification-row small { color: var(--muted); }
-.status { color: var(--success); }.status.off, .app-error, .net-line.net-down .net-line-label { color: var(--danger); }
+.status { color: var(--success); }.status.off, .app-error, .bad, .net-line.net-down .net-line-label { color: var(--danger); }
+.empty.bad { line-height: 1.5; }
 .app-update, .net-line.net-service .net-line-label, .flow-choice-add, .flow-choice-back { color: var(--accent-hover); }
 .net-line.net-partial .net-line-label { color: var(--warning); }
 .net-line.net-configuration .net-line-label { color: var(--pink); }
@@ -249,6 +250,7 @@ iframe { background: var(--surface); }
 .device-icon-camera { color: #60a5fa; background: #1b2b42; }
 .device-icon-lock { color: #38bdf8; background: #17313a; }
 .device-icon-sensor { color: #2dd4bf; background: #17332f; }
+.device-icon-weather { color: #7dd3fc; background: #16293b; }
 .device-icon-thermostat { color: #fb923c; background: #33281d; }
 .device-icon-speaker { color: #c084fc; background: #30203c; }
 .device-icon-blinds, .device-icon-sunshade, .device-icon-windowcoverings { color: #93c5fd; background: #1c2d42; }

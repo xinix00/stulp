@@ -24,22 +24,22 @@
     <a class="brand" href="/" aria-label="Stulp home"><img src="/assets/stulp.svg" alt=""><strong>Stulp</strong></a>
     <nav><button class="tab active" data-page="manage">Manage</button><button class="tab" data-page="flows">Flows</button><button class="tab" data-page="apps">Apps & settings</button></nav>
     <span id="connection">Verbinden…</span>
-	<button id="notifications-button" class="small">Meldingen</button>
+	<button id="notifications-button" class="icon-button" type="button" aria-label="Meldingen" title="Meldingen"><span class="material-symbols-rounded" aria-hidden="true">notifications</span></button>
   </header>
 
   <main>
     <section id="manage-page" class="page active">
-      <div class="page-title"><h1>Devices</h1><div class="page-actions"><button id="add-group">Groep toevoegen</button><button id="add-device" class="primary">Device toevoegen</button></div></div>
+      <div class="page-title"><h1>Devices</h1><div class="page-actions"><button id="add-group" class="button-with-icon" type="button" aria-label="Groep toevoegen" title="Groep toevoegen"><span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span><span class="action-label">Groep toevoegen</span></button><button id="add-device" class="primary button-with-icon" type="button" aria-label="Device toevoegen" title="Device toevoegen"><span class="material-symbols-rounded" aria-hidden="true">add</span><span class="action-label">Device toevoegen</span></button></div></div>
       <div id="devices" class="list"><p class="empty">Laden…</p></div>
     </section>
 
     <section id="apps-page" class="page">
-	  <div class="page-title"><h1>Apps & settings</h1><div class="page-actions"><button id="restore-backup">Backup herstellen</button><button id="download-backup">Backup downloaden</button></div></div>
+	  <div class="page-title"><h1>Apps & settings</h1><div class="page-actions"><button id="restore-backup" class="button-with-icon" type="button" aria-label="Backup herstellen" title="Backup herstellen"><span class="material-symbols-rounded" aria-hidden="true">restore</span><span class="action-label">Backup herstellen</span></button><button id="download-backup" class="button-with-icon" type="button" aria-label="Backup downloaden" title="Backup downloaden"><span class="material-symbols-rounded" aria-hidden="true">download</span><span class="action-label">Backup downloaden</span></button></div></div>
       <div id="apps" class="list"><p class="empty">Laden…</p></div>
     </section>
 
     <section id="flows-page" class="page">
-      <div class="page-title"><h1>Flows</h1><button id="add-flow">Nieuwe Flow</button></div>
+      <div class="page-title"><h1>Flows</h1><div class="page-actions"><button id="add-flow" class="primary button-with-icon" type="button" aria-label="Nieuwe Flow" title="Nieuwe Flow"><span class="material-symbols-rounded" aria-hidden="true">add</span><span class="action-label">Nieuwe Flow</span></button></div></div>
       <div id="flows" class="list"><p class="empty">Laden…</p></div>
     </section>
 

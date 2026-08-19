@@ -112,6 +112,7 @@ func RunNodeBundle(apps []BundleApp) {
 // of weggevallen betekent opnieuw aanmelden, nooit exiten — een exit zou de
 // hele bundel herstarten om één plugin.
 func attachForever(app *applib.App, name string, config AttachConfig, p Plugin) {
+	lastLogged := ""
 	for backoff := time.Second; ; {
 		err := Attach(config, p)
 		if err == nil {
@@ -124,7 +125,17 @@ func attachForever(app *applib.App, name string, config AttachConfig, p Plugin) 
 			// langer dan het lijk zelf leefde.
 			backoff = 2 * time.Second
 		}
-		app.Logf("%s: attach: %v — retrying in %s", name, err, backoff)
+		// "waiting to be installed" is een TOESTAND, geen storing: een
+		// aangeboden plugin die nooit geïnstalleerd is klopt netjes elke 32s
+		// aan (zodat een install-klik binnen een halve minuut landt), maar
+		// dat hoeft niet elke 32s in het log — op een node is de ringbuffer
+		// het hele geheugen, en één zwijgzame plugin verzoop er de matter-
+		// diagnose van álle andere (gemeten 19-08). Eén regel per toestand;
+		// zodra de fout verándert (echte storing, install) is hij weer luid.
+		if message := err.Error(); message != lastLogged {
+			lastLogged = message
+			app.Logf("%s: attach: %v — will keep retrying quietly", name, err)
+		}
 		time.Sleep(backoff)
 		if backoff < 30*time.Second {
 			backoff *= 2

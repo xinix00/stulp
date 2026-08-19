@@ -57,6 +57,7 @@ func RunNode(name string, manifest []byte, p Plugin) {
 	// wegvalt. De SDK-heartbeat maakt daarbij ook een half-open verbinding na
 	// een stulp-herstart lokaal stuk; ook dan is opnieuw aanmelden het antwoord.
 	// De kill-vlag van HOP blijft de enige echte exit (applib regelt die).
+	lastLogged := ""
 	for backoff := time.Second; ; {
 		err := Attach(config, p)
 		if err == nil {
@@ -67,7 +68,14 @@ func RunNode(name string, manifest []byte, p Plugin) {
 			// ping-wachter ruimt hem binnen ~15s — vlak en snel blijven proberen.
 			backoff = 2 * time.Second
 		}
-		app.Logf("%s: attach: %v — retrying in %s", name, err, backoff)
+		// Zelfde regel als attachForever in de bundel: een aanhoudende
+		// toestand ("waiting to be installed", stulp herstart) logt één keer
+		// en klopt daarna stil door — de ringbuffer van een node is te klein
+		// om hem elke 32s met dezelfde regel te vullen.
+		if message := err.Error(); message != lastLogged {
+			lastLogged = message
+			app.Logf("%s: attach: %v — will keep retrying quietly", name, err)
+		}
 		time.Sleep(backoff)
 		if backoff < 30*time.Second {
 			backoff *= 2

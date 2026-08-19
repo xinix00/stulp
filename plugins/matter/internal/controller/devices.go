@@ -168,7 +168,7 @@ func mergePhysicalMetadata(destination *Device, source Device) {
 	destination.Store["matter.endpoints"] = slices.Compact(endpoints)
 	destination.Store["matter.deviceTypes"] = mergeStringValues(destination.Store["matter.deviceTypes"], source.Store["matter.deviceTypes"])
 	destination.Store["matter.serverClusters"] = mergeStringValues(destination.Store["matter.serverClusters"], source.Store["matter.serverClusters"])
-	destination.Store["matter.endpointInventory"] = mergeEndpointInventories(destination.Store["matter.endpointInventory"], source.Store["matter.endpointInventory"])
+	destination.Store["~matter.endpointInventory"] = mergeEndpointInventories(destination.Store["~matter.endpointInventory"], source.Store["~matter.endpointInventory"])
 	destination.Store["matter.settings"] = mergeMatterSettings(destination.Store["matter.settings"], source.Store["matter.settings"])
 	if destination.Settings == nil {
 		destination.Settings = make(map[string]any)
@@ -394,7 +394,7 @@ func mergeRefreshedDevice(existing, prototype Device) Device {
 	updated.Store = copyDeviceMap(existing.Store)
 	for _, key := range []string{
 		"manufacturer", "matter.attestation", "matter.bridged", "matter.endpoint", "matter.endpoints",
-		"matter.capabilityEndpoints", "matter.deviceTypes", "matter.serverClusters", "matter.endpointInventory", "matter.settings", "matter.modelVersion",
+		"matter.capabilityEndpoints", "matter.deviceTypes", "matter.serverClusters", "~matter.endpointInventory", "matter.settings", "matter.modelVersion",
 	} {
 		if value, exists := prototype.Store[key]; exists {
 			updated.Store[key] = value

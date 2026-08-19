@@ -1,9 +1,11 @@
 package tahoma
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 )
@@ -107,5 +109,26 @@ func (d Device) Signature() string {
 // gebeurtenisstroom en geen eindpunt per apparaat -- zie PORTED.md, dat is de
 // belangrijkste vondst van deze port.
 func (c *Client) Setup(ctx context.Context) (Setup, error) {
-	return getJSON[Setup](ctx, c, "/setup")
+	// De poll haalt elke ronde de VOLLEDIGE setup op (deze API kent geen
+	// events), en in een stil huis is dat elke 10s dezelfde tientallen KB
+	// JSON parsen en diffen voor niets. Byte-identiek antwoord = de vorige
+	// uitkomst hergebruiken; de aanroepers lezen de Setup alleen. Draagt het
+	// antwoord ooit een veld dat élke ronde verandert, dan mist de memo
+	// gewoon altijd en zijn we terug bij het oude gedrag.
+	body, err := c.do(ctx, http.MethodGet, "/setup", nil, nil)
+	if err != nil {
+		return Setup{}, err
+	}
+	c.setupMu.Lock()
+	defer c.setupMu.Unlock()
+	if c.setupRaw != nil && bytes.Equal(body, c.setupRaw) {
+		return c.setupLast, nil
+	}
+	var out Setup
+	if err := json.Unmarshal(body, &out); err != nil {
+		return Setup{}, fmt.Errorf("GET /setup: TaHoma stuurde iets dat geen JSON is: %w", err)
+	}
+	c.setupRaw = append(c.setupRaw[:0], body...)
+	c.setupLast = out
+	return out, nil
 }

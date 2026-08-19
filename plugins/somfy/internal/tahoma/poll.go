@@ -132,13 +132,19 @@ func (p *Poller) round(ctx context.Context) {
 	}
 
 	changed := p.diff(setup.Devices)
+	// OnRound vóór OnDevice: wie zich tijdens de OnDevice-reeks registreert
+	// (de startup-storm: acht apparaten melden zich terwijl de eerste ronde
+	// loopt) leest in zijn registratie de laatste ronde-stand terug — die
+	// moet dan al déze ronde zijn. Andersom valt zo'n apparaat tussen beide
+	// bezorgwegen in en blijft zijn tegel leeg tot hij toevallig beweegt
+	// (3 van 8 rolluiken, gemeten 19-08 op de node).
+	if p.handlers.OnRound != nil {
+		p.handlers.OnRound(setup.Devices)
+	}
 	if p.handlers.OnDevice != nil {
 		for _, device := range changed {
 			p.handlers.OnDevice(device)
 		}
-	}
-	if p.handlers.OnRound != nil {
-		p.handlers.OnRound(setup.Devices)
 	}
 }
 

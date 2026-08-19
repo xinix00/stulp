@@ -108,9 +108,22 @@ func (a *app) stop() {
 	a.mu.Lock()
 	cancel := a.cancel
 	a.cancel = nil
+	// De pollers van de pompen horen hier ook te stoppen. In een bundel (en bij
+	// elke her-aanmelding) leeft het proces door; een poller die blijft draaien
+	// schrijft dan elke ronde tegen een dode sessie aan én pollt de cloud dubbel
+	// naast zijn opvolger (gemeten 19-08: 15 errors per 5-minuten-ronde per
+	// achtergebleven generatie). De volgende aanmelding registreert alles vers.
+	pumps := make([]*heatpump, 0, len(a.devices))
+	for _, pump := range a.devices {
+		pumps = append(pumps, pump)
+	}
+	a.devices = map[string]*heatpump{}
 	a.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	for _, pump := range pumps {
+		pump.halt()
 	}
 }
 

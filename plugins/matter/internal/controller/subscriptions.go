@@ -20,12 +20,22 @@ import (
 )
 
 const (
-	switchCluster           uint32 = 0x003B
-	subscriptionMinInterval        = 0
-	subscriptionMaxInterval        = 300
+	switchCluster uint32 = 0x003B
+	// 1s: bij 0 mag een spraakzame publisher (energiemeters!) onbeperkt vaak
+	// rapporteren, en elk rapport kost hier decrypt+TLV+store+SSE. Eén seconde
+	// batcht dat aan de brón zonder merkbare vertraging voor een dashboard;
+	// events (knoppen) blijven de spec volgen en reizen met het eerstvolgende
+	// rapport mee (CPU-ronde 19-08: matter was ~6% van de bundel).
+	subscriptionMinInterval = 1
+	subscriptionMaxInterval = 300
 )
 
 var errMatterNodeGone = errors.New("Matter node has no local endpoints")
+
+// errSubscriptionLapsed is de wachthond die afging: de publisher miste zijn
+// rapportagevenster. Een eigen fout en geen tekst, want de hersteld-lus
+// behandelt hem anders dan echt falen — zie de speling daar.
+var errSubscriptionLapsed = errors.New("Matter subscription exceeded its maximum reporting interval")
 
 type activeSubscription struct {
 	id       uint32
@@ -153,9 +163,24 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64) {
 	}()
 	backoff := time.Second
 	for {
+		started := time.Now()
 		err := c.subscribeOnce(ctx, nodeID)
 		if errors.Is(err, errMatterNodeGone) || ctx.Err() != nil {
 			return
+		}
+		// Speling: een gemist rapportagevenster ná een lang gezonde sessie is
+		// jitter of een korte stall (de rapporten komen precies óp het
+		// maximuminterval, en op een gedeelde core schuift dat weleens), geen
+		// bewijs van een dood apparaat. Meteen opnieuw abonneren, zónder de
+		// tegels grijs te zetten en zónder backoff — lukt dát niet, dan is de
+		// mislukking zelf het bewijs en gaat hij hieronder alsnog grijs. De
+		// duurdrempel voorkomt een stille lus om een publisher die wel
+		// abonneert maar nooit rapporteert.
+		if errors.Is(err, errSubscriptionLapsed) && time.Since(started) > 30*time.Second {
+			c.logger.Debug("Matter subscription lapsed; resubscribing before declaring the node unreachable",
+				"node", fmt.Sprintf("%016X", nodeID))
+			backoff = time.Second
+			continue
 		}
 		c.markNodeUnavailable(nodeID, err)
 		c.logger.Warn("Matter subscription stopped; retrying", "node", fmt.Sprintf("%016X", nodeID), "error", err)
@@ -254,29 +279,71 @@ func (c *Controller) subscribeOnce(ctx context.Context, nodeID uint64) error {
 			}
 			c.subMu.Unlock()
 			c.expireSession(nodeID, session)
-			return errors.New("Matter subscription exceeded its maximum reporting interval")
+			return errSubscriptionLapsed
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 }
 
+// nodeIndexTTL: hoe lang de node→device-id-index geldig blijft. Apparaten
+// komen en gaan vrijwel nooit tijdens bedrijf, maar élke rapportbatch riep
+// nodeDevices aan en die kloonde via store.Devices álle apparaten (vier maps
+// per stuk) om er twee over te houden — 23 nodes × rapporten per seconde was
+// de duurste lus van de bundel (CPU-ronde 19-08). Een minuut oude index is
+// hier ruim vers genoeg; een gemiste nieuwkomer doet hooguit één minuut over
+// zijn eerste rapport.
+const nodeIndexTTL = time.Minute
+
 func (c *Controller) nodeDevices(ctx context.Context, nodeID uint64) ([]Device, connectionInfo, error) {
+	c.nodeIdxMu.Lock()
+	fresh := time.Since(c.nodeIdxAt) < nodeIndexTTL && c.nodeIdx != nil
+	ids := c.nodeIdx[nodeID]
+	c.nodeIdxMu.Unlock()
+
+	var devices []Device
+	var connection connectionInfo
+	if fresh {
+		for _, id := range ids {
+			device, err := c.store.Device(ctx, id)
+			if err != nil {
+				continue // net verwijderd; de TTL-herbouw ruimt de index op
+			}
+			info, parseErr := deviceConnection(device)
+			if parseErr == nil && info.nodeID == nodeID {
+				if len(devices) == 0 {
+					connection = info
+				}
+				devices = append(devices, device)
+			}
+		}
+		if len(devices) > 0 {
+			return devices, connection, nil
+		}
+		// Lege of verouderde index voor deze node: door naar de volledige scan.
+	}
+
 	all, err := c.store.Devices(ctx)
 	if err != nil {
 		return nil, connectionInfo{}, err
 	}
-	var devices []Device
-	var connection connectionInfo
+	index := make(map[uint64][]string)
 	for _, device := range all {
 		info, parseErr := deviceConnection(device)
-		if parseErr == nil && info.nodeID == nodeID {
+		if parseErr != nil {
+			continue
+		}
+		index[info.nodeID] = append(index[info.nodeID], device.ID)
+		if info.nodeID == nodeID {
 			if len(devices) == 0 {
 				connection = info
 			}
 			devices = append(devices, device)
 		}
 	}
+	c.nodeIdxMu.Lock()
+	c.nodeIdx, c.nodeIdxAt = index, time.Now()
+	c.nodeIdxMu.Unlock()
 	if len(devices) == 0 {
 		return nil, connectionInfo{}, errMatterNodeGone
 	}
@@ -345,7 +412,7 @@ func capabilityAttribute(device Device, capability string, endpoint uint16) (uin
 }
 
 func storedEndpointDeviceTypes(device Device, endpoint uint16) []uint32 {
-	for _, inventory := range storedEndpointInventories(device.Store["matter.endpointInventory"]) {
+	for _, inventory := range storedEndpointInventories(device.Store["~matter.endpointInventory"]) {
 		if inventory.Endpoint == endpoint {
 			return storedMatterIDs(inventory.DeviceTypes)
 		}

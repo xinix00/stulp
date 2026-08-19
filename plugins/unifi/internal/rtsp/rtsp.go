@@ -29,6 +29,11 @@ import (
 // het geval de camera iets anders stuurt dan hij aankondigt.
 const maxPacket = 0xFFFF
 
+// Network reads do not need a buffer as large as the largest legal packet.
+// bufio keeps filling a destination across reads, and large reads bypass its
+// buffer. This one stays resident for the lifetime of every active camera.
+const readBufferSize = 8 << 10
+
 // Stream is een lopende verbinding met een camera.
 type Stream struct {
 	conn     net.Conn
@@ -89,7 +94,7 @@ func Dial(address string, timeout time.Duration) (*Stream, error) {
 		return nil, fmt.Errorf("rtsp: connect %s: %w", host, err)
 	}
 
-	stream := &Stream{conn: conn, reader: bufio.NewReaderSize(conn, 64*1024), target: target}
+	stream := &Stream{conn: conn, reader: bufio.NewReaderSize(conn, readBufferSize), target: target}
 	if user := target.User; user != nil {
 		password, _ := user.Password()
 		stream.auth = "Basic " + base64.StdEncoding.EncodeToString([]byte(user.Username()+":"+password))
@@ -371,7 +376,7 @@ func describe(address string, timeout time.Duration) (string, error) {
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(timeout))
-	stream := &Stream{conn: conn, reader: bufio.NewReaderSize(conn, 64*1024), target: target}
+	stream := &Stream{conn: conn, reader: bufio.NewReaderSize(conn, readBufferSize), target: target}
 	_, body, err := stream.request("DESCRIBE", target.String(), map[string]string{"Accept": "application/sdp"})
 	return body, err
 }

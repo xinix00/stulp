@@ -82,8 +82,10 @@ func (c *chimeDevice) refresh() {
 }
 
 func (c *chimeDevice) applyVolume(volume int) {
-	report(c.device, "onoff", volume > 0)
-	report(c.device, "volume_set", float64(volume)/100)
+	report(c.device, map[string]any{
+		"onoff":      volume > 0,
+		"volume_set": float64(volume) / 100,
+	})
 	if volume > 0 {
 		c.device.SetStore(map[string]any{lastVolumeKey: volume})
 	}

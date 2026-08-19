@@ -137,7 +137,7 @@ func (c *Controller) Diagnostics(ctx context.Context, deviceID string) (NodeDiag
 	client := im.Client{Transport: c.node, Session: session}
 	result := NodeDiagnostics{
 		NodeID:    fmt.Sprintf("%016X", info.nodeID),
-		Inventory: storedEndpointInventories(device.Store["matter.endpointInventory"]),
+		Inventory: storedEndpointInventories(device.Store["~matter.endpointInventory"]),
 	}
 
 	// Endpoint 0 is the node itself: Basic Information and the diagnostics

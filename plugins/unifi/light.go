@@ -73,9 +73,11 @@ func (l *lightDevice) refresh() {
 	} else {
 		l.device.SetUnavailable("De schijnwerper is niet verbonden met de console.")
 	}
-	report(l.device, "onoff", light.IsLightOn)
-	report(l.device, "dim", protect.LightBrightness(light.LightDeviceSettings.LedLevel))
-	report(l.device, "alarm_motion", light.IsPirMotionDetected)
+	report(l.device, map[string]any{
+		"onoff":        light.IsLightOn,
+		"dim":          protect.LightBrightness(light.LightDeviceSettings.LedLevel),
+		"alarm_motion": light.IsPirMotionDetected,
+	})
 }
 
 // apply verwerkt een deelbericht van de websocket.
@@ -103,15 +105,17 @@ func (l *lightDevice) apply(message protect.DeviceMessage) {
 			l.device.SetUnavailable("De schijnwerper is niet verbonden met de console.")
 		}
 	}
+	values := map[string]any{}
 	if patch.IsLightOn != nil {
-		report(l.device, "onoff", *patch.IsLightOn)
+		values["onoff"] = *patch.IsLightOn
 	}
 	if patch.IsPirMotionDetected != nil {
-		report(l.device, "alarm_motion", *patch.IsPirMotionDetected)
+		values["alarm_motion"] = *patch.IsPirMotionDetected
 	}
 	if patch.LightDeviceSettings != nil && patch.LightDeviceSettings.LedLevel != nil {
-		report(l.device, "dim", protect.LightBrightness(*patch.LightDeviceSettings.LedLevel))
+		values["dim"] = protect.LightBrightness(*patch.LightDeviceSettings.LedLevel)
 	}
+	report(l.device, values)
 }
 
 func (l *lightDevice) OnCapability(name string, value any) error {

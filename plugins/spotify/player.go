@@ -108,28 +108,33 @@ func (p *player) apply(device spotify.Device, state spotify.Playback, playing bo
 	if err := p.device.SetAvailable(); err != nil {
 		p.device.Error(err.Error())
 	}
+	values := map[string]any{"speaker_playing": playing && state.IsPlaying}
 	if device.VolumePercent != nil {
-		report(p.device, "volume_set", float64(*device.VolumePercent)/100)
+		values["volume_set"] = float64(*device.VolumePercent) / 100
 	}
-	report(p.device, "speaker_playing", playing && state.IsPlaying)
 
 	if !playing || state.Item == nil {
 		// Niets op dít apparaat. De titelvelden leegmaken, want anders blijft er
 		// een nummer staan dat allang ergens anders speelt.
-		report(p.device, "speaker_track", "")
-		report(p.device, "speaker_artist", "")
-		report(p.device, "speaker_album", "")
-		return
+		values["speaker_track"] = ""
+		values["speaker_artist"] = ""
+		values["speaker_album"] = ""
+	} else {
+		values["speaker_track"] = state.Item.Name
+		values["speaker_artist"] = state.Item.By()
+		values["speaker_album"] = state.Item.Album.Name
 	}
-	report(p.device, "speaker_track", state.Item.Name)
-	report(p.device, "speaker_artist", state.Item.By())
-	report(p.device, "speaker_album", state.Item.Album.Name)
+	if err := p.device.SetCapabilityValues(values); err != nil {
+		p.device.Error(err.Error())
+	}
 }
 
 // gone: Spotify ziet dit apparaat niet meer.
 func (p *player) gone() {
 	p.device.SetUnavailable("Spotify ziet deze speler nu niet. Zet hem aan of open de app erop.")
-	report(p.device, "speaker_playing", false)
+	if err := p.device.SetCapabilityValue("speaker_playing", false); err != nil {
+		p.device.Error(err.Error())
+	}
 }
 
 // unreachable: de aanroep zelf mislukte, dus we weten niets.
@@ -183,17 +188,6 @@ func (p *player) OnCapability(name string, value any) error {
 	// levert het oude antwoord op en dus dezelfde sprong.
 	instance.refreshSoon()
 	return nil
-}
-
-// report meldt een waarde en laat het niet lopen als dat niet lukt.
-//
-// Stulp weigert een capability die dit apparaat niet heeft. Dat is een tikfout
-// in app.json of hier, en die hoort op te vallen zodra hij gebeurt in plaats van
-// pas als iemand zich afvraagt waarom een tegel voor altijd leeg blijft.
-func report(device *appsdk.Device, capability string, value any) {
-	if err := device.SetCapabilityValue(capability, value); err != nil {
-		device.Error(err.Error())
-	}
 }
 
 // asNumber neemt wat er over het protocol binnenkomt. JSON levert een float64,

@@ -71,30 +71,35 @@ func (l *location) apply(weather openmeteo.Weather) {
 		l.device.Error(err.Error())
 	}
 
-	report(l.device, "measure_temperature", round(weather.TemperatureC))
-	report(l.device, "measure_temperature.feels", round(weather.FeelsLikeC))
-	report(l.device, "measure_humidity", round(weather.HumidityPct))
-	report(l.device, "measure_pressure", round(weather.PressureHpa))
-	report(l.device, "measure_rain", round(weather.PrecipitationMm))
+	values := map[string]any{
+		"measure_temperature":       round(weather.TemperatureC),
+		"measure_temperature.feels": round(weather.FeelsLikeC),
+		"measure_humidity":          round(weather.HumidityPct),
+		"measure_pressure":          round(weather.PressureHpa),
+		"measure_rain":              round(weather.PrecipitationMm),
+	}
 	// Wind in meters per seconde en niet in Beaufort: dat is wat er gemeten is.
 	// Beaufort is een schaal die uit die meting volgt, en in welke eenheid iemand
 	// hem wíl lezen -- Bft, km/h, mph -- is een keuze van de gebruiker. Die staat
 	// in de instellingen van Stulp, en Stulp rekent hem om voor de tegel. Zou de
 	// plugin hier al 3 melden, dan was de precisie weg en kon niemand er nog
 	// kilometers per uur van maken.
-	report(l.device, "measure_wind_strength", round(weather.WindMs))
-	report(l.device, "measure_gust_strength", round(weather.GustMs))
-	report(l.device, "measure_wind_angle", math.Round(weather.WindDegrees))
-	report(l.device, "cloud_cover", round(weather.CloudPct))
-	report(l.device, "weather_state", string(openmeteo.StateOf(weather.Code)))
-	report(l.device, "weather_description", openmeteo.Describe(weather.Code))
-	report(l.device, "measure_ultraviolet", round(weather.UVIndex))
-	report(l.device, "measure_temperature.dewpoint", round(weather.DewPointC))
-	report(l.device, "measure_temperature.soil", round(weather.SoilC))
+	values["measure_wind_strength"] = round(weather.WindMs)
+	values["measure_gust_strength"] = round(weather.GustMs)
+	values["measure_wind_angle"] = math.Round(weather.WindDegrees)
+	values["cloud_cover"] = round(weather.CloudPct)
+	values["weather_state"] = string(openmeteo.StateOf(weather.Code))
+	values["weather_description"] = openmeteo.Describe(weather.Code)
+	values["measure_ultraviolet"] = round(weather.UVIndex)
+	values["measure_temperature.dewpoint"] = round(weather.DewPointC)
+	values["measure_temperature.soil"] = round(weather.SoilC)
 	// Zicht in kilometers en niet in meters: 20120 op een tegel leest niemand.
-	report(l.device, "visibility", round(weather.VisibilityM/1000))
-	report(l.device, "rain_chance", round(weather.RainChancePct))
-	report(l.device, "irrigation_need", round(weather.IrrigationNeedMm()))
+	values["visibility"] = round(weather.VisibilityM / 1000)
+	values["rain_chance"] = round(weather.RainChancePct)
+	values["irrigation_need"] = round(weather.IrrigationNeedMm())
+	if err := l.device.SetCapabilityValues(values); err != nil {
+		l.device.Error(err.Error())
+	}
 
 	l.fire(weather)
 }
@@ -196,17 +201,6 @@ func (l *location) tokens(weather openmeteo.Weather) map[string]any {
 // unreachable: Open-Meteo antwoordde niet. Dat is iets anders dan windstil.
 func (l *location) unreachable(err error) {
 	l.device.SetUnavailable("Open-Meteo antwoordt niet: " + err.Error())
-}
-
-// report meldt een waarde en laat het niet lopen als dat niet lukt.
-//
-// Stulp weigert een capability die dit apparaat niet heeft. Dat is een tikfout
-// in app.json of hier, en die hoort op te vallen zodra hij gebeurt in plaats van
-// pas als iemand zich afvraagt waarom een tegel voor altijd leeg blijft.
-func report(device *appsdk.Device, capability string, value any) {
-	if err := device.SetCapabilityValue(capability, value); err != nil {
-		device.Error(err.Error())
-	}
 }
 
 // round houdt één decimaal over. Het weer is niet nauwkeuriger dan dat, en een

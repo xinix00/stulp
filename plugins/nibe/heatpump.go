@@ -130,6 +130,11 @@ func (h *heatpump) OnInit() error {
 
 func (h *heatpump) OnDeleted() {
 	instance.forget(h.device.ID())
+	h.halt()
+}
+
+// halt breekt de ronde van deze pomp af: bij verwijderen én als de app stopt.
+func (h *heatpump) halt() {
 	if h.cancel != nil {
 		h.cancel()
 	}
@@ -298,6 +303,7 @@ func (h *heatpump) pollAll(ctx context.Context) {
 	// klaagt de allereerste ronde over elke tegel die er nog niet is.
 	h.learn(points)
 
+	values := map[string]any{}
 	for _, p := range points {
 		entry, mapped := readable[p.ParameterID]
 		if !mapped || !h.device.HasCapability(entry.capability) {
@@ -307,9 +313,10 @@ func (h *heatpump) pollAll(ctx context.Context) {
 		if !known {
 			continue
 		}
-		h.report(entry.capability, value)
+		values[entry.capability] = value
 	}
-	h.applyMeter(points)
+	h.applyMeter(points, values)
+	h.report(values)
 
 	if err := h.device.SetAvailable(); err != nil {
 		h.device.Error(err.Error())
@@ -317,7 +324,7 @@ func (h *heatpump) pollAll(ctx context.Context) {
 }
 
 // applyMeter zet de meterstand van de pomp door en verdeelt de toename.
-func (h *heatpump) applyMeter(points []myuplink.Point) {
+func (h *heatpump) applyMeter(points []myuplink.Point, values map[string]any) {
 	h.mu.Lock()
 	meter := h.meters.meter
 	h.mu.Unlock()
@@ -328,14 +335,14 @@ func (h *heatpump) applyMeter(points []myuplink.Point) {
 	if !known {
 		return
 	}
-	h.report("meter_power", total)
+	values["meter_power"] = total
 
 	// De verdeelde standen gaan er ook heen als er niets te verdelen viel: na een
 	// herstart, of bij de allereerste ronde waarin alleen geijkt wordt, zouden de
 	// twee tegels anders leeg blijven terwijl de standen er wel zijn.
 	moved := h.energy.anchor(total)
-	h.report("meter_power.heating", h.energy.heatingKwh)
-	h.report("meter_power.hotwater", h.energy.hotwaterKwh)
+	values["meter_power.heating"] = h.energy.heatingKwh
+	values["meter_power.hotwater"] = h.energy.hotwaterKwh
 	if !moved {
 		return
 	}
@@ -382,16 +389,18 @@ func (h *heatpump) pollPower(ctx context.Context) {
 	}
 
 	heating, hotwater := h.energy.power(time.Now(), watt, priority)
-	h.report("measure_power", watt)
-	h.report("measure_power.heating", heating)
-	h.report("measure_power.hotwater", hotwater)
+	h.report(map[string]any{
+		"measure_power":          watt,
+		"measure_power.heating":  heating,
+		"measure_power.hotwater": hotwater,
+	})
 }
 
-// report zet een waarde weg en klaagt als de capability niet bestaat. Dat is een
-// tikfout in deze app en geen fout van de pomp, dus hij hoort meteen op te
-// vallen en niet pas als iemand zich afvraagt waarom een tegel leeg blijft.
-func (h *heatpump) report(capability string, value any) {
-	if err := h.device.SetCapabilityValue(capability, value); err != nil {
+// report commit alle waarden uit één myUplink-antwoord tegelijk en klaagt als
+// een capability niet bestaat. Dat is een tikfout in deze app en geen fout van
+// de pomp, dus hij hoort meteen op te vallen.
+func (h *heatpump) report(values map[string]any) {
+	if err := h.device.SetCapabilityValues(values); err != nil {
 		h.device.Error(err.Error())
 	}
 }

@@ -145,8 +145,14 @@ func (m *meter) refresh(client *modbus.Client) {
 	}
 
 	m.device.SetAvailable()
-	for name, value := range m.apply(values) {
-		m.put(name, value)
+	report := m.apply(values)
+	for name, value := range report {
+		if number, isNumber := value.(float64); isNumber {
+			report[name] = round(number)
+		}
+	}
+	if err := m.device.SetCapabilityValues(report); err != nil {
+		m.device.Error(err.Error())
 	}
 	m.reportMissing(values)
 }
@@ -185,20 +191,6 @@ func (m *meter) Unit() uint8 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.unit
-}
-
-// put zet een capability en meldt luid als dat niet lukt.
-//
-// Een capability die dit apparaat niet heeft is een fout en geen stille no-op --
-// een tikfout in een naam hoort meteen op te vallen en niet pas als iemand zich
-// afvraagt waarom de tegel leeg blijft.
-func (m *meter) put(name string, value any) {
-	if number, isNumber := value.(float64); isNumber {
-		value = round(number)
-	}
-	if err := m.device.SetCapabilityValue(name, value); err != nil {
-		m.device.Error(err.Error())
-	}
 }
 
 // round houdt de waarde op drie decimalen.

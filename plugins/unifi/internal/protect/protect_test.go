@@ -3,6 +3,7 @@ package protect
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,6 +68,22 @@ func (p plainTransport) RoundTrip(request *http.Request) (*http.Response, error)
 	return inner.RoundTrip(request)
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+
+type trackedBody struct {
+	io.Reader
+	reads int
+}
+
+func (b *trackedBody) Read(p []byte) (int, error) {
+	b.reads++
+	return b.Reader.Read(p)
+}
+
+func (*trackedBody) Close() error { return nil }
+
 func atoi(text string) int {
 	value := 0
 	for _, digit := range text {
@@ -105,6 +122,39 @@ func TestEveryCallCarriesTheKeyAndThePath(t *testing.T) {
 	}
 	if got.path != "/proxy/protect/integration/v1/cameras" {
 		t.Fatalf("pad = %q", got.path)
+	}
+}
+
+func TestSnapshotStaysAStream(t *testing.T) {
+	body := &trackedBody{Reader: strings.NewReader("jpeg-bytes")}
+	client := New("console", 443, "sleutel")
+	client.HTTP = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("X-API-KEY") != "sleutel" || request.Header.Get("Accept") != "image/*" {
+			t.Fatalf("snapshot headers = %#v", request.Header)
+		}
+		if request.URL.EscapedPath() != BasePath+"/cameras/front%20door/snapshot" ||
+			request.URL.Query().Get("highQuality") != "true" {
+			t.Fatalf("snapshot URL = %s", request.URL.String())
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": []string{"image/jpeg"}},
+			Body:       body,
+		}, nil
+	})}
+
+	response, err := client.OpenSnapshot(context.Background(), "front door", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if body.reads != 0 {
+		t.Fatalf("OpenSnapshot read the body %d times", body.reads)
+	}
+	data, err := io.ReadAll(response.Body)
+	if err != nil || string(data) != "jpeg-bytes" {
+		t.Fatalf("snapshot body = %q, err = %v", data, err)
 	}
 }
 

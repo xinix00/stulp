@@ -172,9 +172,10 @@ func (c *covering) gone() {
 
 // apply zet de standen uit TaHoma om in capabilities.
 func (c *covering) apply(device tahoma.Device) {
+	values := map[string]any{}
 	closure, hasClosure := device.Number(tahoma.StateClosure)
 	if hasClosure {
-		c.report("windowcoverings_set", tahoma.Position(closure))
+		values["windowcoverings_set"] = tahoma.Position(closure)
 	}
 
 	openClosed, hasOpenClosed := device.Text(tahoma.StateOpenClosed)
@@ -190,9 +191,11 @@ func (c *covering) apply(device tahoma.Device) {
 
 	state, ok := c.kind.Direction.Motion(openClosed, closure, hasClosure)
 	if ok {
-		c.report("windowcoverings_state", state)
+		values["windowcoverings_state"] = state
+		c.report(values)
 		return
 	}
+	c.report(values)
 	// Niet kunnen vertalen is geen reden om te zwijgen. Er zijn twee manieren
 	// waarop het misgaat en ze vragen om iets anders: een stand die ontbreekt is
 	// een apparaat dat anders in elkaar zit dan verwacht, een stand met een
@@ -296,8 +299,8 @@ func (c *covering) stop(ctx context.Context, client *tahoma.Client) error {
 // in app.json of hier, en die hoort op te vallen zodra hij gebeurt in plaats van
 // wanneer iemand zich afvraagt waarom een tegel leeg blijft. Dit draait alleen
 // als er iets veranderd is, dus het kan de log niet vollopen.
-func (c *covering) report(capability string, value any) {
-	if err := c.device.SetCapabilityValue(capability, value); err != nil {
+func (c *covering) report(values map[string]any) {
+	if err := c.device.SetCapabilityValues(values); err != nil {
 		c.device.Error(err.Error())
 	}
 }

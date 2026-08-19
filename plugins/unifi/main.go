@@ -187,7 +187,7 @@ var (
 	_ appsdk.DeviceHandler     = (*sensorDevice)(nil)
 )
 
-// report meldt een waarde en laat het niet lopen als dat niet lukt.
+// report commit alle capabilityvelden uit één consolebericht tegelijk.
 //
 // Stulp weigert een capability die dit apparaat niet heeft. Dat is een tikfout
 // in app.json of hier, en die hoort op te vallen zodra hij gebeurt in plaats van
@@ -195,8 +195,8 @@ var (
 //
 // Eén functie voor alle vijf de apparaatsoorten in plaats van dezelfde methode
 // vijf keer: ze dragen allemaal hetzelfde *appsdk.Device.
-func report(device *appsdk.Device, capability string, value any) {
-	if err := device.SetCapabilityValue(capability, value); err != nil {
+func report(device *appsdk.Device, values map[string]any) {
+	if err := device.SetCapabilityValues(values); err != nil {
 		device.Error(err.Error())
 	}
 }

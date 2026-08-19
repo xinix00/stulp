@@ -111,7 +111,7 @@ func inspectNode(ctx context.Context, client attributeClient, onboardingPayload 
 				"matter.address": remote.String(), "matter.noc": base64.StdEncoding.EncodeToString(noc),
 				"matter.fabricIndex": fabricIndex, "matter.deviceTypes": hexIDs(deviceTypes),
 				"matter.serverClusters": hexIDs(servers), "matter.bridged": bridged,
-				"matter.endpointInventory": []EndpointInventory{inventory},
+				"~matter.endpointInventory": []EndpointInventory{inventory},
 				"matter.settings":          matterSettings,
 				"matter.modelVersion":      matterModelVersion,
 			},

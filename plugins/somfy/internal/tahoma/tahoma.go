@@ -48,6 +48,11 @@ type Client struct {
 	// zit in een cookie en nergens anders.
 	HTTP *http.Client
 
+	// Setup-memo (setup.go): het rauwe antwoord en zijn ontleding.
+	setupMu   sync.Mutex
+	setupRaw  []byte
+	setupLast Setup
+
 	mu       sync.Mutex
 	username string
 	password string

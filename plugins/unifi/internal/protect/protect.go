@@ -94,8 +94,10 @@ func (c *Client) url(resource string, query url.Values) string {
 	return "https://" + c.Address() + c.Path(resource, query)
 }
 
-// do voert één aanroep uit en levert de rauwe body.
-func (c *Client) do(ctx context.Context, method, resource string, query url.Values, body any) ([]byte, error) {
+// call voert de HTTP-aanroep uit maar leest de body niet. Dat maakt dezelfde
+// geauthenticeerde weg bruikbaar voor zowel kleine JSON-antwoorden als een
+// snapshot die meteen doorgestroomd moet worden.
+func (c *Client) call(ctx context.Context, method, resource string, query url.Values, body any, accept string) (*http.Response, error) {
 	var payload io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -108,7 +110,9 @@ func (c *Client) do(ctx context.Context, method, resource string, query url.Valu
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("Accept", "application/json")
+	if accept != "" {
+		request.Header.Set("Accept", accept)
+	}
 	request.Header.Set("X-API-KEY", c.Token)
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json; charset=utf-8")
@@ -121,6 +125,15 @@ func (c *Client) do(ctx context.Context, method, resource string, query url.Valu
 	response, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", method, resource, err)
+	}
+	return response, nil
+}
+
+// do voert één aanroep uit en levert de rauwe body.
+func (c *Client) do(ctx context.Context, method, resource string, query url.Values, body any) ([]byte, error) {
+	response, err := c.call(ctx, method, resource, query, body, "application/json")
+	if err != nil {
+		return nil, err
 	}
 	defer response.Body.Close()
 	answer, err := io.ReadAll(io.LimitReader(response.Body, maxBody+1))

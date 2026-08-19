@@ -168,14 +168,14 @@ func (c *cameraDevice) apply(message protect.DeviceMessage) {
 
 // motion meldt beweging en zet hem na afloop weer uit.
 func (c *cameraDevice) motion(active bool) {
-	report(c.device, "alarm_motion", active)
+	report(c.device, map[string]any{"alarm_motion": active})
 	if c.motionOff != nil {
 		c.motionOff.Stop()
 		c.motionOff = nil
 	}
 	if active {
 		c.motionOff = time.AfterFunc(motionHold, func() {
-			report(c.device, "alarm_motion", false)
+			report(c.device, map[string]any{"alarm_motion": false})
 		})
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -63,9 +64,19 @@ type session struct {
 const idleGrace = 30 * time.Second
 
 // maxGOPBytes begrenst wat er van de lopende GOP bewaard blijft. Een 4K-keyframe
-// is al gauw een halve megabyte; dit is ruim genoeg voor een gewone GOP en klein
-// genoeg om niet te groeien als een camera er nooit een stuurt.
-const maxGOPBytes = 16 << 20
+// is al gauw een halve megabyte; acht MiB draagt een ruime gewone GOP zonder dat
+// één bekeken camera een groot deel van de heap van een klein slot vasthoudt.
+const maxGOPBytes = 8 << 20
+
+// viewerQueueFrames is only a scheduling cushion. Fragments are shared rather
+// than copied, but every queued slice keeps its complete frame alive. At 25 fps
+// eight frames already absorb 320 ms of jitter; a viewer further behind must
+// catch up instead of retaining seconds of obsolete video.
+const viewerQueueFrames = 8
+
+// maxSnapshotBytes matches the controller's public image limit. It is a wire
+// bound, not a heap allocation: snapshots pass through an 8 KiB buffer.
+const maxSnapshotBytes = 4 << 20
 
 // streamer is er één voor de hele app: alle cameras delen dezelfde luisteraar.
 var streamer = &streamHost{sessions: map[string]*session{}}
@@ -77,7 +88,7 @@ func (s *streamHost) start() (string, error) {
 	if s.listener != nil {
 		return s.listener.Addr().String(), nil
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := streamListen()
 	if err != nil {
 		return "", fmt.Errorf("kan geen luisteraar openen voor camerabeeld: %w", err)
 	}
@@ -195,14 +206,26 @@ func (s *streamHost) serveSnapshot(response http.ResponseWriter, request *http.R
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), 20*time.Second)
 	defer cancel()
-	image, err := client.Snapshot(ctx, camera, true)
+	snapshot, err := client.OpenSnapshot(ctx, camera, true)
 	if err != nil {
 		http.Error(response, err.Error(), http.StatusBadGateway)
 		return
 	}
-	response.Header().Set("Content-Type", "image/jpeg")
-	response.Header().Set("Content-Length", strconv.Itoa(len(image)))
-	response.Write(image)
+	defer snapshot.Body.Close()
+	if snapshot.ContentLength > maxSnapshotBytes {
+		http.Error(response, "de momentopname is te groot", http.StatusBadGateway)
+		return
+	}
+	contentType := snapshot.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	response.Header().Set("Content-Type", contentType)
+	if snapshot.ContentLength >= 0 {
+		response.Header().Set("Content-Length", strconv.FormatInt(snapshot.ContentLength, 10))
+	}
+	buffer := make([]byte, 8<<10)
+	_, _ = io.CopyBuffer(response, io.LimitReader(snapshot.Body, maxSnapshotBytes), buffer)
 }
 
 func (s *streamHost) begin(camera, rtspURL string) (*session, error) {
@@ -361,8 +384,9 @@ func (s *session) waitForHeader(timeout time.Duration) error {
 }
 
 func (s *session) join() (chan []byte, []byte, [][]byte) {
-	// Ruim gebufferd: een kijker die even niet leest houdt de camera niet op.
-	frames := make(chan []byte, 64)
+	// Kort gebufferd: schedulerjitter houdt de camera niet op, maar een trage
+	// kijker kan geen seconden oud beeld in de heap vasthouden.
+	frames := make(chan []byte, viewerQueueFrames)
 	s.mu.Lock()
 	s.viewers[frames] = struct{}{}
 	s.idleSince = time.Time{}
@@ -402,6 +426,10 @@ func (s *session) broadcast(fragment []byte, keyframe bool) {
 	defer s.mu.Unlock()
 
 	switch {
+	case len(fragment) > maxGOPBytes:
+		// Ook een keyframe moet onder de grens vallen. De keyframe-tak eerst
+		// zetten zou één uitzonderlijk groot frame alsnog onbeperkt bewaren.
+		s.gop, s.gopBytes = nil, 0
 	case keyframe:
 		s.gop, s.gopBytes = [][]byte{fragment}, len(fragment)
 	case s.gop != nil && s.gopBytes+len(fragment) <= maxGOPBytes:

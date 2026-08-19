@@ -73,22 +73,25 @@ func (s *sensorDevice) refresh() {
 	} else {
 		s.device.SetUnavailable("De sensor is niet verbonden met de console.")
 	}
-	report(s.device, "alarm_contact", sensor.IsOpened)
-	report(s.device, "alarm_motion", sensor.IsMotionDetected)
-	report(s.device, "alarm_tamper", sensor.TamperingDetectedAt != nil)
-	report(s.device, "measure_battery", float64(sensor.BatteryStatus.Percentage))
-	report(s.device, "alarm_battery", sensor.BatteryStatus.IsLow)
+	values := map[string]any{
+		"alarm_contact":   sensor.IsOpened,
+		"alarm_motion":    sensor.IsMotionDetected,
+		"alarm_tamper":    sensor.TamperingDetectedAt != nil,
+		"measure_battery": float64(sensor.BatteryStatus.Percentage),
+		"alarm_battery":   sensor.BatteryStatus.IsLow,
+	}
 	// Een meting die de sensor niet doet blijft leeg. Er staat null in het
 	// antwoord, en nul graden is een echte temperatuur.
 	if value := sensor.Stats.Temperature.Value; value != nil {
-		report(s.device, "measure_temperature", *value)
+		values["measure_temperature"] = *value
 	}
 	if value := sensor.Stats.Humidity.Value; value != nil {
-		report(s.device, "measure_humidity", *value)
+		values["measure_humidity"] = *value
 	}
 	if value := sensor.Stats.Light.Value; value != nil {
-		report(s.device, "measure_luminance", *value)
+		values["measure_luminance"] = *value
 	}
+	report(s.device, values)
 }
 
 // apply verwerkt een deelbericht van de websocket. Elk veld is een pointer
@@ -121,32 +124,34 @@ func (s *sensorDevice) apply(message protect.DeviceMessage) {
 			s.device.SetUnavailable("De sensor is niet verbonden met de console.")
 		}
 	}
+	values := map[string]any{}
 	if patch.IsOpened != nil {
-		report(s.device, "alarm_contact", *patch.IsOpened)
+		values["alarm_contact"] = *patch.IsOpened
 	}
 	if patch.IsMotionDetected != nil {
-		report(s.device, "alarm_motion", *patch.IsMotionDetected)
+		values["alarm_motion"] = *patch.IsMotionDetected
 	}
 	if patch.TamperingDetectedAt != nil {
-		report(s.device, "alarm_tamper", true)
+		values["alarm_tamper"] = true
 	}
 	if patch.BatteryStatus != nil {
 		if patch.BatteryStatus.Percentage != nil {
-			report(s.device, "measure_battery", float64(*patch.BatteryStatus.Percentage))
+			values["measure_battery"] = float64(*patch.BatteryStatus.Percentage)
 		}
 		if patch.BatteryStatus.IsLow != nil {
-			report(s.device, "alarm_battery", *patch.BatteryStatus.IsLow)
+			values["alarm_battery"] = *patch.BatteryStatus.IsLow
 		}
 	}
 	if patch.Stats != nil {
 		if patch.Stats.Temperature != nil && patch.Stats.Temperature.Value != nil {
-			report(s.device, "measure_temperature", *patch.Stats.Temperature.Value)
+			values["measure_temperature"] = *patch.Stats.Temperature.Value
 		}
 		if patch.Stats.Humidity != nil && patch.Stats.Humidity.Value != nil {
-			report(s.device, "measure_humidity", *patch.Stats.Humidity.Value)
+			values["measure_humidity"] = *patch.Stats.Humidity.Value
 		}
 		if patch.Stats.Light != nil && patch.Stats.Light.Value != nil {
-			report(s.device, "measure_luminance", *patch.Stats.Light.Value)
+			values["measure_luminance"] = *patch.Stats.Light.Value
 		}
 	}
+	report(s.device, values)
 }

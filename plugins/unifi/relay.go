@@ -88,7 +88,7 @@ func (r *relayDevice) refresh() {
 	}
 	for _, output := range relay.Outputs {
 		if output.ID == r.output {
-			report(r.device, "onoff", output.On())
+			report(r.device, map[string]any{"onoff": output.On()})
 			return
 		}
 	}
@@ -118,7 +118,7 @@ func (r *relayDevice) apply(message protect.DeviceMessage) {
 	}
 	for _, output := range patch.Outputs {
 		if output.ID == r.output {
-			report(r.device, "onoff", output.State == "on")
+			report(r.device, map[string]any{"onoff": output.State == "on"})
 		}
 	}
 }

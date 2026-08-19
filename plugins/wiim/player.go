@@ -205,11 +205,11 @@ func (p *player) succeeded() {
 
 // apply zet de stand van de speler op de tegel.
 func (p *player) apply(status wiim.Status) {
-	p.set("speaker_playing", status.Playing())
+	values := map[string]any{"speaker_playing": status.Playing()}
 
 	if status.Loop.Known {
-		p.set("speaker_shuffle", status.Loop.Shuffle)
-		p.set("speaker_repeat", status.Loop.Repeat)
+		values["speaker_shuffle"] = status.Loop.Shuffle
+		values["speaker_repeat"] = status.Loop.Repeat
 		p.mu.Lock()
 		p.loopComplaint = ""
 		p.mu.Unlock()
@@ -225,32 +225,36 @@ func (p *player) apply(status wiim.Status) {
 	// het soort waarde dat er goed uitziet en niet waar is. De tegel loopt
 	// daardoor in stappen van vijf seconden; wat er staat is wat de speler zei.
 	if status.Position.Known {
-		p.set("speaker_position", status.Position.Value)
+		values["speaker_position"] = status.Position.Value
 	}
 	if status.Duration.Known {
-		p.set("speaker_duration", status.Duration.Value)
+		values["speaker_duration"] = status.Duration.Value
 	}
 
-	p.set("volume_set", status.Volume)
-	p.set("volume_mute", status.Muted)
+	values["volume_set"] = status.Volume
+	values["volume_mute"] = status.Muted
 
 	// Zonder metadata hoort er niets te staan in plaats van wat er tien minuten
 	// geleden speelde.
-	p.set("speaker_artist", status.Track.Artist)
-	p.set("speaker_album", status.Track.Album)
-	p.set("speaker_track", status.Track.Title)
+	values["speaker_artist"] = status.Track.Artist
+	values["speaker_album"] = status.Track.Album
+	values["speaker_track"] = status.Track.Title
+	p.commit(values)
 }
 
-// set schrijft alleen wat veranderd is.
+// commit schrijft alle gewijzigde velden uit één spelerantwoord tegelijk.
 //
-// Elke schrijfactie is een verzoek aan Stulp en een regel in de geschiedenis.
+// Elke commit is een verzoek aan Stulp en een regel in de geschiedenis.
 // Een speler die stilstaat hoeft niet elke vijf seconden opnieuw te melden dat
 // hij hetzelfde nummer niet speelt.
-func (p *player) set(name string, value any) {
-	if old, known := p.device.CapabilityValue(name); known && old == value {
-		return
+func (p *player) commit(values map[string]any) {
+	changed := make(map[string]any, len(values))
+	for name, value := range values {
+		if old, known := p.device.CapabilityValue(name); !known || old != value {
+			changed[name] = value
+		}
 	}
-	if err := p.device.SetCapabilityValue(name, value); err != nil {
+	if err := p.device.SetCapabilityValues(changed); err != nil {
 		p.device.Error(err.Error())
 	}
 }

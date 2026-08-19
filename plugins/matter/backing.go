@@ -126,10 +126,10 @@ func (b *backing) UpdateDevice(_ context.Context, updated controller.Device) err
 		}
 	}
 	if changed := changedEntries(current.State, updated.State); len(changed) > 0 {
-		for name, value := range changed {
-			if err := device.SetCapabilityValue(name, value); err != nil {
-				return err
-			}
+		// Eén RPC voor het hele rapport i.p.v. één per capability — zie
+		// appsdk.SetCapabilityValues (CPU-ronde 19-08).
+		if err := device.SetCapabilityValues(changed); err != nil {
+			return err
 		}
 	}
 	if changed := changedEntries(current.Settings, updated.Settings); len(changed) > 0 {

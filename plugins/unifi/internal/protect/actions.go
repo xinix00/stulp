@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 )
 
@@ -104,18 +106,29 @@ func (c *Client) PulseRelayOutput(ctx context.Context, relayID, outputID string,
 	return err
 }
 
-// Snapshot haalt een stilstaand beeld op. De console levert JPEG.
-func (c *Client) Snapshot(ctx context.Context, id string, highQuality bool) ([]byte, error) {
+// OpenSnapshot opent een stilstaand beeld zonder het te lezen. De aanroeper
+// sluit Body. Zo kan een JPEG rechtstreeks van de console naar Stulp stromen in
+// plaats van als één grote []byte in de heap van de plugin te belanden.
+func (c *Client) OpenSnapshot(ctx context.Context, id string, highQuality bool) (*http.Response, error) {
 	query := url.Values{}
 	query.Set("highQuality", boolText(highQuality))
-	return c.do(ctx, "GET", "cameras/"+url.PathEscape(id)+"/snapshot", query, nil)
-}
-
-// SnapshotURL is waar dat beeld staat, voor wie het zelf ophaalt.
-func (c *Client) SnapshotURL(id string, highQuality bool) string {
-	query := url.Values{}
-	query.Set("highQuality", boolText(highQuality))
-	return c.url("cameras/"+url.PathEscape(id)+"/snapshot", query)
+	resource := "cameras/" + url.PathEscape(id) + "/snapshot"
+	response, err := c.call(ctx, http.MethodGet, resource, query, nil, "image/*")
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+		return response, nil
+	}
+	defer response.Body.Close()
+	excerpt, readErr := io.ReadAll(io.LimitReader(response.Body, 201))
+	if readErr != nil {
+		return nil, fmt.Errorf("GET %s: %w", resource, readErr)
+	}
+	if err := checkStatus(http.MethodGet, resource, response.StatusCode, excerpt); err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("GET %s: console answered %s", resource, response.Status)
 }
 
 // Streams zijn de RTSPS-adressen per kwaliteit.

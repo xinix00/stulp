@@ -73,6 +73,11 @@ type Controller struct {
 	sessions  map[uint64]*transport.SecureSession
 	reportMu  sync.Mutex
 
+	// De node→device-id-index van nodeDevices (subscriptions.go), TTL-vers.
+	nodeIdxMu sync.Mutex
+	nodeIdx   map[uint64][]string
+	nodeIdxAt time.Time
+
 	ctx           context.Context
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup

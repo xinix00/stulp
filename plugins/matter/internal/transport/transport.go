@@ -44,6 +44,7 @@ const (
 // both sides at once: it can initiate exchanges and accept them.
 type Node struct {
 	conn   *net.UDPConn
+	conn6  *net.UDPConn // v6-baan waar het platform geen dual-stack "udp" kent (tamago); nil = conn dekt beide
 	logger *slog.Logger
 
 	// RetryInterval is the MRP base retransmission interval. Matter lets a
@@ -71,18 +72,17 @@ func Listen(address string, logger *slog.Logger) (*Node, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	// udp binds dual-stack where the platform allows it, which matters
-	// because Thread devices are reachable over IPv6 only.
-	resolved, err := net.ResolveUDPAddr("udp", address)
+	// Op een host bindt "udp" dual-stack en is één socket genoeg; op een
+	// HopOS-node zijn v4 en v6 gescheiden sockets (leannet, IPV6_V6ONLY-
+	// semantiek). De seam staat in listen_host.go / listen_tamago.go —
+	// Thread-apparaten bestaan alleen op IPv6, dus de v6-baan is de reden
+	// dat deze plugin op een node werkt.
+	conn, conn6, err := listenSockets(address, logger)
 	if err != nil {
-		return nil, fmt.Errorf("resolve %q: %w", address, err)
-	}
-	conn, err := net.ListenUDP("udp", resolved)
-	if err != nil {
-		return nil, fmt.Errorf("listen on %q: %w", address, err)
+		return nil, err
 	}
 	node := &Node{
-		conn: conn, logger: logger, RetryInterval: IdleRetryBase,
+		conn: conn, conn6: conn6, logger: logger, RetryInterval: IdleRetryBase,
 		exchanges: make(map[exchangeKey]*Exchange),
 		sessions:  make(map[uint16]*SecureSession),
 		accepted:  make(chan *Exchange, 8),
@@ -103,12 +103,23 @@ func Listen(address string, logger *slog.Logger) (*Node, error) {
 	}
 	node.nextExchangeID.Store(uint32(binary.LittleEndian.Uint16(exchangeSeed[:])))
 
-	go node.readLoop()
+	go node.readLoop(node.conn)
+	if node.conn6 != nil {
+		go node.readLoop(node.conn6)
+	}
 	return node, nil
 }
 
 // LocalAddr reports the bound address.
 func (n *Node) LocalAddr() *net.UDPAddr { return n.conn.LocalAddr().(*net.UDPAddr) }
+
+// sendConn kiest de socket voor dit adres: v6 over de v6-baan als die er is.
+func (n *Node) sendConn(remote *net.UDPAddr) *net.UDPConn {
+	if n.conn6 != nil && remote != nil && remote.IP.To4() == nil {
+		return n.conn6
+	}
+	return n.conn
+}
 
 // Close stops the node and fails every exchange still in flight.
 func (n *Node) Close() error {
@@ -128,6 +139,9 @@ func (n *Node) Close() error {
 		n.mu.Unlock()
 		close(n.done)
 		err = n.conn.Close()
+		if n.conn6 != nil {
+			_ = n.conn6.Close()
+		}
 		for _, exchange := range exchanges {
 			exchange.fail(errors.New("transport closed"))
 		}
@@ -319,10 +333,10 @@ func (n *Node) Accept(ctx context.Context) (*Exchange, error) {
 	}
 }
 
-func (n *Node) readLoop() {
+func (n *Node) readLoop(conn *net.UDPConn) {
 	buffer := make([]byte, 2048)
 	for {
-		count, remote, err := n.conn.ReadFromUDP(buffer)
+		count, remote, err := conn.ReadFromUDP(buffer)
 		if err != nil {
 			select {
 			case <-n.done:
@@ -549,7 +563,7 @@ func (e *Exchange) Send(ctx context.Context, opcode uint8, payload []byte) error
 	defer timer.Stop()
 
 	for attempt := range MaxTransmissions {
-		if _, err := e.node.conn.WriteToUDP(frame, e.remote); err != nil {
+		if _, err := e.node.sendConn(e.remote).WriteToUDP(frame, e.remote); err != nil {
 			return fmt.Errorf("send Matter message: %w", err)
 		}
 		timer.Reset(e.retryInterval(attempt))
@@ -575,7 +589,7 @@ func (e *Exchange) SendOnce(opcode uint8, payload []byte) error {
 	if err != nil {
 		return err
 	}
-	if _, err := e.node.conn.WriteToUDP(frame, e.remote); err != nil {
+	if _, err := e.node.sendConn(e.remote).WriteToUDP(frame, e.remote); err != nil {
 		return fmt.Errorf("send Matter message: %w", err)
 	}
 	return nil

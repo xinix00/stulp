@@ -254,7 +254,7 @@ func (s *Session) Call(ctx context.Context, method string, params any) (json.Raw
 	s.pending[id] = reply
 	s.mu.Unlock()
 
-	if err := s.conn.WriteFrame(Frame{T: KindRequest, ID: id, M: method, P: encoded}); err != nil {
+	if err := s.conn.WriteFrameContext(ctx, Frame{T: KindRequest, ID: id, M: method, P: encoded}); err != nil {
 		s.forget(id)
 		return nil, err
 	}

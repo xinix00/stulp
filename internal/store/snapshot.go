@@ -114,6 +114,11 @@ func (s *Store) RestoreSnapshot(ctx context.Context, snapshot *Snapshot) (string
 		s.mu.Unlock()
 		return "", fmt.Errorf("publish restored document: %w", err)
 	}
+	// The swap shares the document lock with every mutation, so a mutation
+	// lands wholly before or wholly after it. A flow edit that was computed
+	// from the old document is caught by UpdateFlowIfUnchanged; work already
+	// running against the old document (a Flow run, a plugin call) finishes
+	// against the restored one, which is why a restore is followed by a reload.
 	s.doc = restored
 	// Consumed: callers cannot retain Snapshot and mutate roots behind the
 	// store's lock after it has become the live document.

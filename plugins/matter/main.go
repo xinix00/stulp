@@ -82,10 +82,16 @@ type app struct {
 
 	// Wat de config-pagina laat zien. Eén verkenning tegelijk per soort: de
 	// pagina mag zo vaak kijken als hij wil, de nodes worden er niet vaker om
-	// gevraagd.
+	// gevraagd. Diagnostiek is per apparaat en staat onder a.mu.
 	discovery scan
 	mesh      scan
+	diagnoses map[string]*scan
 }
+
+// maxDiagnoses begrenst de diagnose-map. Boven het aantal Matter-apparaten dat
+// een huis heeft (deze fabric: 23), en het plafond bestaat omdat de sleutel van
+// buiten komt.
+const maxDiagnoses = 64
 
 // commission haalt het apparaat in de fabric en onthoudt wat eruit kwam.
 //

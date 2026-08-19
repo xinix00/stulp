@@ -111,6 +111,89 @@ func TestCallRespectsContext(t *testing.T) {
 	}
 }
 
+func TestCallDeadlineDoesNotCloseTheStreamMidFrame(t *testing.T) {
+	stream := newBlockingStream()
+	session := NewSession(NewConn(stream), nil, nil)
+	go session.Serve()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := session.Call(ctx, "peer-is-not-reading", nil)
+		done <- err
+	}()
+	select {
+	case <-stream.writeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("write did not block")
+	}
+
+	// The caller's deadline passes while its frame is half out. Abandoning it
+	// would leave a length prefix without a body, and closing the connection
+	// would take every other call to this app with it -- so neither happens.
+	select {
+	case err := <-done:
+		t.Fatalf("half-written frame was abandoned: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	select {
+	case <-stream.closed:
+		t.Fatal("one caller's deadline closed the app connection")
+	default:
+	}
+
+	// Closing the session is what releases it: the ping watcher does this for a
+	// peer that went silent, and Stop does it for an app that is going away.
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("closing the session did not release the blocked write")
+	}
+}
+
+func TestCallDeadlineWhileWaitingForWriterKeepsStreamUsable(t *testing.T) {
+	stream := newBlockingStream()
+	session := NewSession(NewConn(stream), nil, nil)
+	defer session.Close()
+	go session.Serve()
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := session.Call(context.Background(), "first-blocked-write", nil)
+		firstDone <- err
+	}()
+	select {
+	case <-stream.writeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first write did not block")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := session.Call(ctx, "waiting-for-write-lock", nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("queued write returned %v, want context deadline", err)
+	}
+	select {
+	case <-stream.closed:
+		t.Fatal("a frame that wrote no bytes closed the stream")
+	default:
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup did not release the first writer")
+	}
+}
+
 func TestPingBypassesBlockedApplicationHandler(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})

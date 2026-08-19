@@ -18,7 +18,6 @@ import (
 	"io"
 	"math/big"
 	"net"
-	"time"
 
 	"github.com/xinix00/stulp/plugins/matter/internal/credentials"
 	mattercrypto "github.com/xinix00/stulp/plugins/matter/internal/crypto"
@@ -45,15 +44,16 @@ var (
 // in the transport node.
 func Establish(ctx context.Context, node *transport.Node, remote *net.UDPAddr, fabric *credentials.Fabric,
 	peerNodeID uint64, expectedPeerNOC []byte) (*transport.SecureSession, error) {
-	return EstablishWithRetry(ctx, node, remote, fabric, peerNodeID, expectedPeerNOC, 0)
+	return EstablishWithRetry(ctx, node, remote, fabric, peerNodeID, expectedPeerNOC, transport.MRPTiming{})
 }
 
-// EstablishWithRetry uses the peer's DNS-SD-advertised MRP interval for the
-// unsecured Sigma1 exchange. This matters for sleepy Thread devices: their
-// idle interval can be many seconds, while mains-powered nodes generally use
-// the transport default.
+// EstablishWithRetry uses the peer's advertised MRP timing: the idle interval
+// for the unsecured Sigma1 exchange, because a peer we have not spoken to yet is
+// by definition not known to be awake, and the whole timing for the session it
+// returns. This matters for sleepy Thread devices: their idle interval can be
+// many seconds, while mains-powered nodes generally use the transport default.
 func EstablishWithRetry(ctx context.Context, node *transport.Node, remote *net.UDPAddr, fabric *credentials.Fabric,
-	peerNodeID uint64, expectedPeerNOC []byte, retryBase time.Duration) (*transport.SecureSession, error) {
+	peerNodeID uint64, expectedPeerNOC []byte, timing transport.MRPTiming) (*transport.SecureSession, error) {
 	if node == nil || remote == nil || fabric == nil {
 		return nil, errors.New("CASE needs a transport, remote and fabric")
 	}
@@ -85,7 +85,7 @@ func EstablishWithRetry(ctx context.Context, node *transport.Node, remote *net.U
 		return nil, err
 	}
 
-	exchange, err := node.InitiateWithRetry(remote, message.ProtocolSecureChannel, retryBase)
+	exchange, err := node.InitiateWithRetry(remote, message.ProtocolSecureChannel, timing.Idle)
 	if err != nil {
 		return nil, err
 	}
@@ -216,10 +216,15 @@ func EstablishWithRetry(ctx context.Context, node *transport.Node, remote *net.U
 	if err != nil {
 		return nil, err
 	}
+	// The timing that got Sigma1 through belongs to the session too: the peer
+	// that needed seventeen seconds to answer a handshake needs them for a read
+	// as well. Without this the session falls back to the transport default and
+	// every exchange after CASE is impatient again.
 	return node.RegisterSession(transport.SessionConfig{
 		LocalID: localSessionID, PeerID: parsed.responderSessionID,
 		LocalNodeID: fabric.ControllerNodeID, PeerNodeID: peerNodeID,
 		OutboundKey: keyPack[:16], InboundKey: keyPack[16:32], Remote: remote,
+		Timing: timing,
 	})
 }
 

@@ -10,9 +10,10 @@
 
 const state = { network: null, scan: null, mesh: null, diagnostics: new Map() };
 
-// Wat er nu gevolgd wordt: pad -> wat er met het antwoord moet gebeuren. Eén
-// klok voor allemaal, want een scan en een mesh kunnen tegelijk lopen en twee
-// timers zouden elkaar dan opheffen.
+// Wat er nu gevolgd wordt: sleutel -> {pad, body, wat er met het antwoord moet
+// gebeuren}. Eén klok voor allemaal, want een scan en een mesh kunnen tegelijk
+// lopen en twee timers zouden elkaar dan opheffen. De sleutel is niet het pad:
+// diagnostiek van twee apparaten loopt over hetzelfde pad met een andere body.
 const watches = new Map();
 let ticker = null;
 
@@ -22,23 +23,23 @@ const { $, node, say } = Stulp;
 // seconde is traag genoeg om niets te belasten -- de plugin bevraagt de nodes
 // toch maar één keer -- en snel genoeg dat je de kaart ziet groeien terwijl
 // slaperige nodes nog antwoorden.
-function watch(path, apply) {
-  watches.set(path, apply);
+function watch(key, path, body, apply) {
+  watches.set(key, { path, body, apply });
   if (ticker === null) ticker = setInterval(tick, 1000);
 }
 
 async function tick() {
-  for (const [path, apply] of [...watches]) {
+  for (const [key, { path, body, apply }] of [...watches]) {
     let result;
     try {
-      result = await Stulp.api('POST', path, {});
+      result = await Stulp.api('POST', path, body || {});
     } catch (error) {
-      watches.delete(path);
+      watches.delete(key);
       say(error.message || String(error));
       continue;
     }
     apply(result);
-    if (!result.running) watches.delete(path);
+    if (!result.running) watches.delete(key);
   }
   if (watches.size === 0) stopWatching();
 }
@@ -158,19 +159,36 @@ function renderNodeBranch(matterNode) {
   if (!entry) return branch;
   if (entry.loading) { branch.append(node('p', 'empty', 'Node bevragen…')); return branch; }
   if (entry.error) { branch.append(node('p', 'app-error', entry.error)); return branch; }
+  if (!entry.data) { branch.append(node('p', 'empty', 'Geen antwoord van deze node.')); return branch; }
   renderDiagnostics(branch, entry.data);
   return branch;
 }
 
+// Diagnostiek loopt in de plugin en deze pagina kijkt hoe het gaat -- zelfde
+// vorm als scan en mesh. Dat is hier geen luxe: een slaperige node mag
+// seconden over elk antwoord doen, en zolang de plugin op hém wacht kan hij
+// niets anders voor deze pagina doen.
 async function loadDiagnostics(deviceID) {
+  const apply = result => {
+    state.diagnostics.set(deviceID, {
+      loading: Boolean(result.running),
+      data: result.diagnostics,
+      error: result.warning,
+    });
+    renderNetwork();
+  };
   state.diagnostics.set(deviceID, { loading: true });
   renderNetwork();
   try {
-    state.diagnostics.set(deviceID, { data: await Stulp.api('POST', 'diagnostics', { deviceId: deviceID }) });
+    const started = await Stulp.api('POST', 'diagnostics', { deviceId: deviceID });
+    apply(started);
+    if (started.running) {
+      watch(`diagnostics:${deviceID}`, 'diagnostics/state', { deviceId: deviceID }, apply);
+    }
   } catch (error) {
     state.diagnostics.set(deviceID, { error: error.message || String(error) });
+    renderNetwork();
   }
-  renderNetwork();
 }
 
 function renderDiagnostics(branch, diagnostics) {
@@ -324,7 +342,7 @@ async function scanNetwork() {
   say('Luisteren op het netwerk…', 'busy');
   try {
     applyScan(await Stulp.api('POST', 'scan', { window: 4 }));
-    watch('scan/state', applyScan);
+    watch('scan', 'scan/state', {}, applyScan);
   } catch (error) {
     say(error.message || String(error));
     $('scan').disabled = false;
@@ -348,7 +366,7 @@ async function drawMesh() {
   say('Elke node wordt om zijn burenlijst gevraagd, één voor één. Dit duurt.');
   try {
     applyMesh(await Stulp.api('POST', 'mesh', { window: 4 }));
-    watch('mesh/state', applyMesh);
+    watch('mesh', 'mesh/state', {}, applyMesh);
   } catch (error) {
     say(error.message || String(error));
     $('mesh').disabled = false;
@@ -365,7 +383,7 @@ async function resume(path, apply) {
   } catch { return; }
   if (!result || (!result.startedAt && !result.running)) return;
   apply(result);
-  if (result.running) watch(path, apply);
+  if (result.running) watch(path, path, {}, apply);
 }
 
 $('refresh').addEventListener('click', loadNetwork);

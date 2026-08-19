@@ -179,6 +179,14 @@ func (a *app) registerAPI(stulp *appsdk.Stulp) {
 		return a.mesh.snapshot(), nil
 	})
 
+	// Diagnostiek gaat naar het apparaat zelf, en dat is geen milliseconden-werk:
+	// een node met een slaap-interval van 17 seconden mag volgens de spec zó lang
+	// over één antwoord doen, dus een CASE-sessie plus vijf cluster-reads kan
+	// minuten duren. Daarom dezelfde vorm als scan en mesh, en niet omdat het
+	// mooier staat: verzoeken van deze plugin komen bij Stulp op ÉÉN geordende
+	// baan binnen (appproto: "verzoeken komen daar één voor één binnen"), dus een
+	// synchrone diagnose hield ook het opnieuw laden van de pagina tegen — en het
+	// aanzetten van een lamp.
 	stulp.OnRequest("diagnostics", func(query, body map[string]any) (any, error) {
 		controller, err := a.running()
 		if err != nil {
@@ -188,8 +196,62 @@ func (a *app) registerAPI(stulp *appsdk.Stulp) {
 		if deviceID == "" {
 			return nil, fmt.Errorf("een apparaat-id is nodig")
 		}
-		return controller.Diagnostics(context.Background(), deviceID)
+		running, err := a.diagnosis(deviceID)
+		if err != nil {
+			return nil, err
+		}
+		if !running.begin() {
+			return running.snapshot(), nil
+		}
+		go func() {
+			// Ruim boven de MRP-uithoudingstijd van het traagste apparaat in deze
+			// fabric (17s basis = ~190s aan hertransmissies) plus de reads erna.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, diagErr := controller.Diagnostics(ctx, deviceID)
+			if diagErr == nil {
+				running.put("diagnostics", result)
+			}
+			running.done(diagErr)
+		}()
+		return running.snapshot(), nil
 	})
+	stulp.OnRequest("diagnostics/state", func(query, body map[string]any) (any, error) {
+		deviceID, _ := first(body["deviceId"], query["deviceId"]).(string)
+		if deviceID == "" {
+			return nil, fmt.Errorf("een apparaat-id is nodig")
+		}
+		running, err := a.diagnosis(deviceID)
+		if err != nil {
+			return nil, err
+		}
+		return running.snapshot(), nil
+	})
+}
+
+// diagnosis geeft de diagnose-plek van één apparaat. Per apparaat, want de
+// pagina kan er meerdere openzetten en dan hoort de tweede niet het antwoord van
+// de eerste te zien.
+//
+// De grens is er omdat dit een map is die de pagina laat groeien: een
+// apparaat-id komt van buiten, en zonder plafond kan iemand er onbeperkt in
+// schrijven. maxDiagnoses ligt boven het aantal Matter-apparaten dat een huis
+// heeft; erboven weigert hij luid in plaats van geheugen te blijven pakken.
+func (a *app) diagnosis(deviceID string) (*scan, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if running, ok := a.diagnoses[deviceID]; ok {
+		return running, nil
+	}
+	if len(a.diagnoses) >= maxDiagnoses {
+		return nil, fmt.Errorf("er staan al %d diagnoses open; herlaad de pagina", maxDiagnoses)
+	}
+	if a.diagnoses == nil {
+		a.diagnoses = map[string]*scan{}
+	}
+	running := &scan{}
+	a.diagnoses[deviceID] = running
+	return running, nil
 }
 
 func (a *app) running() (*mattercontroller.Controller, error) {

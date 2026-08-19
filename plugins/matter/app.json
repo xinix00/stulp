@@ -53,6 +53,7 @@
     "scan/state": { "method": "POST", "path": "/scan/state" },
     "mesh": { "method": "POST", "path": "/mesh" },
     "mesh/state": { "method": "POST", "path": "/mesh/state" },
-    "diagnostics": { "method": "POST", "path": "/diagnostics" }
+    "diagnostics": { "method": "POST", "path": "/diagnostics" },
+    "diagnostics/state": { "method": "POST", "path": "/diagnostics/state" }
   }
 }

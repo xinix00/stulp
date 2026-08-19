@@ -52,6 +52,7 @@ type Server struct {
 	flows      *flowengine.Engine
 	stats      *stats.Collector
 	images     *imageshare.Store
+	mcpLimit   mcpLimiter
 	installMu  sync.Mutex
 	pairMu     sync.Mutex
 	pairs      map[string]pairSession

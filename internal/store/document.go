@@ -219,7 +219,10 @@ func saveDocument(path string, value *document) error {
 	if len(value.Notifications) > maxNotifications {
 		value.Notifications = value.Notifications[:maxNotifications]
 	}
-	encoded, err := json.MarshalIndent(value, "", "  ")
+	// This is a machine-owned document, not a hand-edited config file. Compact
+	// JSON shortens every flash write and avoids carrying indentation bytes into
+	// the A/B slot on small nodes.
+	encoded, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", path, err)
 	}

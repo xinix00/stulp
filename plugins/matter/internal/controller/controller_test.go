@@ -79,27 +79,33 @@ func TestLoadOrCreateFabricPersistsIdentity(t *testing.T) {
 func TestMatterDeviceConnectionRoundTrip(t *testing.T) {
 	wantNOC := []byte{1, 2, 3, 4}
 	device := Device{Store: map[string]any{
-		"matter.nodeId":          "0000000000012345",
-		"matter.endpoint":        float64(7),
-		"matter.fabricIndex":     float64(3),
-		"matter.address":         "[fe80::1%en0]:5540",
-		"matter.noc":             base64.StdEncoding.EncodeToString(wantNOC),
-		"matter.mrpIdleInterval": float64(15_800),
+		"matter.nodeId":            "0000000000012345",
+		"matter.endpoint":          float64(7),
+		"matter.fabricIndex":       float64(3),
+		"matter.address":           "[fe80::1%en0]:5540",
+		"matter.noc":               base64.StdEncoding.EncodeToString(wantNOC),
+		"matter.mrpIdleInterval":   float64(15_800),
+		"matter.mrpActiveInterval": float64(2500),
 	}}
 	got, err := deviceConnection(device)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.nodeID != 0x12345 || got.endpoint != 7 || got.fabricIndex != 3 || got.remote.Port != 5540 || got.remote.Zone != "en0" ||
-		string(got.noc) != string(wantNOC) || got.caseRetry != 15_800*time.Millisecond {
+		string(got.noc) != string(wantNOC) || got.timing.Idle != 15_800*time.Millisecond ||
+		got.timing.Active != 2500*time.Millisecond {
 		t.Fatalf("unexpected connection: %#v", got)
 	}
 }
 
-func TestAdvertisedMRPIntervalPrefersSleepyIdleInterval(t *testing.T) {
+// All three values matter, and each for a different moment: SII for a peer that
+// may be asleep, SAI for one that just spoke, SAT for how long that lasts.
+func TestAdvertisedMRPTimingCarriesAllThreeValues(t *testing.T) {
 	text := map[string]string{"SAI": "2500", "sii": "15800", "SAT": "1000"}
-	if got := advertisedMRPInterval(text); got != 15_800*time.Millisecond {
-		t.Fatalf("advertised MRP interval = %v", got)
+	got := advertisedMRPTiming(text)
+	if got.Idle != 15_800*time.Millisecond || got.Active != 2500*time.Millisecond ||
+		got.ActiveThreshold != time.Second {
+		t.Fatalf("advertised MRP timing = %+v", got)
 	}
 	stored := make(map[string]any)
 	copyMRPTXT(stored, text)

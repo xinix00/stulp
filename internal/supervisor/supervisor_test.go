@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -321,5 +322,157 @@ func TestAFreshlyPairedDeviceKnowsItsDataBeforeItStarts(t *testing.T) {
 		if device.Data["id"] != fmt.Sprintf("ding-%d", i) {
 			t.Fatalf("apparaat %d kreeg data %v", i, device.Data)
 		}
+	}
+}
+
+var errHungRuntimeClosed = errors.New("hung runtime was closed")
+
+type hungRuntime struct {
+	plugin.Runtime
+	entered   chan struct{}
+	closed    chan struct{}
+	enterOnce sync.Once
+	closeOnce sync.Once
+}
+
+func newHungRuntime() *hungRuntime {
+	return &hungRuntime{entered: make(chan struct{}), closed: make(chan struct{})}
+}
+
+func (r *hungRuntime) InvokeFlow(ctx context.Context, _, _ string, _, _ map[string]any) (any, error) {
+	r.enterOnce.Do(func() { close(r.entered) })
+	select {
+	case <-r.closed:
+		return nil, errHungRuntimeClosed
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (r *hungRuntime) Close() {
+	r.closeOnce.Do(func() { close(r.closed) })
+}
+
+func TestHungRuntimeDoesNotBlockStopRestartOrClose(t *testing.T) {
+	for _, lifecycle := range []string{"stop", "restart", "close"} {
+		t.Run(lifecycle, func(t *testing.T) {
+			database, err := store.Open(filepath.Join(t.TempDir(), "stulp.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			apps := New(database, plugin.Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+			defer apps.Close()
+
+			const appID = "com.stulp.hung"
+			runtime := newHungRuntime()
+			apps.mu.Lock()
+			apps.runners[appID] = runtime
+			apps.states[appID] = AppState{State: "running"}
+			apps.mu.Unlock()
+
+			callDone := make(chan error, 1)
+			go func() {
+				_, err := apps.InvokeFlow(context.Background(), appID, "action", "hang", nil, nil)
+				callDone <- err
+			}()
+			select {
+			case <-runtime.entered:
+			case <-time.After(time.Second):
+				t.Fatal("runtime call did not start")
+			}
+
+			// Restart gets a replacement without needing an installed bundle; the
+			// point under test is that its Stop half can close the hung runtime.
+			apps.newRuntime = func(context.Context, *store.Store, string, plugin.Options) (plugin.Runtime, error) {
+				return &countingRuntime{}, nil
+			}
+			lifecycleDone := make(chan error, 1)
+			go func() {
+				switch lifecycle {
+				case "stop":
+					lifecycleDone <- apps.Stop(appID)
+				case "restart":
+					lifecycleDone <- apps.Restart(context.Background(), appID)
+				case "close":
+					apps.Close()
+					lifecycleDone <- nil
+				}
+			}()
+
+			select {
+			case err := <-lifecycleDone:
+				if err != nil {
+					t.Fatalf("%s: %v", lifecycle, err)
+				}
+			case <-time.After(time.Second):
+				runtime.Close()
+				t.Fatalf("%s blocked behind the hung runtime call", lifecycle)
+			}
+			select {
+			case err := <-callDone:
+				if !errors.Is(err, errHungRuntimeClosed) {
+					t.Fatalf("hung call returned %v", err)
+				}
+			case <-time.After(time.Second):
+				runtime.Close()
+				t.Fatal("hung call survived runtime Close")
+			}
+		})
+	}
+}
+
+func TestConcurrentStopAndCloseReleaseHungCall(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "stulp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	apps := New(database, plugin.Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	defer apps.Close()
+
+	const appID = "com.stulp.hung-race"
+	runtime := newHungRuntime()
+	apps.mu.Lock()
+	apps.runners[appID] = runtime
+	apps.states[appID] = AppState{State: "running"}
+	apps.mu.Unlock()
+
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := apps.InvokeFlow(context.Background(), appID, "action", "hang", nil, nil)
+		callDone <- err
+	}()
+	select {
+	case <-runtime.entered:
+	case <-time.After(time.Second):
+		t.Fatal("runtime call did not start")
+	}
+
+	lifecycleDone := make(chan error, 2)
+	go func() { lifecycleDone <- apps.Stop(appID) }()
+	go func() {
+		apps.Close()
+		lifecycleDone <- nil
+	}()
+	for range 2 {
+		select {
+		case err := <-lifecycleDone:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(time.Second):
+			runtime.Close()
+			t.Fatal("concurrent Stop/Close blocked behind the hung call")
+		}
+	}
+	select {
+	case err := <-callDone:
+		if !errors.Is(err, errHungRuntimeClosed) {
+			t.Fatalf("hung call returned %v", err)
+		}
+	case <-time.After(time.Second):
+		runtime.Close()
+		t.Fatal("hung call survived concurrent Stop/Close")
 	}
 }

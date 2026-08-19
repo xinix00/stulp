@@ -546,6 +546,14 @@ func (e *Engine) Run(ctx context.Context, id string) (RunResult, error) {
 	return e.execute(ctx, definition, Trigger{Tokens: map[string]any{}, State: map[string]any{}})
 }
 
+// RunAction executes one action through the same built-in or plugin path used
+// by a Flow. It does not create or update a Flow, nor record a Flow result.
+func (e *Engine) RunAction(ctx context.Context, step store.FlowStep) (StepResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, executionTimeout)
+	defer cancel()
+	return e.runAction(ctx, step, Trigger{Tokens: map[string]any{}, State: map[string]any{}})
+}
+
 func (e *Engine) execute(ctx context.Context, definition store.Flow, input Trigger) (RunResult, error) {
 	starts := make([]string, 0)
 	for _, node := range definition.Nodes {

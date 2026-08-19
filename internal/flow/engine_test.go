@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -15,6 +16,70 @@ import (
 	"github.com/xinix00/stulp/internal/store/storetest"
 	"github.com/xinix00/stulp/internal/supervisor"
 )
+
+func TestRunActionExecutesBuiltinWithoutPersistingFlow(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(filepath.Join(t.TempDir(), "stulp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	apps := supervisor.New(database, plugin.Options{})
+	defer apps.Close()
+	engine := NewWithOptions(database, apps, Options{Ticks: make(chan time.Time)})
+	defer engine.Close()
+
+	result, err := engine.RunAction(ctx, store.FlowStep{
+		AppID: "stulp", CardID: "notification", CardType: "action",
+		Args: map[string]any{"excerpt": "Front door opened"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AppID != "stulp" || result.CardID != "notification" || result.CardType != "action" {
+		t.Fatalf("unexpected action result metadata: %#v", result)
+	}
+	notification, ok := result.Result.(store.Notification)
+	if !ok || notification.AppID != store.NativeMatterAppID || notification.Excerpt != "Front door opened" {
+		t.Fatalf("unexpected action result: %#v", result.Result)
+	}
+	notifications, err := database.Notifications(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notifications) != 1 || notifications[0] != notification {
+		t.Fatalf("built-in notification was not executed: %#v", notifications)
+	}
+	flows, err := database.Flows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flows) != 0 {
+		t.Fatalf("RunAction persisted a Flow: %#v", flows)
+	}
+}
+
+func TestRunActionHonorsContextDeadline(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "stulp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	apps := supervisor.New(database, plugin.Options{})
+	defer apps.Close()
+	engine := NewWithOptions(database, apps, Options{Ticks: make(chan time.Time)})
+	defer engine.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	result, err := engine.RunAction(ctx, store.FlowStep{
+		AppID: "stulp", CardID: "delay", CardType: "action",
+		Args: map[string]any{"seconds": 1},
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RunAction did not stop at its context deadline: result=%#v err=%v", result, err)
+	}
+}
 
 func TestExecutesPersistedFlowGraph(t *testing.T) {
 	ctx := context.Background()

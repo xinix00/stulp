@@ -372,7 +372,7 @@ func (c *Controller) establishAfterCommissioning(ctx context.Context, initial *n
 			continue
 		}
 		session, caseErr := casesession.EstablishWithRetry(
-			ctx, c.node, remote, c.fabric, nodeID, noc, advertisedMRPInterval(candidate.Text),
+			ctx, c.node, remote, c.fabric, nodeID, noc, advertisedMRPTiming(candidate.Text),
 		)
 		if caseErr == nil {
 			return session, remote, nil
@@ -507,7 +507,7 @@ type connectionInfo struct {
 	fabricIndex uint8
 	remote      *net.UDPAddr
 	noc         []byte
-	caseRetry   time.Duration
+	timing      transport.MRPTiming
 }
 
 func deviceConnection(device Device) (connectionInfo, error) {
@@ -534,10 +534,9 @@ func deviceConnection(device Device) (connectionInfo, error) {
 	if value, ok := number(device.Store["matter.fabricIndex"]); ok && value > 0 && value <= math.MaxUint8 {
 		fabricIndex = uint8(value)
 	}
-	caseRetry := storedMRPInterval(device.Store)
 	return connectionInfo{
 		nodeID: nodeID, endpoint: uint16(endpoint), fabricIndex: fabricIndex,
-		remote: remote, noc: noc, caseRetry: caseRetry,
+		remote: remote, noc: noc, timing: storedMRPTiming(device.Store),
 	}, nil
 }
 
@@ -545,7 +544,7 @@ func (c *Controller) session(ctx context.Context, info connectionInfo) (*transpo
 	if existing := c.lookupSession(info.nodeID); existing != nil {
 		return existing, nil
 	}
-	session, err := casesession.EstablishWithRetry(ctx, c.node, info.remote, c.fabric, info.nodeID, info.noc, info.caseRetry)
+	session, err := casesession.EstablishWithRetry(ctx, c.node, info.remote, c.fabric, info.nodeID, info.noc, info.timing)
 	if err != nil {
 		return nil, err
 	}
@@ -584,24 +583,38 @@ func (c *Controller) dropSessionIf(nodeID uint64, session *transport.SecureSessi
 	return true
 }
 
-func storedMRPInterval(values map[string]any) time.Duration {
-	for _, key := range []string{"matter.mrpIdleInterval", "matter.mrpActiveInterval"} {
-		milliseconds, ok := number(values[key])
-		if !ok || milliseconds <= 0 || milliseconds > 60_000 {
-			continue
-		}
-		return time.Duration(milliseconds * float64(time.Millisecond))
+// storedMRPTiming reads what commissioning learned about this peer. It is the
+// only source on a HopOS node: there is no multicast there, so operational
+// DNS-SD cannot be re-browsed and these values are what the fabric knows.
+func storedMRPTiming(values map[string]any) transport.MRPTiming {
+	return transport.MRPTiming{
+		Idle:            storedInterval(values, "matter.mrpIdleInterval"),
+		Active:          storedInterval(values, "matter.mrpActiveInterval"),
+		ActiveThreshold: storedInterval(values, "matter.mrpActiveThreshold"),
 	}
-	return 0
 }
 
-func advertisedMRPInterval(text map[string]string) time.Duration {
-	for _, key := range []string{"SII", "SAI"} {
+// storedInterval refuses anything above a minute. An interval is a promise about
+// how long we wait before deciding a device is gone, and a bad record must not be
+// able to turn that into a quarter of an hour.
+func storedInterval(values map[string]any, key string) time.Duration {
+	milliseconds, ok := number(values[key])
+	if !ok || milliseconds <= 0 || milliseconds > 60_000 {
+		return 0
+	}
+	return time.Duration(milliseconds * float64(time.Millisecond))
+}
+
+// advertisedMRPTiming reads the same three values straight from a DNS-SD record,
+// for the one moment we have one: commissioning, on a host with multicast.
+func advertisedMRPTiming(text map[string]string) transport.MRPTiming {
+	interval := func(key string) time.Duration {
 		if milliseconds, ok := mrpTXTMilliseconds(text, key); ok && milliseconds <= 60_000 {
 			return time.Duration(milliseconds) * time.Millisecond
 		}
+		return 0
 	}
-	return 0
+	return transport.MRPTiming{Idle: interval("SII"), Active: interval("SAI"), ActiveThreshold: interval("SAT")}
 }
 
 func copyMRPTXT(destination map[string]any, text map[string]string) {

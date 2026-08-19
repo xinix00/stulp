@@ -151,14 +151,21 @@ func (n *Node) Close() error {
 
 func (n *Node) nextCounter() uint32 { return n.counter.Add(1) }
 
+// exchangeKey identifies one exchange. weStarted is part of the identity and
+// not a detail: Matter numbers exchanges per initiator, so a peer counts from
+// its own seed and may legitimately pick an ID we are already using on the
+// same session. Key without it and the peer's message finds our exchange,
+// fails the initiator test, and is dropped — which is exactly a subscription
+// report going missing (measured 19-08: two of these in one log).
 type exchangeKey struct {
 	sessionID uint16
 	remote    string
 	id        uint16
+	weStarted bool
 }
 
-func keyFor(remote *net.UDPAddr, sessionID, exchangeID uint16) exchangeKey {
-	return exchangeKey{sessionID: sessionID, remote: remote.String(), id: exchangeID}
+func keyFor(remote *net.UDPAddr, sessionID, exchangeID uint16, weStarted bool) exchangeKey {
+	return exchangeKey{sessionID: sessionID, remote: remote.String(), id: exchangeID, weStarted: weStarted}
 }
 
 // SessionConfig contains the state negotiated by PASE or CASE. LocalID is
@@ -170,6 +177,28 @@ type SessionConfig struct {
 	LocalNodeID, PeerNodeID uint64
 	OutboundKey, InboundKey []byte
 	Remote                  *net.UDPAddr
+
+	// Timing is this peer's MRP retransmission timing. It belongs to the
+	// session and not to one exchange: a sleepy Thread device is just as slow
+	// to answer a read as it was to answer Sigma1.
+	Timing MRPTiming
+}
+
+// MRPTiming is what a peer says about its own reachability: the three values it
+// advertises as SII, SAI and SAT (DNS-SD TXT, or the session parameters in a
+// handshake). Zero fields mean the node default, which is only right for a
+// mains-powered peer.
+//
+// Both intervals exist because both are true at different moments. A sleepy
+// device may take its full idle interval to notice a packet — seventeen seconds
+// in this fabric — but once it has just spoken to us it is awake and answers in
+// milliseconds. Retransmitting on the idle interval the whole time would make a
+// single lost packet cost seventeen seconds on a light switch; retransmitting on
+// the active interval the whole time is what declares a sleeping device dead.
+type MRPTiming struct {
+	Idle            time.Duration // SII: the peer may be asleep
+	Active          time.Duration // SAI: it was awake a moment ago
+	ActiveThreshold time.Duration // SAT: how long that moment lasts
 }
 
 // SecureSession owns encryption, counters and replay state for one peer.
@@ -181,9 +210,32 @@ type SecureSession struct {
 	Remote                  *net.UDPAddr
 	outboundKey             []byte
 	inboundKey              []byte
-	counter                 atomic.Uint32
-	replayMu                sync.Mutex
-	replay                  replayWindow
+	// timing is set once at registration and read by every exchange on this
+	// session; nothing mutates it, so it needs no lock. lastHeard does move,
+	// from the receive path, and picks the interval below.
+	timing    MRPTiming
+	lastHeard atomic.Int64
+	counter   atomic.Uint32
+	replayMu  sync.Mutex
+	replay    replayWindow
+}
+
+// heard records authenticated inbound traffic from this peer.
+func (s *SecureSession) heard(now time.Time) { s.lastHeard.Store(now.UnixNano()) }
+
+// retransBase is the peer's retransmission base right now: the active interval
+// while it is known to be awake, the idle interval once it may have gone back to
+// sleep. Zero means the caller falls back to the node default.
+func (s *SecureSession) retransBase(now time.Time) time.Duration {
+	if s.timing.Active > 0 && s.timing.ActiveThreshold > 0 {
+		if last := s.lastHeard.Load(); last != 0 && now.UnixNano()-last < int64(s.timing.ActiveThreshold) {
+			return s.timing.Active
+		}
+	}
+	if s.timing.Idle > 0 {
+		return s.timing.Idle
+	}
+	return s.timing.Active
 }
 
 // RegisterSession installs a negotiated session and returns the live session
@@ -210,6 +262,7 @@ func (n *Node) RegisterSession(config SessionConfig) (*SecureSession, error) {
 		Remote:      &remote,
 		outboundKey: append([]byte(nil), config.OutboundKey...),
 		inboundKey:  append([]byte(nil), config.InboundKey...),
+		timing:      config.Timing,
 	}
 	session.counter.Store(seed)
 	n.mu.Lock()
@@ -278,6 +331,8 @@ func (n *Node) InitiateWithRetry(remote *net.UDPAddr, protocolID uint16, retryBa
 }
 
 // InitiateSecure starts an exchange over a registered PASE or CASE session.
+// Its retransmission timing comes from the session, so a read to a sleepy peer
+// gets the same patience its CASE handshake got — see Exchange.retryInterval.
 func (n *Node) InitiateSecure(session *SecureSession, protocolID uint16) (*Exchange, error) {
 	if session == nil {
 		return nil, errors.New("secure exchange needs a session")
@@ -302,8 +357,8 @@ func (n *Node) initiate(remote *net.UDPAddr, session *SecureSession, protocolID 
 	if session != nil {
 		localSessionID = session.LocalID
 	}
-	key := keyFor(remote, localSessionID, id)
-	exchange := newExchange(n, remote, key, protocolID, true, session, ephemeralInitiatorID)
+	key := keyFor(remote, localSessionID, id, true)
+	exchange := newExchange(n, remote, key, protocolID, session, ephemeralInitiatorID)
 	exchange.retryBase = retryBase
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -377,6 +432,9 @@ func (n *Node) dispatch(packet []byte, remote *net.UDPAddr) {
 			// Authenticate first. Advancing a replay window from the cleartext
 			// counter before the MIC verifies would let an attacker lock out a peer.
 			duplicate = session.markReceived(msg.Header.Counter)
+			// And it proves the peer is awake: unauthenticated traffic must never
+			// be able to talk us into the short retransmission interval.
+			session.heard(time.Now())
 		}
 	}
 	if err != nil {
@@ -396,7 +454,10 @@ func (n *Node) dispatch(packet []byte, remote *net.UDPAddr) {
 	if session != nil {
 		localSessionID = session.LocalID
 	}
-	key := keyFor(remote, localSessionID, msg.Protocol.ExchangeID)
+	// The initiator flag says whose numbering this ID belongs to: a message with
+	// it set starts (or continues) the peer's exchange, one without it answers
+	// ours. Both can carry the same ID at the same time.
+	key := keyFor(remote, localSessionID, msg.Protocol.ExchangeID, !msg.Protocol.Initiator)
 
 	n.mu.Lock()
 	exchange, known := n.exchanges[key]
@@ -414,7 +475,7 @@ func (n *Node) dispatch(packet []byte, remote *net.UDPAddr) {
 			}
 		}
 		if shouldAccept {
-			exchange = newExchange(n, remote, key, msg.Protocol.ProtocolID, false, session, ephemeralInitiatorID)
+			exchange = newExchange(n, remote, key, msg.Protocol.ProtocolID, session, ephemeralInitiatorID)
 			n.exchanges[key] = exchange
 		}
 	}
@@ -425,9 +486,10 @@ func (n *Node) dispatch(packet []byte, remote *net.UDPAddr) {
 			"exchange", msg.Protocol.ExchangeID, "remote", remote)
 		return
 	}
-	if exchange.protocolID != msg.Protocol.ProtocolID || msg.Protocol.Initiator == exchange.initiator {
+	if !exchange.carries(msg.Protocol) {
 		n.logger.Debug("Matter transport dropped a message that does not belong to its exchange",
-			"exchange", msg.Protocol.ExchangeID, "remote", remote)
+			"exchange", msg.Protocol.ExchangeID, "remote", remote,
+			"protocol", msg.Protocol.ProtocolID, "opcode", msg.Protocol.Opcode)
 		return
 	}
 	if session == nil {
@@ -501,12 +563,29 @@ type Exchange struct {
 	incoming chan message.Message
 }
 
-func newExchange(node *Node, remote *net.UDPAddr, key exchangeKey, protocolID uint16, initiator bool, session *SecureSession, ephemeralInitiatorID uint64) *Exchange {
+// newExchange takes who initiated from the key, so the routing identity and
+// the exchange's own idea of its role can never disagree.
+func newExchange(node *Node, remote *net.UDPAddr, key exchangeKey, protocolID uint16, session *SecureSession, ephemeralInitiatorID uint64) *Exchange {
 	return &Exchange{
-		node: node, remote: remote, key: key, id: key.id, protocolID: protocolID, initiator: initiator,
+		node: node, remote: remote, key: key, id: key.id, protocolID: protocolID, initiator: key.weStarted,
 		session: session, ephemeralInitiatorID: ephemeralInitiatorID, awaiting: make(map[uint32]chan error),
 		incoming: make(chan message.Message, 4),
 	}
+}
+
+// carries reports whether this message belongs to the exchange's protocol.
+//
+// It is deliberately not an equality test. An MRP standalone acknowledgement is
+// always Secure Channel opcode 0x10, whatever protocol the exchange itself
+// speaks, because MRP sits under the protocols rather than inside one. Equality
+// therefore drops precisely the message a slow peer sends to say "alive, stop
+// retransmitting" — measured 19-08 on the two devices in this fabric with a
+// 17-second idle interval, whose reads then ran out all five transmissions.
+func (e *Exchange) carries(header message.ProtocolHeader) bool {
+	if e.protocolID == header.ProtocolID {
+		return true
+	}
+	return header.ProtocolID == message.ProtocolSecureChannel && header.Opcode == message.OpcodeStandaloneAck
 }
 
 // ID reports the exchange ID.
@@ -535,7 +614,7 @@ func (e *Exchange) Close() {
 // Send transmits a message reliably: it keeps retransmitting with backoff
 // until the peer acknowledges, either standalone or on its reply.
 func (e *Exchange) Send(ctx context.Context, opcode uint8, payload []byte) error {
-	frame, counter, err := e.build(opcode, payload, true)
+	frame, counter, err := e.build(e.protocolID, opcode, payload, true)
 	if err != nil {
 		return err
 	}
@@ -585,7 +664,7 @@ func (e *Exchange) Send(ctx context.Context, opcode uint8, payload []byte) error
 // SendOnce transmits without requesting an acknowledgement. Status reports
 // that end an exchange use this.
 func (e *Exchange) SendOnce(opcode uint8, payload []byte) error {
-	frame, _, err := e.build(opcode, payload, false)
+	frame, _, err := e.build(e.protocolID, opcode, payload, false)
 	if err != nil {
 		return err
 	}
@@ -597,6 +676,11 @@ func (e *Exchange) SendOnce(opcode uint8, payload []byte) error {
 
 // Acknowledge flushes an outstanding acknowledgement as a standalone ack,
 // for when there is no reply to piggyback it on.
+//
+// It goes out under Secure Channel even on an Interaction Model exchange: MRP
+// is below the protocols, and a peer that matches on protocol plus opcode (as
+// connectedhomeip does) would otherwise not see an acknowledgement at all but
+// an unknown Interaction Model message type.
 func (e *Exchange) Acknowledge() error {
 	e.mu.Lock()
 	pending := e.pendingAck
@@ -604,7 +688,14 @@ func (e *Exchange) Acknowledge() error {
 	if pending == nil {
 		return nil
 	}
-	return e.SendOnce(message.OpcodeStandaloneAck, nil)
+	frame, _, err := e.build(message.ProtocolSecureChannel, message.OpcodeStandaloneAck, nil, false)
+	if err != nil {
+		return err
+	}
+	if _, err := e.node.sendConn(e.remote).WriteToUDP(frame, e.remote); err != nil {
+		return fmt.Errorf("send Matter message: %w", err)
+	}
+	return nil
 }
 
 // Receive waits for the peer's next message in this exchange.
@@ -619,7 +710,7 @@ func (e *Exchange) Receive(ctx context.Context) (opcode uint8, payload []byte, e
 	}
 }
 
-func (e *Exchange) build(opcode uint8, payload []byte, reliable bool) ([]byte, uint32, error) {
+func (e *Exchange) build(protocolID uint16, opcode uint8, payload []byte, reliable bool) ([]byte, uint32, error) {
 	e.mu.Lock()
 	ack := e.pendingAck
 	e.pendingAck = nil
@@ -643,7 +734,7 @@ func (e *Exchange) build(opcode uint8, payload []byte, reliable bool) ([]byte, u
 			AckCounter: ack,
 			Opcode:     opcode,
 			ExchangeID: e.id,
-			ProtocolID: e.protocolID,
+			ProtocolID: protocolID,
 		},
 		Payload: payload,
 	}
@@ -789,8 +880,15 @@ func (n *Node) retryInterval(attempt int) time.Duration {
 	return retryInterval(n.RetryInterval, attempt)
 }
 
+// retryInterval is the wait before transmission attempt+1. A secured exchange
+// asks its session every time instead of copying a base at creation: whether the
+// peer counts as awake changes while the exchange is open, and that is the whole
+// point of the two intervals.
 func (e *Exchange) retryInterval(attempt int) time.Duration {
 	base := e.retryBase
+	if base <= 0 && e.session != nil {
+		base = e.session.retransBase(time.Now())
+	}
 	if base <= 0 {
 		base = e.node.RetryInterval
 	}

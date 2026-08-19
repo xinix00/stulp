@@ -112,8 +112,8 @@ func inspectNode(ctx context.Context, client attributeClient, onboardingPayload 
 				"matter.fabricIndex": fabricIndex, "matter.deviceTypes": hexIDs(deviceTypes),
 				"matter.serverClusters": hexIDs(servers), "matter.bridged": bridged,
 				"~matter.endpointInventory": []EndpointInventory{inventory},
-				"matter.settings":          matterSettings,
-				"matter.modelVersion":      matterModelVersion,
+				"matter.settings":           matterSettings,
+				"matter.modelVersion":       matterModelVersion,
 			},
 		})
 	}

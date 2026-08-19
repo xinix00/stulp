@@ -9,6 +9,7 @@ package appproto
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -82,8 +83,8 @@ type Conn struct {
 	rw io.ReadWriteCloser
 	br *bufio.Reader
 
-	writeMu sync.Mutex
-	bw      *bufio.Writer
+	writeGate chan struct{}
+	bw        *bufio.Writer
 
 	closeOnce sync.Once
 	closeErr  error
@@ -91,9 +92,10 @@ type Conn struct {
 
 func NewConn(rw io.ReadWriteCloser) *Conn {
 	return &Conn{
-		rw: rw,
-		br: bufio.NewReaderSize(rw, connBufferSize),
-		bw: bufio.NewWriterSize(rw, connBufferSize),
+		rw:        rw,
+		br:        bufio.NewReaderSize(rw, connBufferSize),
+		bw:        bufio.NewWriterSize(rw, connBufferSize),
+		writeGate: make(chan struct{}, 1),
 	}
 }
 
@@ -106,12 +108,16 @@ func (c *Conn) WriteRaw(body []byte) error {
 	if len(body) > MaxFrameSize {
 		return fmt.Errorf("%w: %d bytes", ErrFrameTooLarge, len(body))
 	}
+	c.writeGate <- struct{}{}
+	defer func() { <-c.writeGate }()
+	return c.writeRaw(body)
+}
 
+// writeRaw writes with writeGate held.
+func (c *Conn) writeRaw(body []byte) error {
 	var header [4]byte
 	binary.BigEndian.PutUint32(header[:], uint32(len(body)))
 
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
 	if _, err := c.bw.Write(header[:]); err != nil {
 		return err
 	}
@@ -161,19 +167,51 @@ func (c *Conn) ReadRawLimit(limit int) ([]byte, error) {
 	return body, nil
 }
 
-// WriteFrame encodes and sends one frame.
-func (c *Conn) WriteFrame(f Frame) error {
+func encodeFrame(f Frame) ([]byte, error) {
 	body, err := json.Marshal(f)
 	if err != nil {
-		return fmt.Errorf("appproto: encode: %w", err)
+		return nil, fmt.Errorf("appproto: encode: %w", err)
 	}
 	if len(body) > MaxFrameSize {
 		// Refuse to send what the peer is required to reject. Failing here
 		// names the oversized message; failing there would only report a
 		// protocol violation with no clue what caused it.
-		return fmt.Errorf("%w: %d bytes in %s %s", ErrFrameTooLarge, len(body), f.T, f.M)
+		return nil, fmt.Errorf("%w: %d bytes in %s %s", ErrFrameTooLarge, len(body), f.T, f.M)
+	}
+	return body, nil
+}
+
+// WriteFrame encodes and sends one frame.
+func (c *Conn) WriteFrame(f Frame) error {
+	body, err := encodeFrame(f)
+	if err != nil {
+		return err
 	}
 	return c.WriteRaw(body)
+}
+
+// WriteFrameContext is WriteFrame that gives up while waiting its turn: a
+// caller queued behind another frame stops queueing when its context ends.
+//
+// Once the first byte is out the write runs to completion. Abandoning a frame
+// halfway leaves the peer reading a length prefix with no body, which breaks
+// every frame after it -- and a caller that hung up is no reason to break the
+// app's whole connection. A peer that has stopped reading is the heartbeat's
+// job: Close does not take writeGate, so closing the stream is what releases a
+// write stuck against an unreachable peer.
+func (c *Conn) WriteFrameContext(ctx context.Context, f Frame) error {
+	body, err := encodeFrame(f)
+	if err != nil {
+		return err
+	}
+	select {
+	case c.writeGate <- struct{}{}:
+		defer func() { <-c.writeGate }()
+	case <-ctx.Done():
+		// Not a byte of this frame was written, so the stream stays usable.
+		return ctx.Err()
+	}
+	return c.writeRaw(body)
 }
 
 // SetReadDeadline geeft de leesdeadline door aan de onderliggende verbinding,
@@ -210,7 +248,7 @@ func (c *Conn) Close() error {
 	c.closeOnce.Do(func() {
 		// Every complete frame is flushed by WriteRaw, so there is no useful
 		// buffered data to preserve here. More importantly, Close must not wait
-		// for writeMu: closing the stream is precisely how a heartbeat aborts a
+		// for writeGate: closing the stream is precisely how a heartbeat aborts a
 		// write that is stuck against an unreachable peer.
 		c.closeErr = c.rw.Close()
 	})

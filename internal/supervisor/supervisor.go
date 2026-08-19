@@ -473,10 +473,19 @@ func (s *Supervisor) State(appID string) AppState {
 	return state
 }
 
-func (s *Supervisor) Registrations(ctx context.Context, appID string) (plugin.RegistrationSnapshot, error) {
+// runnerForApp snapshots a stable Runtime pointer without retaining the
+// supervisor-wide lock across app IPC. Stop and Close may remove and close that
+// runtime concurrently; Process.Close is idempotent and closes its Session,
+// which is precisely what interrupts an in-flight call to an unresponsive app.
+func (s *Supervisor) runnerForApp(appID string) plugin.Runtime {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	runner := s.runners[appID]
+	s.mu.RUnlock()
+	return runner
+}
+
+func (s *Supervisor) Registrations(ctx context.Context, appID string) (plugin.RegistrationSnapshot, error) {
+	runner := s.runnerForApp(appID)
 	if runner == nil {
 		return plugin.RegistrationSnapshot{}, fmt.Errorf("app %q is not running", appID)
 	}
@@ -484,9 +493,7 @@ func (s *Supervisor) Registrations(ctx context.Context, appID string) (plugin.Re
 }
 
 func (s *Supervisor) PairListDevices(ctx context.Context, appID, driverID string) ([]map[string]any, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner == nil {
 		return nil, fmt.Errorf("app %q is not running", appID)
 	}
@@ -494,9 +501,7 @@ func (s *Supervisor) PairListDevices(ctx context.Context, appID, driverID string
 }
 
 func (s *Supervisor) StartPairSession(ctx context.Context, appID, driverID, sessionID string) ([]string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner == nil {
 		return nil, fmt.Errorf("app %q is not running", appID)
 	}
@@ -504,9 +509,7 @@ func (s *Supervisor) StartPairSession(ctx context.Context, appID, driverID, sess
 }
 
 func (s *Supervisor) PairEmit(ctx context.Context, appID, sessionID, event string, data any) (any, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner == nil {
 		return nil, fmt.Errorf("app %q is not running", appID)
 	}
@@ -514,9 +517,7 @@ func (s *Supervisor) PairEmit(ctx context.Context, appID, sessionID, event strin
 }
 
 func (s *Supervisor) ClosePairSession(ctx context.Context, appID, sessionID string) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner == nil {
 		return nil
 	}
@@ -524,9 +525,7 @@ func (s *Supervisor) ClosePairSession(ctx context.Context, appID, sessionID stri
 }
 
 func (s *Supervisor) AddPairedDevice(ctx context.Context, appID, driverID string, candidate map[string]any) (store.Device, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner == nil {
 		return store.Device{}, fmt.Errorf("app %q is not running", appID)
 	}
@@ -534,9 +533,7 @@ func (s *Supervisor) AddPairedDevice(ctx context.Context, appID, driverID string
 }
 
 func (s *Supervisor) InvokeAppAPI(ctx context.Context, appID, handler string, query, body map[string]any) (any, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner == nil {
 		return nil, fmt.Errorf("app %q is not running", appID)
 	}
@@ -544,13 +541,11 @@ func (s *Supervisor) InvokeAppAPI(ctx context.Context, appID, handler string, qu
 }
 
 // ReadUIAsset vraagt een aangemelde app om één bestand uit zijn ingebedde UI.
-// De supervisor houdt de runner tijdens de call vast, net als bij de overige
-// app-eigen API: Stop kan de verbinding zo niet halverwege onder de call vandaan
-// halen.
+// Een gelijktijdige Stop mag de verbinding juist onder deze call sluiten: zo
+// onderbreekt hij een app die niet meer antwoordt zonder de hele supervisor te
+// blokkeren.
 func (s *Supervisor) ReadUIAsset(ctx context.Context, appID, path string) (plugin.UIAsset, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner == nil {
 		return plugin.UIAsset{}, fmt.Errorf("app %q is not running", appID)
 	}
@@ -558,9 +553,7 @@ func (s *Supervisor) ReadUIAsset(ctx context.Context, appID, path string) (plugi
 }
 
 func (s *Supervisor) InvokeFlow(ctx context.Context, appID, cardType, cardID string, args, state map[string]any) (any, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner == nil {
 		return nil, fmt.Errorf("app %q is not running", appID)
 	}
@@ -568,9 +561,7 @@ func (s *Supervisor) InvokeFlow(ctx context.Context, appID, cardType, cardID str
 }
 
 func (s *Supervisor) InvokeFlowAutocomplete(ctx context.Context, appID, cardType, cardID, argument, query string, args map[string]any) (any, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner == nil {
 		return nil, fmt.Errorf("app %q is not running", appID)
 	}
@@ -578,92 +569,78 @@ func (s *Supervisor) InvokeFlowAutocomplete(ctx context.Context, appID, cardType
 }
 
 func (s *Supervisor) SetAppSetting(ctx context.Context, appID, name string, value any) error {
-	s.mu.RLock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner != nil {
-		defer s.mu.RUnlock()
 		return runner.SetSetting(ctx, name, value)
 	}
-	s.mu.RUnlock()
 	return s.store.SetSetting(ctx, appID, name, value)
 }
 
 func (s *Supervisor) UnsetAppSetting(ctx context.Context, appID, name string) error {
-	s.mu.RLock()
-	runner := s.runners[appID]
+	runner := s.runnerForApp(appID)
 	if runner != nil {
-		defer s.mu.RUnlock()
 		return runner.UnsetSetting(ctx, name)
 	}
-	s.mu.RUnlock()
 	return s.store.UnsetSetting(ctx, appID, name)
 }
 
-func (s *Supervisor) lockRunnerForDevice(ctx context.Context, deviceID string) (plugin.Runtime, func(), error) {
+func (s *Supervisor) runnerForDevice(ctx context.Context, deviceID string) (plugin.Runtime, error) {
 	device, err := s.store.Device(ctx, deviceID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	s.mu.RLock()
-	runner := s.runners[device.AppID]
+	runner := s.runnerForApp(device.AppID)
 	if runner == nil {
-		s.mu.RUnlock()
-		return nil, nil, fmt.Errorf("app %q is not running", device.AppID)
+		return nil, fmt.Errorf("app %q is not running", device.AppID)
 	}
-	return runner, s.mu.RUnlock, nil
+	return runner, nil
 }
 
 func (s *Supervisor) InvokeCapability(ctx context.Context, deviceID, capabilityID string, value any, options map[string]any) error {
-	runner, unlock, err := s.lockRunnerForDevice(ctx, deviceID)
+	runner, err := s.runnerForDevice(ctx, deviceID)
 	if err != nil {
 		return err
 	}
-	defer unlock()
 	return runner.InvokeCapability(ctx, deviceID, capabilityID, value, options)
 }
 
 func (s *Supervisor) DeviceMedia(ctx context.Context, deviceID string) ([]plugin.MediaRegistration, error) {
-	runner, unlock, err := s.lockRunnerForDevice(ctx, deviceID)
+	runner, err := s.runnerForDevice(ctx, deviceID)
 	if err != nil {
 		return nil, err
 	}
-	defer unlock()
 	return runner.DeviceMedia(ctx, deviceID)
 }
 
 func (s *Supervisor) ResolveMedia(ctx context.Context, deviceID, slot, kind string) (plugin.VideoStream, error) {
-	runner, unlock, err := s.lockRunnerForDevice(ctx, deviceID)
+	runner, err := s.runnerForDevice(ctx, deviceID)
 	if err != nil {
 		return plugin.VideoStream{}, err
 	}
-	defer unlock()
 	return runner.ResolveMedia(ctx, deviceID, slot, kind)
 }
 
 func (s *Supervisor) UpdateDeviceSettings(ctx context.Context, deviceID string, patch map[string]any) (store.Device, error) {
-	runner, unlock, err := s.lockRunnerForDevice(ctx, deviceID)
+	runner, err := s.runnerForDevice(ctx, deviceID)
 	if err != nil {
 		return store.Device{}, err
 	}
-	defer unlock()
 	return runner.UpdateDeviceSettings(ctx, deviceID, patch)
 }
 
 func (s *Supervisor) RenameDevice(ctx context.Context, deviceID, name string) (store.Device, error) {
-	runner, unlock, err := s.lockRunnerForDevice(ctx, deviceID)
+	runner, err := s.runnerForDevice(ctx, deviceID)
 	if err != nil {
 		return store.Device{}, err
 	}
-	defer unlock()
 	return runner.RenameDevice(ctx, deviceID, name)
 }
 
 func (s *Supervisor) DeleteDevice(ctx context.Context, deviceID string) error {
-	runner, unlock, err := s.lockRunnerForDevice(ctx, deviceID)
+	runner, err := s.runnerForDevice(ctx, deviceID)
 	if err != nil {
 		return err
 	}
-	defer unlock()
 	return runner.DeleteDevice(ctx, deviceID)
 }
 

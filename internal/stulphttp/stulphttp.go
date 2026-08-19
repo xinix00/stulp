@@ -43,6 +43,7 @@ const (
 	StatusNotFound              = 404
 	StatusMethodNotAllowed      = 405
 	StatusConflict              = 409
+	StatusTooManyRequests       = 429
 	StatusUnprocessableEntity   = 422
 	StatusRequestEntityTooLarge = 413
 	StatusUnsupportedMediaType  = 415

@@ -512,6 +512,188 @@ func TestExchangeRetryIntervalOverridesNodeDefault(t *testing.T) {
 	}
 }
 
+// A standalone acknowledgement is Secure Channel opcode 0x10 whatever protocol
+// the exchange speaks. It is how a peer that cannot answer yet says "alive,
+// stop retransmitting", so an Interaction Model exchange must accept it: the
+// devices that need it most are the sleepy ones, and hammering them five times
+// is the opposite of what they asked for.
+func TestStandaloneAckReleasesAnInteractionExchange(t *testing.T) {
+	node, peer := testNode(t)
+	i2r := bytes.Repeat([]byte{0x44}, 16)
+	r2i := bytes.Repeat([]byte{0x55}, 16)
+	session, err := node.RegisterSession(SessionConfig{
+		LocalID: 0x1001, PeerID: 0x2001, OutboundKey: i2r, InboundKey: r2i,
+		Remote: peer.LocalAddr().(*net.UDPAddr),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exchange, err := node.InitiateSecure(session, message.ProtocolInteractionModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exchange.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sent := make(chan error, 1)
+	go func() { sent <- exchange.Send(ctx, 0x02, []byte("subscribe")) }()
+
+	// Read the request off the wire to learn the counter the peer must
+	// acknowledge; the peer holds the other direction's key.
+	if err := peer.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 2048)
+	count, _, err := peer.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := message.OpenWithSource(buffer[:count], i2r, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Protocol.ProtocolID != message.ProtocolInteractionModel {
+		t.Fatalf("request went out on protocol %#x, want Interaction Model", request.Protocol.ProtocolID)
+	}
+
+	ack := request.Header.Counter
+	frame, err := message.Message{
+		Header: message.Header{SessionID: 0x1001, Counter: 7},
+		Protocol: message.ProtocolHeader{
+			AckCounter: &ack, Opcode: message.OpcodeStandaloneAck,
+			ExchangeID: exchange.ID(), ProtocolID: message.ProtocolSecureChannel,
+		},
+	}.SealWithSource(r2i, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := peer.WriteToUDP(frame, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-sent:
+		if err != nil {
+			t.Fatalf("standalone acknowledgement did not satisfy Send: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the standalone acknowledgement was dropped: Send kept retransmitting")
+	}
+}
+
+// Matter numbers exchanges per initiator, so the same ID can be live in both
+// directions at once. A report from the device must not be swallowed by our own
+// exchange that happens to carry that number.
+func TestPeerMayStartAnExchangeWithAnIDWeAreUsing(t *testing.T) {
+	node, peer := testNode(t)
+	remote := peer.LocalAddr().(*net.UDPAddr)
+	ours, err := node.Initiate(remote, message.ProtocolSecureChannel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ours.Close()
+
+	frame := peerFrame(t, 7, ours.ID(), message.OpcodePBKDFParamRequest, true, []byte{0x15, 0x18})
+	if _, err := peer.WriteToUDP(frame, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	accepted, err := node.Accept(ctx)
+	if err != nil {
+		t.Fatalf("the peer's exchange %d was dropped because we hold that ID ourselves: %v", ours.ID(), err)
+	}
+	defer accepted.Close()
+	if accepted == ours {
+		t.Fatal("the peer's message landed in our own exchange")
+	}
+	if _, _, err := accepted.Receive(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The patience CASE negotiated is the session's, not one exchange's: this
+// fabric has devices advertising a 17-second idle interval, and the transport
+// default of 500 ms gives up after 5.6 seconds in total.
+func TestSecureExchangeInheritsTheSessionRetryBase(t *testing.T) {
+	node, peer := testNode(t)
+	key := bytes.Repeat([]byte{0x66}, 16)
+	sleepy, err := node.RegisterSession(SessionConfig{
+		LocalID: 0x1001, PeerID: 0x2001, OutboundKey: key, InboundKey: key,
+		Remote: peer.LocalAddr().(*net.UDPAddr), Timing: MRPTiming{Idle: 17 * time.Second},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exchange, err := node.InitiateSecure(sleepy, message.ProtocolInteractionModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exchange.Close()
+
+	var patience time.Duration
+	for attempt := range MaxTransmissions {
+		patience += exchange.retryInterval(attempt)
+	}
+	if patience < 100*time.Second {
+		t.Fatalf("total patience %v: a peer allowed 17s per answer needs more than five short waits", patience)
+	}
+
+	awake, err := node.RegisterSession(SessionConfig{
+		LocalID: 0x1002, PeerID: 0x2002, OutboundKey: key, InboundKey: key,
+		Remote: peer.LocalAddr().(*net.UDPAddr),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := node.InitiateSecure(awake, message.ProtocolInteractionModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plain.Close()
+	if got := plain.retryInterval(0); got > time.Second {
+		t.Fatalf("a session without advertised timing must fall back to the node default, got %v", got)
+	}
+}
+
+// The idle interval is for a peer that may be asleep. One we heard from a moment
+// ago is not asleep, and making a light switch wait seventeen seconds for a
+// single lost packet would be the cure being worse than the disease.
+func TestAPeerWeJustHeardFromGetsTheActiveInterval(t *testing.T) {
+	node, peer := testNode(t)
+	key := bytes.Repeat([]byte{0x77}, 16)
+	session, err := node.RegisterSession(SessionConfig{
+		LocalID: 0x1001, PeerID: 0x2001, OutboundKey: key, InboundKey: key,
+		Remote: peer.LocalAddr().(*net.UDPAddr),
+		Timing: MRPTiming{Idle: 17 * time.Second, Active: 2500 * time.Millisecond, ActiveThreshold: time.Second},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exchange, err := node.InitiateSecure(session, message.ProtocolInteractionModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exchange.Close()
+
+	// Never heard from: assume it sleeps.
+	if got := exchange.retryInterval(0); got < 17*time.Second {
+		t.Fatalf("first interval %v, want the idle interval for a peer we have not heard from", got)
+	}
+	now := time.Now()
+	session.heard(now)
+	if got := exchange.retryInterval(0); got > 4*time.Second {
+		t.Fatalf("interval %v right after hearing from the peer, want the 2.5s active interval", got)
+	}
+	// And once the active threshold has passed it counts as asleep again.
+	session.lastHeard.Store(now.Add(-2 * time.Second).UnixNano())
+	if got := exchange.retryInterval(0); got < 17*time.Second {
+		t.Fatalf("interval %v after the active threshold lapsed, want the idle interval again", got)
+	}
+}
+
 func pow(base float64, exponent int) float64 {
 	result := 1.0
 	for range exponent {

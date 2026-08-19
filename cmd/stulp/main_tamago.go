@@ -32,6 +32,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -86,15 +87,22 @@ func main() {
 	// nearly useless and honest beats a restart loop, because this way the page
 	// comes up and you can see what the node CAN do.
 	documentName := envOr(app, "STULP_DOCUMENT", defaultDocument)
-	files := store.FileStore(volumeFiles{app})
-	if _, err := app.Stat(documentName); err != nil && !storageMissing(err) {
-		// Er ís storage, het bestand bestaat alleen nog niet. Dat is een eerste
-		// start en geen fout.
-		app.Logf("stulp: document %s: first run", documentName)
-	} else if err != nil {
-		app.Logf("stulp: WARNING no storage on this board (%v) -- nothing will be remembered "+
-			"across a reboot. Give this node a volume, or run stulp on a board that has one.", err)
-		files = newMemoryFiles()
+	files := store.NewABFileStore(volumeFiles{app}, documentName)
+	if _, err := app.Stat(documentName); err != nil {
+		switch {
+		case storageMissing(err):
+			app.Logf("stulp: WARNING no storage on this board (%v) -- nothing will be remembered "+
+				"across a reboot. Give this node a volume, or run stulp on a board that has one.", err)
+			files = newMemoryFiles()
+		case errors.Is(err, fs.ErrNotExist):
+			// A fresh A/B installation deliberately leaves the legacy name absent,
+			// so this is not enough to call it a first run.
+			app.Logf("stulp: document %s: no legacy file; checking A/B slots", documentName)
+		default:
+			// Open below performs the authoritative read and reports the useful
+			// path-specific error. Keep this probe visible as extra diagnosis.
+			app.Logf("stulp: document %s: volume probe: %v", documentName, err)
+		}
 	}
 	store.UseFileStore(files)
 	database, err := store.Open(documentName)
@@ -206,13 +214,10 @@ func envOr(app *applib.App, key, fallback string) string {
 	return fallback
 }
 
-// volumeFiles is the document's home on a node: the kernel owns the volume and
-// an app asks it over an RPC. Reads and writes are whole documents, which is
-// what the store does anyway.
-//
-// There is no temp-and-rename here, and that is not an omission: the write is
-// one RPC that the kernel either applied or did not, so there is no window in
-// which a half document exists in the app's hands.
+// volumeFiles is the document's raw home on a node: the kernel owns the volume
+// and an app asks it over RPC. applib truncates first and then writes in chunks,
+// so WriteFile itself is not crash-atomic. main wraps this backend in the
+// store's A/B file store before opening the live document.
 type volumeFiles struct{ app *applib.App }
 
 func (v volumeFiles) ReadFile(path string) ([]byte, error) { return v.app.ReadFile(path) }

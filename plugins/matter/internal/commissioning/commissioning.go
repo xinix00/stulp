@@ -447,6 +447,39 @@ func (c Client) AddNOC(ctx context.Context, noc, icac, ipk []byte, adminSubject 
 	return uint8(fabricIndex), nil
 }
 
+// StatusFabricConflict is AddNOC's answer when the accessory already carries a
+// NOC for this fabric: the certificate chains to a root it already knows. That
+// is the fingerprint of a half-finished removal — Stulp forgot the device while
+// RemoveFabric never reached it.
+const StatusFabricConflict uint8 = 0x09
+
+// StaleFabricIndex finds the accessory's fabric-table entry for fabricID, so a
+// commissioner that hits StatusFabricConflict can remove the orphan and try
+// again. It reads the Fabrics attribute over the commissioning (PASE) session,
+// which has administer rights on the node.
+func (c Client) StaleFabricIndex(ctx context.Context, fabricID uint64) (uint8, error) {
+	endpoint := uint16(0)
+	cluster := ClusterOperationalCredentials
+	attribute := uint32(0x0001) // Fabrics
+	reports, err := c.IM.Read(ctx, im.AttributePath{Endpoint: &endpoint, Cluster: &cluster, Attribute: &attribute})
+	if err != nil {
+		return 0, err
+	}
+	for _, report := range reports {
+		for _, entry := range report.Value.Children {
+			// FabricDescriptor: FabricID is veld 3, FabricIndex het
+			// fabric-scoped veld 254.
+			id, hasID := entry.Field(3)
+			index, hasIndex := entry.Field(254)
+			if hasID && hasIndex && id.Type == tlv.TypeUint && id.Uint == fabricID &&
+				index.Type == tlv.TypeUint && index.Uint > 0 && index.Uint <= 0xFF {
+				return uint8(index.Uint), nil
+			}
+		}
+	}
+	return 0, fmt.Errorf("accessory reports no fabric entry for fabric %016X", fabricID)
+}
+
 // RemoveFabric removes this controller's operational credentials from a
 // commissioned node. It must run over CASE while the fabric still exists;
 // deleting only local state makes later re-commissioning fail because the

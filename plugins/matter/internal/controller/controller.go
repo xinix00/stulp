@@ -391,7 +391,25 @@ func (c *Controller) Commission(ctx context.Context, request CommissionRequest) 
 	fabricIndex, err := commissioner.AddNOC(commissioningContext, nocMatter, nil, c.fabric.IPK,
 		c.fabric.ControllerNodeID, credentials.TestVendorID)
 	if err != nil {
-		return nil, fmt.Errorf("add Matter NOC: %w", err)
+		// FabricConflict: het apparaat draagt ÓNZE fabric nog. Dat is de
+		// vingerafdruk van een half afgemaakt verwijderen — Stulp is de rij
+		// kwijt (dat beleid is bewust: een mislukte opruiming mag verwijderen
+		// niet blokkeren, zie plugin.DeleteDevice) terwijl RemoveFabric het
+		// apparaat nooit bereikte. De gebruiker die nu opnieuw koppelt ís de
+		// opruimopdracht: haal de wees weg en probeer één keer opnieuw, in
+		// plaats van hem naar een fabrieksreset te sturen.
+		var conflict commissioning.CommissioningError
+		if errors.As(err, &conflict) && conflict.Status == commissioning.StatusFabricConflict {
+			if staleIndex, findErr := commissioner.StaleFabricIndex(commissioningContext, c.fabric.ID); findErr == nil {
+				if removeErr := commissioner.RemoveFabric(commissioningContext, staleIndex); removeErr == nil {
+					fabricIndex, err = commissioner.AddNOC(commissioningContext, nocMatter, nil, c.fabric.IPK,
+						c.fabric.ControllerNodeID, credentials.TestVendorID)
+				}
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("add Matter NOC: %w", err)
+		}
 	}
 	c.node.RemoveSession(paseResult.LocalSessionID)
 	paseActive = false

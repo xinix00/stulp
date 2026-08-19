@@ -222,7 +222,17 @@ func (s *Store) loadManifest(app appRecord) {
 	}
 	loaded, _, err := manifest.Load(app.Root)
 	if err != nil {
-		s.manifests[app.ID] = map[string]any{"id": app.ID}
+		// Onleesbaar is GEEN reden om te vergeten wat we al wisten. Een
+		// teruggezet document draagt de roots van de machine waar de backup
+		// gemaakt is (gemeten 19-08: alle zeven wijzen naar /Users/derek/hopy/
+		// plugins/...), dus op een node mislukt élke lezing. Dat overschreef hier
+		// het manifest dat de app zélf had aangemeld met een romp: geen
+		// instellingsvelden, geen drivers, geen eigen koppelpagina's — terwijl de
+		// apparaten bleven werken, want de plugin draaide al. De romp is er voor
+		// een app waarvan we NIETS hebben, niet als straf voor een fout pad.
+		if s.manifests[app.ID] == nil {
+			s.manifests[app.ID] = map[string]any{"id": app.ID}
+		}
 		return
 	}
 	s.manifests[app.ID] = loaded.Raw

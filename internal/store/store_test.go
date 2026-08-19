@@ -695,3 +695,58 @@ func TestReportingAValueDoesNotWriteToDisk(t *testing.T) {
 		t.Fatal("renaming a device did not reach the document")
 	}
 }
+
+// Een teruggezet document draagt de roots van de machine waar de backup gemaakt
+// is. Op een andere machine — een node heeft alleen aangemelde apps — mislukt élke
+// manifest-lezing, en dat mag niet betekenen dat we vergeten wat de app zelf al
+// verteld had: geen instellingsvelden, geen drivers, geen koppelpagina's.
+func TestForeignAppRootDoesNotEraseAKnownManifest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := bundle(t, map[string]any{
+		"id": "com.stulp.thing", "version": "1.0.0", "sdk": float64(3),
+		"name":     map[string]any{"en": "Thing"},
+		"settings": []any{map[string]any{"id": "host", "type": "text"}},
+	})
+	loaded, appRoot, err := manifest.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := Open(filepath.Join(t.TempDir(), "stulp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.InstallApp(ctx, loaded, appRoot, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Precies wat een backup van een andere machine draagt: dezelfde app, een
+	// root die hier niet bestaat.
+	data, err := database.SnapshotBytes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := strings.Replace(string(data), appRoot, "/Users/iemand/hopy/plugins/thing", 1)
+	if foreign == string(data) {
+		t.Fatal("de root stond niet in het document: deze test toetst niets")
+	}
+	snapshot, err := ParseSnapshot([]byte(foreign))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.RestoreSnapshot(ctx, snapshot); err != nil {
+		t.Fatal(err)
+	}
+
+	app, err := database.App(ctx, "com.stulp.thing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Manifest["settings"] == nil {
+		t.Fatalf("het manifest is een romp geworden na de restore: %v", app.Manifest)
+	}
+	if app.Manifest["name"] == nil {
+		t.Fatal("de naam van de app is weg")
+	}
+}

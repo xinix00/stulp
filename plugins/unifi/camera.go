@@ -68,7 +68,7 @@ func (c *cameraDevice) OnInit() error {
 	if err := c.registerMedia(); err != nil {
 		return err
 	}
-	c.refresh()
+	instance.refreshSoon()
 	return nil
 }
 
@@ -124,19 +124,20 @@ func (c *cameraDevice) registerMedia() error {
 }
 
 // refresh haalt de stand op bij de console.
-func (c *cameraDevice) refresh() {
+func (c *cameraDevice) refresh() error {
 	client, err := instance.api()
 	if err != nil {
-		return
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	camera, err := client.Camera(ctx, c.protect)
 	if err != nil {
 		c.device.SetUnavailable("De console antwoordt niet: " + err.Error())
-		return
+		return err
 	}
 	c.applyCamera(camera)
+	return nil
 }
 
 func (c *cameraDevice) applyCamera(camera protect.Camera) {

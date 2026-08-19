@@ -187,6 +187,11 @@ func serveWithHeartbeat(conn *appproto.Conn, plugin Plugin, heartbeatInterval, h
 	app := &process{plugin: plugin, state: NewState(), devices: map[string]*Device{},
 		sessions: map[string]map[string]PairHandler{}, ready: make(chan struct{})}
 	app.session = appproto.NewSession(conn, app.handle, app.event)
+	// Een configuratie- of koppelpagina leest zijn bestanden uit het ingebedde
+	// bestandssysteem van deze app: geen app-toestand, geen netwerk. Zonder deze
+	// zijbaan staan die leesacties achter de handler die er nu is, en een app die
+	// een trage peer bevraagt laat zijn eigen pagina's dan minuten leeg.
+	app.session.AnswerBesideQueue("ui.asset")
 	app.host = NewHost(app.session, app.state)
 	app.stulp = &Stulp{host: app.host, cards: map[string]*flowCard{}}
 

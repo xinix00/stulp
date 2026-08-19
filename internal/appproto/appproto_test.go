@@ -535,3 +535,88 @@ func (s *blockingStream) Close() error {
 	s.closeOnce.Do(func() { close(s.closed) })
 	return nil
 }
+
+// Een app handelt één verzoek tegelijk af, want de app-kant mag niet ineens
+// gelijktijdig zijn. Precies daarom moet plumbing -- een leesactie op een
+// ingebed bestand -- ernaast kunnen: anders staat een configuratiepagina achter
+// een apparaat dat op het netwerk wacht.
+func TestBesideQueueAnswersWhileHandlerIsBusy(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	server, client := net.Pipe()
+	session := NewSession(NewConn(server), func(_ context.Context, method string, _ json.RawMessage) (any, error) {
+		if method == "ui.asset" {
+			return "asset", nil
+		}
+		close(entered)
+		<-release
+		return "slow", nil
+	}, nil)
+	session.AnswerBesideQueue("ui.asset")
+	go session.Serve()
+	defer session.Close()
+
+	caller := NewSession(NewConn(client), nil, nil)
+	go caller.Serve()
+	defer caller.Close()
+
+	slow := make(chan error, 1)
+	go func() {
+		_, err := caller.Call(context.Background(), "device.refresh", nil)
+		slow <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("de trage handler kwam niet op gang")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := caller.Call(ctx, "ui.asset", map[string]any{"path": "settings/index.html"})
+	if err != nil {
+		t.Fatalf("ui.asset moest naast de rij kunnen: %v", err)
+	}
+	if string(result) != `"asset"` {
+		t.Fatalf("ui.asset gaf %s", result)
+	}
+
+	close(release)
+	if err := <-slow; err != nil {
+		t.Fatalf("het trage verzoek eindigde met %v", err)
+	}
+}
+
+// Wat niet gemarkeerd is blijft in de rij staan: één lane voor app-werk is de
+// hele afspraak met een app die niet gelijktijdig is.
+func TestUnmarkedMethodStaysInTheQueue(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	server, client := net.Pipe()
+	session := NewSession(NewConn(server), func(_ context.Context, method string, _ json.RawMessage) (any, error) {
+		if method == "device.refresh" {
+			close(entered)
+			<-release
+		}
+		return method, nil
+	}, nil)
+	go session.Serve()
+	defer session.Close()
+
+	caller := NewSession(NewConn(client), nil, nil)
+	go caller.Serve()
+	defer caller.Close()
+
+	go func() { _, _ = caller.Call(context.Background(), "device.refresh", nil) }()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("de trage handler kwam niet op gang")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if _, err := caller.Call(ctx, "ui.asset", nil); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("een ongemarkeerde methode kwam er langs de rij: %v", err)
+	}
+	close(release)
+}

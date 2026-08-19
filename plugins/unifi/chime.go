@@ -53,7 +53,7 @@ func (chimeDriver) ListDevices() ([]appsdk.PairedDevice, error) {
 
 func (c *chimeDevice) OnInit() error {
 	instance.watch(c.protect, c)
-	c.refresh()
+	instance.refreshSoon()
 	return nil
 }
 
@@ -61,17 +61,17 @@ func (c *chimeDevice) OnDeleted() {
 	instance.forget(c.protect)
 }
 
-func (c *chimeDevice) refresh() {
+func (c *chimeDevice) refresh() error {
 	client, err := instance.api()
 	if err != nil {
-		return
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	chime, err := client.Chime(ctx, c.protect)
 	if err != nil {
 		c.device.SetUnavailable("De console antwoordt niet: " + err.Error())
-		return
+		return err
 	}
 	if chime.IsConnected {
 		c.device.SetAvailable()
@@ -79,6 +79,7 @@ func (c *chimeDevice) refresh() {
 		c.device.SetUnavailable("De gong is niet verbonden met de console.")
 	}
 	c.applyVolume(chime.Volume)
+	return nil
 }
 
 func (c *chimeDevice) applyVolume(volume int) {

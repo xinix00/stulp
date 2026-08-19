@@ -295,10 +295,6 @@ func (s *Store) PublishAppRuntime(appID string, state any) {
 // result of an earlier update check, which the new release has answered.
 func (s *Store) InstallApp(ctx context.Context, m *manifest.Manifest, root, source string) error {
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return err
-	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	record := appRecord{
 		ID: m.ID, Version: m.Version, Root: root, Enabled: true, Source: source,
@@ -365,9 +361,6 @@ func (s *Store) SetAppEnabled(ctx context.Context, id string, enabled bool) erro
 func (s *Store) mutateApp(ctx context.Context, id string, change func(*appRecord)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	for index := range s.doc.Apps {
 		if s.doc.Apps[index].ID != id {
 			continue
@@ -436,10 +429,6 @@ func (s *Store) OfferApp(ctx context.Context, m *manifest.Manifest) (bool, error
 		return false, errors.New("an offered app needs a manifest with an id")
 	}
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return false, err
-	}
 	for index := range s.doc.Apps {
 		if s.doc.Apps[index].ID == m.ID {
 			s.mu.Unlock()
@@ -467,10 +456,6 @@ func (s *Store) OfferApp(ctx context.Context, m *manifest.Manifest) (bool, error
 // offer deliberately withholds.
 func (s *Store) AcceptApp(ctx context.Context, id string) (App, error) {
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return App{}, err
-	}
 	for index := range s.doc.Apps {
 		if s.doc.Apps[index].ID != id {
 			continue
@@ -516,10 +501,6 @@ func (s *Store) UpdateAnnouncedApp(ctx context.Context, m *manifest.Manifest) (b
 		return false, errors.New("an announced app needs a manifest with an id")
 	}
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return false, err
-	}
 	for index := range s.doc.Apps {
 		record := &s.doc.Apps[index]
 		if record.ID != m.ID {
@@ -566,10 +547,6 @@ func (s *Store) UninstallApp(ctx context.Context, id string) (App, []Device, err
 	}
 
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return App{}, nil, err
-	}
 	s.doc.Apps = removeWhere(s.doc.Apps, func(record appRecord) bool { return record.ID == id })
 	s.doc.Devices = removeWhere(s.doc.Devices, func(record deviceRecord) bool { return record.AppID == id })
 	s.doc.Notifications = removeWhere(s.doc.Notifications, func(record Notification) bool { return record.AppID == id })
@@ -632,10 +609,6 @@ func (s *Store) AddDevice(ctx context.Context, device Device) (Device, error) {
 	device.PreserveHardwareName()
 
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return Device{}, err
-	}
 	installed := false
 	for _, app := range s.doc.Apps {
 		if app.ID == device.AppID {
@@ -713,10 +686,6 @@ func (s *Store) UpdateDevice(ctx context.Context, device Device) error {
 	}
 	device.PreserveHardwareName()
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return err
-	}
 	index := -1
 	for position, record := range s.doc.Devices {
 		if record.ID == device.ID {
@@ -760,10 +729,6 @@ func (s *Store) DeleteDevice(ctx context.Context, id string) error {
 		return err
 	}
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return err
-	}
 	before := len(s.doc.Devices)
 	s.doc.Devices = removeWhere(s.doc.Devices, func(record deviceRecord) bool { return record.ID == id })
 	if len(s.doc.Devices) == before {
@@ -800,10 +765,6 @@ func (s *Store) SetSetting(ctx context.Context, appID, key string, value any) er
 		return err
 	}
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return err
-	}
 	if s.doc.Settings == nil {
 		s.doc.Settings = make(map[string]map[string]any)
 	}
@@ -822,10 +783,6 @@ func (s *Store) SetSetting(ctx context.Context, appID, key string, value any) er
 
 func (s *Store) UnsetSetting(ctx context.Context, appID, key string) error {
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return err
-	}
 	delete(s.doc.Settings[appID], key)
 	if len(s.doc.Settings[appID]) == 0 {
 		delete(s.doc.Settings, appID)
@@ -847,9 +804,6 @@ func (s *Store) UnsetSetting(ctx context.Context, appID, key string) error {
 func (s *Store) RecordFlowEvent(ctx context.Context, appID, cardType, cardID string, tokens, state any) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	s.publishCardTrigger(appID, cardType, cardID, tokens, state)
 	return nil
 }
@@ -859,9 +813,6 @@ func (s *Store) RecordFlowEvent(ctx context.Context, appID, cardType, cardID str
 func (s *Store) RecordSystemFlowEvent(ctx context.Context, cardType, cardID string, tokens, state any) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	s.publishCardTrigger("stulp", cardType, cardID, tokens, state)
 	return nil
 }

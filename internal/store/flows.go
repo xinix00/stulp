@@ -333,10 +333,6 @@ func (s *Store) CreateFlow(ctx context.Context, flow Flow) (Flow, error) {
 	flow.CreatedAt, flow.UpdatedAt = now, now
 
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return Flow{}, err
-	}
 	for _, existing := range s.doc.Flows {
 		if existing.ID == flow.ID {
 			s.mu.Unlock()
@@ -374,10 +370,6 @@ func (s *Store) updateFlow(ctx context.Context, flow Flow, expectedRevision *uin
 		return Flow{}, err
 	}
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return Flow{}, err
-	}
 	index := indexOfFlow(s.doc.Flows, flow.ID)
 	if index < 0 {
 		s.mu.Unlock()
@@ -482,10 +474,6 @@ func (s *Store) SetFlowResult(ctx context.Context, id string, runAt time.Time, r
 
 func (s *Store) DeleteFlow(ctx context.Context, id string) error {
 	s.mu.Lock()
-	if err := ctx.Err(); err != nil {
-		s.mu.Unlock()
-		return err
-	}
 	before := len(s.doc.Flows)
 	flows := removeWhere(s.doc.Flows, func(flow Flow) bool { return flow.ID == id })
 	if len(flows) == before {
@@ -504,9 +492,6 @@ func (s *Store) DeleteFlow(ctx context.Context, id string) error {
 func (s *Store) mutateFlow(ctx context.Context, id string, change func(*Flow)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	index := indexOfFlow(s.doc.Flows, id)
 	if index < 0 {
 		return fmt.Errorf("flow %q does not exist", id)

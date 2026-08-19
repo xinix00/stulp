@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/xinix00/stulp/internal/appsdk"
 	"github.com/xinix00/stulp/plugins/unifi/internal/protect"
@@ -23,7 +24,25 @@ type app struct {
 	cancel  context.CancelFunc
 	devices map[string]handler // protect-id -> wie erop wacht
 	lastErr string
+	// retry is de ronde die klaarstaat nadat een stand niet op te halen was,
+	// en retryWait de pauze ervoor. Zie refreshSoon.
+	retry     *time.Timer
+	retryWait time.Duration
 }
+
+// settleTime laat alle apparaten die net gekoppeld zijn in ÉÉN ronde meelopen.
+// Een apparaat vraagt zijn stand dus niet op tijdens zijn eigen OnInit: bij het
+// opstarten komen die allemaal tegelijk, en elke seconde die zo'n aanroep bij
+// een trage console wacht is een seconde waarin deze app niets anders kan doen --
+// ook geen configuratiepagina uitleveren.
+//
+// Lukt een ronde niet, dan verdubbelt de pauze tot maxRefreshRetry. Een console
+// die echt weg is hoort met rust gelaten te worden; hij meldt zich zelf weer via
+// de gebeurtenislijn, en die doet dan een verse ronde.
+const (
+	settleTime      = 2 * time.Second
+	maxRefreshRetry = 5 * time.Minute
+)
 
 // handler is wat een apparaat met een bericht van de console doet. Elk driver
 // heeft er zijn eigen versie van.
@@ -68,6 +87,12 @@ func (a *app) stop() {
 	a.mu.Lock()
 	cancel := a.cancel
 	a.cancel = nil
+	// Een ronde die nog klaarstaat hoort bij de verbinding die nu weggaat.
+	if a.retry != nil {
+		a.retry.Stop()
+		a.retry = nil
+	}
+	a.retryWait = 0
 	a.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -131,11 +156,51 @@ func (a *app) refreshAll() {
 		targets = append(targets, target)
 	}
 	a.mu.RUnlock()
+	failed := false
 	for _, target := range targets {
-		if refresher, ok := target.(interface{ refresh() }); ok {
-			refresher.refresh()
+		if refresher, ok := target.(interface{ refresh() error }); ok && refresher.refresh() != nil {
+			failed = true
 		}
 	}
+	if failed {
+		a.refreshSoon()
+		return
+	}
+	a.mu.Lock()
+	a.retryWait = 0
+	a.mu.Unlock()
+}
+
+// refreshSoon vraagt om een ronde: na het koppelen van een apparaat, en opnieuw
+// zolang een stand niet op te halen is.
+//
+// Deze app is verder gebeurtenis-gestuurd: de console vertelt wat er verandert.
+// Dat is precies waarom een mislukte poging bleef staan -- een camera die daarna
+// niks doet stuurt ook niks, dus bleef de tegel op "de console antwoordt niet"
+// tot de gebeurtenislijn zelf wegviel. Eén ronde per keer, met een oplopende
+// pauze, en de pauze gaat terug naar het begin zodra alles lukt.
+func (a *app) refreshSoon() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.retry != nil {
+		return // er staat al een ronde klaar
+	}
+	if a.client == nil {
+		return // zonder console valt er niks op te halen; OnConnect doet de ronde
+	}
+	a.retryWait *= 2
+	if a.retryWait < settleTime {
+		a.retryWait = settleTime
+	}
+	if a.retryWait > maxRefreshRetry {
+		a.retryWait = maxRefreshRetry
+	}
+	a.retry = time.AfterFunc(a.retryWait, func() {
+		a.mu.Lock()
+		a.retry = nil
+		a.mu.Unlock()
+		a.refreshAll()
+	})
 }
 
 func (a *app) watch(protectID string, target handler) {

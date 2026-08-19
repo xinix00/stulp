@@ -48,7 +48,7 @@ func (lightDriver) ListDevices() ([]appsdk.PairedDevice, error) {
 
 func (l *lightDevice) OnInit() error {
 	instance.watch(l.protect, l)
-	l.refresh()
+	instance.refreshSoon()
 	return nil
 }
 
@@ -56,17 +56,17 @@ func (l *lightDevice) OnDeleted() {
 	instance.forget(l.protect)
 }
 
-func (l *lightDevice) refresh() {
+func (l *lightDevice) refresh() error {
 	client, err := instance.api()
 	if err != nil {
-		return
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	light, err := client.Light(ctx, l.protect)
 	if err != nil {
 		l.device.SetUnavailable("De console antwoordt niet: " + err.Error())
-		return
+		return err
 	}
 	if light.IsConnected {
 		l.device.SetAvailable()
@@ -78,6 +78,7 @@ func (l *lightDevice) refresh() {
 		"dim":          protect.LightBrightness(light.LightDeviceSettings.LedLevel),
 		"alarm_motion": light.IsPirMotionDetected,
 	})
+	return nil
 }
 
 // apply verwerkt een deelbericht van de websocket.

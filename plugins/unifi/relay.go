@@ -61,7 +61,7 @@ func (relayDriver) ListDevices() ([]appsdk.PairedDevice, error) {
 
 func (r *relayDevice) OnInit() error {
 	instance.watch(r.protect, r)
-	r.refresh()
+	instance.refreshSoon()
 	return nil
 }
 
@@ -69,17 +69,17 @@ func (r *relayDevice) OnDeleted() {
 	instance.forget(r.protect)
 }
 
-func (r *relayDevice) refresh() {
+func (r *relayDevice) refresh() error {
 	client, err := instance.api()
 	if err != nil {
-		return
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	relay, err := client.Relay(ctx, r.protect)
 	if err != nil {
 		r.device.SetUnavailable("De console antwoordt niet: " + err.Error())
-		return
+		return err
 	}
 	if relay.IsConnected {
 		r.device.SetAvailable()
@@ -89,10 +89,11 @@ func (r *relayDevice) refresh() {
 	for _, output := range relay.Outputs {
 		if output.ID == r.output {
 			report(r.device, map[string]any{"onoff": output.On()})
-			return
+			return nil
 		}
 	}
 	r.device.SetUnavailable("Deze uitgang bestaat niet meer op het relais.")
+	return nil
 }
 
 // apply verwerkt een deelbericht van de websocket. IsConnected is een pointer

@@ -48,7 +48,7 @@ func (sensorDriver) ListDevices() ([]appsdk.PairedDevice, error) {
 
 func (s *sensorDevice) OnInit() error {
 	instance.watch(s.protect, s)
-	s.refresh()
+	instance.refreshSoon()
 	return nil
 }
 
@@ -56,17 +56,17 @@ func (s *sensorDevice) OnDeleted() {
 	instance.forget(s.protect)
 }
 
-func (s *sensorDevice) refresh() {
+func (s *sensorDevice) refresh() error {
 	client, err := instance.api()
 	if err != nil {
-		return
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	sensor, err := client.Sensor(ctx, s.protect)
 	if err != nil {
 		s.device.SetUnavailable("De console antwoordt niet: " + err.Error())
-		return
+		return err
 	}
 	if sensor.IsConnected {
 		s.device.SetAvailable()
@@ -92,6 +92,7 @@ func (s *sensorDevice) refresh() {
 		values["measure_luminance"] = *value
 	}
 	report(s.device, values)
+	return nil
 }
 
 // apply verwerkt een deelbericht van de websocket. Elk veld is een pointer

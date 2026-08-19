@@ -33,6 +33,12 @@ const (
 	maxQueuedRequestBytes = MaxFrameSize
 )
 
+// besideQueueLimit is hoeveel methodes uit de zijbaan er tegelijk mogen lopen.
+// Twee is genoeg om een pagina te vullen terwijl er één traag bestand onderweg
+// is, en het plafond bestaat omdat de peer bepaalt hoe vaak hij vraagt: boven
+// dit aantal gaat een verzoek gewoon de normale rij in.
+const besideQueueLimit = 2
+
 // pingMethod is protocol plumbing, not an application callback. Handling it on
 // the reader goroutine is intentional: a slow OnInit or device callback must
 // not make a healthy connection look dead.
@@ -71,8 +77,12 @@ type Session struct {
 	requestQueue   []Frame
 	requestBytes   int
 	requestsClosed bool
-	handlerCtx     context.Context
-	cancelHandler  context.CancelFunc
+	// beside zijn de methodes uit AnswerBesideQueue, besideRunning hoeveel er
+	// daarvan nu lopen.
+	beside        map[string]bool
+	besideRunning int
+	handlerCtx    context.Context
+	cancelHandler context.CancelFunc
 }
 
 func NewSession(conn *Conn, handle Handler, onEvent EventHandler) *Session {
@@ -133,6 +143,13 @@ func (s *Session) Serve() (serveErr error) {
 				}
 				continue
 			}
+			// De zijbaan: methodes die geen app-toestand raken hoeven niet te
+			// wachten op een handler die op het netwerk staat. Zonder dit staat
+			// een configuratiepagina achter de apparaatronde van dezelfde app,
+			// en dat kan bij een trage peer minuten duren.
+			if s.answerBeside(frame) {
+				continue
+			}
 			if !s.enqueueRequest(frame) {
 				return fmt.Errorf("appproto: request queue exceeds %d requests or %d bytes",
 					maxQueuedRequests, maxQueuedRequestBytes)
@@ -143,6 +160,42 @@ func (s *Session) Serve() (serveErr error) {
 			}
 		}
 	}
+}
+
+// AnswerBesideQueue markeert methodes die naast de rij afgehandeld worden in
+// plaats van erin. Alleen voor werk dat geen app-toestand raakt en niet kan
+// blokkeren -- een leesactie op een ingebed bestandssysteem hoort hier, een
+// apparaat bevragen niet. Aanroepen vóór Serve.
+func (s *Session) AnswerBesideQueue(methods ...string) {
+	s.requestMu.Lock()
+	defer s.requestMu.Unlock()
+	if s.beside == nil {
+		s.beside = make(map[string]bool, len(methods))
+	}
+	for _, method := range methods {
+		s.beside[method] = true
+	}
+}
+
+// answerBeside handelt frame naast de rij af, in zijn eigen goroutine. Bij
+// false hoort de aanroeper hem gewoon in de rij te zetten.
+func (s *Session) answerBeside(frame Frame) bool {
+	s.requestMu.Lock()
+	if !s.beside[frame.M] || s.besideRunning >= besideQueueLimit || s.requestsClosed {
+		s.requestMu.Unlock()
+		return false
+	}
+	s.besideRunning++
+	s.requestMu.Unlock()
+	go func() {
+		defer func() {
+			s.requestMu.Lock()
+			s.besideRunning--
+			s.requestMu.Unlock()
+		}()
+		s.answer(frame)
+	}()
+	return true
 }
 
 func (s *Session) enqueueRequest(frame Frame) bool {

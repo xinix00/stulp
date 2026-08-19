@@ -1,23 +1,24 @@
-// Package imageshare houdt een afbeelding net lang genoeg vast om hem ergens te
-// laten zien waar geen API-sleutel bij kan.
+// Package imageshare houdt een afbeeldingsbron net lang genoeg vast om hem in
+// een pushmelding te laten zien zonder dat er een open browsersessie nodig is.
 //
 // Het geval waarvoor dit bestaat: een pushbericht met de foto van een deurbel
 // erbij. Er past 3993 bytes in één versleuteld pushbericht en een momentopname
 // van een 4K-camera is een megabyte, dus gaat het adres mee en niet de foto. De
-// service worker van de browser haalt hem op terwijl hij de melding toont, en die
-// heeft geen sleutel: die ligt in localStorage, waar een service worker niet bij
-// kan.
+// service worker van de browser haalt hem op terwijl hij de melding toont, ook
+// wanneer Manage niet open staat.
 //
 // Wat het adres dan beschermt is dat het niet te raden valt en niet lang bestaat:
-// 128 bits toeval, een kwartier geldig, en het wijst naar bytes in het geheugen in
-// plaats van naar de camera. Bij een pushbericht reist het bovendien versleuteld
-// mee; de pushdienst ziet het niet.
+// 128 bits toeval en een kwartier geldig. Het wijst naar een resolver die pas bij
+// het ophalen een verse bron aan de camera-app vraagt; de foto zelf staat dus
+// nooit in dit register. Bij een pushbericht reist het adres bovendien
+// versleuteld mee; de pushdienst ziet het niet.
 //
 // In het geheugen en nergens anders, net als de statistiek. Wat er nooit is
 // opgeschreven hoeft ook niet opgeruimd te worden.
 package imageshare
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -30,20 +31,29 @@ const (
 	// bezorging van een pushbericht, want een telefoon toont de melding pas als
 	// hij hem krijgt en haalt de foto dan op.
 	Lifetime = 15 * time.Minute
-	// MaxBytes begrenst één afbeelding. Bij 4K is een JPEG rond de megabyte; vier
-	// keer dat is ruim, en het is er zodat een plugin die iets anders serveert het
-	// geheugen niet kan laten vollopen.
+	// MaxBytes begrenst hoeveel bytes de weblaag uit één bron doorgeeft. Bij 4K is
+	// een JPEG rond de megabyte; vier keer dat is ruim. De bytes worden gestreamd
+	// en staan niet in Store.
 	MaxBytes = 4 << 20
-	// MaxImages is hoeveel afbeeldingen er samen mogen wachten. Meer dan een paar
-	// meldingen tegelijk komt in een huis niet voor, en de oudste gaat eruit.
+	// MaxImages is hoeveel tijdelijke adressen er samen mogen wachten. Meer dan een
+	// paar meldingen tegelijk komt in een huis niet voor, en de oudste gaat eruit.
 	MaxImages = 8
 )
 
-// Image is wat er bewaard wordt.
-type Image struct {
-	Data        []byte
+// Source is het kortlevende adres dat een app voor één afbeelding aanbiedt.
+type Source struct {
+	URL         string
 	ContentType string
-	expires     time.Time
+}
+
+// Resolver vraagt de app pas bij het HTTP-verzoek om een verse bron. Zo kost
+// ImageURL geen camera-aanroep en houdt geen enkel Stulp-proces beeldbytes vast.
+type Resolver func(context.Context) (Source, error)
+
+// Image is wat er bewaard wordt: een kleine functie, nooit de afbeelding zelf.
+type Image struct {
+	Resolve Resolver
+	expires time.Time
 }
 
 type Store struct {
@@ -57,16 +67,10 @@ func New() *Store {
 	return &Store{items: map[string]Image{}, now: time.Now, random: rand.Read}
 }
 
-// Put bewaart een afbeelding en geeft het id waarmee hij te halen is.
-func (s *Store) Put(data []byte, contentType string) (string, error) {
-	if len(data) == 0 {
-		return "", errors.New("een lege afbeelding valt niet te delen")
-	}
-	if len(data) > MaxBytes {
-		return "", fmt.Errorf("de afbeelding is %d bytes en er mogen er %d in", len(data), MaxBytes)
-	}
-	if contentType == "" {
-		return "", errors.New("een afbeelding zonder type valt niet te tonen")
+// Put bewaart een resolver en geeft het id waarmee zijn afbeelding te halen is.
+func (s *Store) Put(resolve Resolver) (string, error) {
+	if resolve == nil {
+		return "", errors.New("een afbeelding zonder bron valt niet te delen")
 	}
 	var value [16]byte
 	if _, err := s.random(value[:]); err != nil {
@@ -91,7 +95,7 @@ func (s *Store) Put(data []byte, contentType string) (string, error) {
 		}
 		delete(s.items, oldest)
 	}
-	s.items[id] = Image{Data: data, ContentType: contentType, expires: s.now().Add(Lifetime)}
+	s.items[id] = Image{Resolve: resolve, expires: s.now().Add(Lifetime)}
 	return id, nil
 }
 
@@ -123,6 +127,6 @@ func (s *Store) evictLocked() {
 
 // Path is waar een gedeelde afbeelding te halen valt.
 //
-// Buiten /api/ met opzet: de service worker die hem ophaalt heeft geen
-// API-sleutel. Zie de uitleg bovenaan dit bestand.
+// Buiten /api/ met opzet: de service worker moet hem zonder open browsersessie
+// kunnen ophalen. Zie de uitleg bovenaan dit bestand.
 func Path(id string) string { return "/image/" + id }

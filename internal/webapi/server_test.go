@@ -537,7 +537,7 @@ func TestAPIControlsRunningApp(t *testing.T) {
 	}
 }
 
-func TestBearerToken(t *testing.T) {
+func TestAccessKeyOpensManageAndItsSession(t *testing.T) {
 	database, err := store.Open(filepath.Join(t.TempDir(), "stulp.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -549,7 +549,11 @@ func TestBearerToken(t *testing.T) {
 	defer apiServer.Close()
 	handler := apiServer.Handler()
 
-	webapp := request(t, handler, http.MethodGet, "/", nil, "")
+	closed := request(t, handler, http.MethodGet, "/", nil, "")
+	if closed.Code != http.StatusNotFound {
+		t.Fatalf("root without key returned %d", closed.Code)
+	}
+	webapp := request(t, handler, http.MethodGet, "/secret", nil, "")
 	if webapp.Code != http.StatusOK || !bytes.Contains(webapp.Body.Bytes(), []byte("Apps & settings")) ||
 		!bytes.Contains(webapp.Body.Bytes(), []byte("Backup downloaden")) || !bytes.Contains(webapp.Body.Bytes(), []byte("Nieuwe Flow")) ||
 		!bytes.Contains(webapp.Body.Bytes(), []byte(`id="flow-canvas"`)) || !bytes.Contains(webapp.Body.Bytes(), []byte(`id="flow-links"`)) ||
@@ -557,18 +561,38 @@ func TestBearerToken(t *testing.T) {
 		!bytes.Contains(webapp.Body.Bytes(), []byte(`id="group-dialog"`)) || !bytes.Contains(webapp.Body.Bytes(), []byte(`id="add-group"`)) ||
 		!bytes.Contains(webapp.Body.Bytes(), []byte(`id="download-backup"`)) || !bytes.Contains(webapp.Body.Bytes(), []byte(`id="restore-backup"`)) ||
 		!bytes.Contains(webapp.Body.Bytes(), []byte(`id="restore-dialog"`)) || !bytes.Contains(webapp.Body.Bytes(), []byte(`id="notifications-dialog"`)) {
-		t.Fatalf("webapp unavailable without API header: %d %s", webapp.Code, webapp.Body.String())
+		t.Fatalf("webapp unavailable through key URL: %d %s", webapp.Code, webapp.Body.String())
+	}
+	if bytes.Contains(webapp.Body.Bytes(), []byte("API-sleutel")) || bytes.Contains(webapp.Body.Bytes(), []byte("Bearer token")) {
+		t.Fatal("Manage still contains the old API key UI")
+	}
+	asset := request(t, handler, http.MethodGet, "/assets/app.js", nil, "")
+	if bytes.Contains(asset.Body.Bytes(), []byte("stulp-token")) || bytes.Contains(asset.Body.Bytes(), []byte("authHeaders")) {
+		t.Fatal("Manage still stores or sends the old API credential")
+	}
+	cookie := strings.Split(webapp.Header().Get("Set-Cookie"), ";")[0]
+	if !strings.HasPrefix(cookie, accessCookie+"=") || !strings.Contains(webapp.Header().Get("Set-Cookie"), "HttpOnly") ||
+		!strings.Contains(webapp.Header().Get("Set-Cookie"), "SameSite=Strict") {
+		t.Fatalf("key entry did not set a protected session cookie: %q", webapp.Header().Get("Set-Cookie"))
 	}
 
 	unauthorized := request(t, handler, http.MethodGet, "/api/stulp/health", nil, "")
 	if unauthorized.Code != http.StatusUnauthorized {
-		t.Fatalf("without token: got %d", unauthorized.Code)
+		t.Fatalf("without key session: got %d", unauthorized.Code)
 	}
-	authorized := request(t, handler, http.MethodGet, "/api/stulp/health", nil, "Bearer secret")
+	stillUnauthorized := request(t, handler, http.MethodGet, "/api/stulp/health", nil, "Bearer secret")
+	if stillUnauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("old bearer token still works: got %d", stillUnauthorized.Code)
+	}
+	authorized := requestWithCookie(t, handler, http.MethodGet, "/api/stulp/health", nil, cookie)
 	if authorized.Code != http.StatusOK {
-		t.Fatalf("with token: got %d", authorized.Code)
+		t.Fatalf("with key session: got %d", authorized.Code)
 	}
-	backupResponse := request(t, handler, http.MethodGet, "/api/stulp/backup", nil, "Bearer secret")
+	rootAfterEntry := requestWithCookie(t, handler, http.MethodGet, "/", nil, cookie)
+	if rootAfterEntry.Code != http.StatusOK {
+		t.Fatalf("session could not reopen Manage: got %d", rootAfterEntry.Code)
+	}
+	backupResponse := requestWithCookie(t, handler, http.MethodGet, "/api/stulp/backup", nil, cookie)
 	if backupResponse.Code != http.StatusOK || backupResponse.Header().Get("Content-Type") != "application/zip" ||
 		!bytes.HasPrefix(backupResponse.Body.Bytes(), []byte("PK")) {
 		t.Fatalf("authenticated backup failed: %d %q", backupResponse.Code, backupResponse.Header().Get("Content-Type"))
@@ -618,9 +642,11 @@ func TestManageRestoresAnAnnouncedAppBackup(t *testing.T) {
 	defer apps.Close()
 	server := New(target, apps, Options{Token: "secret", Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	defer server.Close()
+	entry := request(t, server.Handler(), http.MethodGet, "/secret", nil, "")
+	cookie := strings.Split(entry.Header().Get("Set-Cookie"), ";")[0]
 
 	upload := httptest.NewRequest(http.MethodPost, "/api/stulp/restore", bytes.NewReader(archive.Bytes()))
-	upload.Header.Set("Authorization", "Bearer secret")
+	upload.Header.Set("Cookie", cookie)
 	upload.Header.Set("Content-Type", "application/zip")
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, upload)
@@ -636,16 +662,19 @@ func TestManageRestoresAnAnnouncedAppBackup(t *testing.T) {
 	if err != nil || restored.Name != device.Name {
 		t.Fatalf("device did not reach the live store: %#v err=%v", restored, err)
 	}
+	// Het manifest (en dus de UI-beschrijving) reist niet mee in een backup —
+	// de app vertelt het zelf bij zijn eerstvolgende announce; hier hoort na
+	// een restore alleen zijn identiteit te staan.
 	app, err := target.App(ctx, announced.ID)
-	if err != nil || app.Manifest["ui"] == nil {
-		t.Fatalf("announced app UI did not reach the live store: %#v err=%v", app, err)
+	if err != nil || !app.Enabled || app.Version == "" {
+		t.Fatalf("announced app identity did not reach the live store: %#v err=%v", app, err)
 	}
 	if runtime := apps.State(announced.ID); runtime.State != "waiting" {
 		t.Fatalf("announced app did not resume in reconnect state: %#v", runtime)
 	}
 
 	bad := httptest.NewRequest(http.MethodPost, "/api/stulp/restore", strings.NewReader("not a zip"))
-	bad.Header.Set("Authorization", "Bearer secret")
+	bad.Header.Set("Cookie", cookie)
 	bad.Header.Set("Content-Type", "application/zip")
 	badResponse := httptest.NewRecorder()
 	server.Handler().ServeHTTP(badResponse, bad)
@@ -674,6 +703,26 @@ func request(t *testing.T, handler http.Handler, method, path string, body any, 
 	if authorization != "" {
 		request.Header.Set("Authorization", authorization)
 	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func requestWithCookie(t *testing.T, handler http.Handler, method, path string, body any, cookie string) *httptest.ResponseRecorder {
+	t.Helper()
+	var input io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input = bytes.NewReader(encoded)
+	}
+	request := httptest.NewRequest(method, path, input)
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	request.Header.Set("Cookie", cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response

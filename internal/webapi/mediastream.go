@@ -4,12 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-
 	"net/url"
-	"github.com/xinix00/stulp/internal/stulphttp"
 	"time"
 
 	"github.com/xinix00/stulp/internal/plugin"
+	"github.com/xinix00/stulp/internal/stulphttp"
 )
 
 // Camerabeeld doorgeven.
@@ -28,7 +27,7 @@ import (
 const streamIdleTimeout = 30 * time.Second
 
 func (s *Server) pipeStream(response stulphttp.ResponseWriter, request *stulphttp.Request, stream plugin.VideoStream) {
-	target, err := checkedStreamURL(stream.URL)
+	target, err := checkedMediaURL(stream.URL)
 	if err != nil {
 		writeError(response, stulphttp.StatusBadGateway, err)
 		return
@@ -40,7 +39,7 @@ func (s *Server) pipeStream(response stulphttp.ResponseWriter, request *stulphtt
 	if forward := request.Header.Get("Range"); forward != "" {
 		forwarded = map[string]string{"Range": forward}
 	}
-	source, err := stulphttp.Fetch(request, target, forwarded)
+	source, err := stulphttp.Fetch(request, target, forwarded, 0)
 	if err != nil {
 		writeError(response, stulphttp.StatusBadGateway, fmt.Errorf("the app does not serve this stream: %w", err))
 		return
@@ -133,21 +132,21 @@ func watchForSilence(body io.Closer) chan<- struct{} {
 	return activity
 }
 
-// checkedStreamURL laat alleen gewone HTTP door.
+// checkedMediaURL laat alleen gewone HTTP door.
 //
 // De plugin geeft dit adres, en een plugin is code die de gebruiker heeft
 // geïnstalleerd -- maar file:// of een ander schema zou van Stulp een middel
 // maken om bij dingen te komen die niets met een camera te maken hebben.
-func checkedStreamURL(raw string) (string, error) {
+func checkedMediaURL(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("the app gave an unusable stream address: %w", err)
+		return "", fmt.Errorf("the app gave an unusable media address: %w", err)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("a stream address must be http or https, got %q", parsed.Scheme)
+		return "", fmt.Errorf("a media address must be http or https, got %q", parsed.Scheme)
 	}
 	if parsed.Host == "" {
-		return "", errors.New("a stream address needs a host")
+		return "", errors.New("a media address needs a host")
 	}
 	return parsed.String(), nil
 }

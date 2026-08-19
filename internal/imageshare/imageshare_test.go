@@ -1,6 +1,7 @@
 package imageshare
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -11,9 +12,15 @@ func fixed(store *Store, at *time.Time) {
 	store.now = func() time.Time { return *at }
 }
 
-func TestAnImageComesBackUnchanged(t *testing.T) {
+func source(url string) Resolver {
+	return func(context.Context) (Source, error) {
+		return Source{URL: url, ContentType: "image/jpeg"}, nil
+	}
+}
+
+func TestAnImageResolverComesBack(t *testing.T) {
 	store := New()
-	id, err := store.Put([]byte("jpeg-bytes"), "image/jpeg")
+	id, err := store.Put(source("http://camera/snapshot"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,18 +35,22 @@ func TestAnImageComesBackUnchanged(t *testing.T) {
 	if !ok {
 		t.Fatal("de afbeelding was er niet")
 	}
-	if string(image.Data) != "jpeg-bytes" || image.ContentType != "image/jpeg" {
-		t.Fatalf("er kwam %q van type %q uit", image.Data, image.ContentType)
+	resolved, err := image.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.URL != "http://camera/snapshot" || resolved.ContentType != "image/jpeg" {
+		t.Fatalf("de bron kwam terug als %+v", resolved)
 	}
 }
 
 func TestTwoImagesGetDifferentAddresses(t *testing.T) {
 	store := New()
-	first, err := store.Put([]byte("een"), "image/jpeg")
+	first, err := store.Put(source("http://camera/one"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.Put([]byte("twee"), "image/jpeg")
+	second, err := store.Put(source("http://camera/two"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +65,7 @@ func TestAnImageDisappearsWhenItsTimeIsUp(t *testing.T) {
 	store := New()
 	now := time.Now()
 	fixed(store, &now)
-	id, err := store.Put([]byte("jpeg"), "image/jpeg")
+	id, err := store.Put(source("http://camera/snapshot"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +87,7 @@ func TestTheOldestImageMakesRoom(t *testing.T) {
 	fixed(store, &now)
 	ids := make([]string, 0, MaxImages+1)
 	for range MaxImages + 1 {
-		id, err := store.Put([]byte("jpeg"), "image/jpeg")
+		id, err := store.Put(source("http://camera/snapshot"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -97,24 +108,14 @@ func TestTheOldestImageMakesRoom(t *testing.T) {
 
 func TestPutRefusesWhatCannotBeShown(t *testing.T) {
 	store := New()
-	cases := map[string]struct {
-		data        []byte
-		contentType string
-	}{
-		"leeg":        {nil, "image/jpeg"},
-		"zonder type": {[]byte("jpeg"), ""},
-		"te groot":    {make([]byte, MaxBytes+1), "image/jpeg"},
-	}
-	for name, item := range cases {
-		if _, err := store.Put(item.data, item.contentType); err == nil {
-			t.Fatalf("%s werd aangenomen", name)
-		}
+	if _, err := store.Put(nil); err == nil {
+		t.Fatal("een afbeelding zonder resolver werd aangenomen")
 	}
 }
 
 func TestForgetInvalidatesOutstandingImages(t *testing.T) {
 	store := New()
-	id, err := store.Put([]byte("jpeg"), "image/jpeg")
+	id, err := store.Put(source("http://camera/snapshot"))
 	if err != nil {
 		t.Fatal(err)
 	}

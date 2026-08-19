@@ -191,7 +191,7 @@ func run(arguments []string, stdout, stderr io.Writer) error {
 		command := flag.NewFlagSet("serve", flag.ContinueOnError)
 		command.SetOutput(stderr)
 		listen := command.String("listen", "127.0.0.1:8080", "HTTP listen address")
-		token := command.String("token", "", "optional bearer token")
+		token := command.String("token", "", "access key used in /<key> and /mcp/<key>")
 		logLevel := command.String("log-level", "info", "debug, info, warn or error")
 		// Push werkt alleen in een beveiligde context. Een browser weigert een
 		// service worker over gewone http op een LAN-adres, dus zonder deze twee
@@ -215,7 +215,7 @@ func run(arguments []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		if command.NArg() != 0 {
-			return errors.New("usage: stulp serve [--listen ADDRESS] [--token TOKEN] [--log-level LEVEL] [--tls-cert FILE --tls-key FILE] [--attach SOCKET] [--attach-port ADDRESS]")
+			return errors.New("usage: stulp serve [--listen ADDRESS] [--token KEY] [--log-level LEVEL] [--tls-cert FILE --tls-key FILE] [--attach SOCKET] [--attach-port ADDRESS]")
 		}
 		if (*tlsCert == "") != (*tlsKey == "") {
 			return errors.New("--tls-cert and --tls-key belong together")
@@ -320,7 +320,7 @@ func run(arguments []string, stdout, stderr io.Writer) error {
 		} else {
 			go func() { serverErrors <- httpServer.ListenAndServe() }()
 		}
-		fmt.Fprintf(stdout, "Stulp Web API listening on %s://%s\n", scheme, *listen)
+		fmt.Fprintf(stdout, "Stulp Manage and MCP listening on %s://%s\n", scheme, *listen)
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 		defer signal.Stop(signals)
@@ -564,7 +564,7 @@ Usage:
   %[1]s [--document PATH] devices [APP_ID]
   %[1]s [--document PATH] add-device --name NAME [--data JSON] APP_ID DRIVER_ID
   %[1]s [--document PATH] run [--once] APP_ID
-  %[1]s [--document PATH] serve [--listen ADDRESS] [--token TOKEN] [--tls-cert FILE --tls-key FILE]
+  %[1]s [--document PATH] serve [--listen ADDRESS] [--token KEY] [--tls-cert FILE --tls-key FILE]
                                 [--attach SOCKET] [--attach-port ADDRESS]
   %[1]s [--document PATH] attach-token APP_ID
   %[1]s [--document PATH] attach-token --rotate

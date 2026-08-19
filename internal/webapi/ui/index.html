@@ -25,7 +25,6 @@
     <nav><button class="tab active" data-page="manage">Manage</button><button class="tab" data-page="flows">Flows</button><button class="tab" data-page="apps">Apps & settings</button></nav>
     <span id="connection">Verbinden…</span>
 	<button id="notifications-button" class="small">Meldingen</button>
-    <button id="token-button" class="small">API-sleutel</button>
   </header>
 
   <main>
@@ -125,14 +124,6 @@
   <dialog id="video-dialog">
     <div class="dialog-title"><h2 id="video-title">Camera</h2><div class="dialog-title-actions"><button id="video-fullscreen" class="icon-button" type="button" aria-label="Volledig scherm"><span class="material-symbols-rounded" aria-hidden="true">fullscreen</span></button><button class="icon-button dialog-close" data-close="video-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div></div>
     <div class="video"><video id="camera-video" autoplay playsinline muted></video><p id="video-status">Verbinden…</p></div>
-  </dialog>
-
-  <dialog id="token-dialog">
-    <form method="dialog" id="token-form">
-      <h2>API-sleutel</h2>
-      <label>Bearer token<input id="token-input" type="password"></label>
-      <div class="actions"><button value="cancel">Annuleren</button><button value="save">Opslaan</button></div>
-    </form>
   </dialog>
 
   <dialog id="notifications-dialog" class="compact-dialog">

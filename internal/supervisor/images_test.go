@@ -1,7 +1,6 @@
 package supervisor
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -73,8 +72,10 @@ func TestImageSourcesNamesWhatTheHouseOffers(t *testing.T) {
 	}
 }
 
-// Van bron tot bytes: Stulp haalt nu op bij de plugin en geeft een adres terug.
-func TestImageURLFetchesThePictureNow(t *testing.T) {
+// ImageURL bewaart alleen de vraag. De foto zelf hoort niet in de heap van de
+// supervisor; de weblaag resolveert en streamt hem pas wanneer iemand het
+// onraadbare adres opent.
+func TestImageURLStoresOnlyALazySource(t *testing.T) {
 	supervisor, _, device := houseWithACamera(t)
 	address, err := supervisor.ImageURL(context.Background(), device.ID, "")
 	if err != nil {
@@ -87,13 +88,14 @@ func TestImageURLFetchesThePictureNow(t *testing.T) {
 	if !ok {
 		t.Fatal("op dat adres staat niets")
 	}
-	// De virtual-plugin meldt beeld én video op dezelfde slot aan. Komt hier een
-	// fMP4 uit, dan is het gevraagde soort onderweg kwijtgeraakt.
-	if image.ContentType != "image/png" {
-		t.Fatalf("het type is %q en niet image/png -- dan kwam de video mee", image.ContentType)
+	source, err := image.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !bytes.HasPrefix(image.Data, []byte{0x89, 'P', 'N', 'G'}) {
-		t.Fatalf("de eerste bytes zijn %x en dat is geen PNG", image.Data[:min(8, len(image.Data))])
+	// De virtual-plugin meldt beeld én video op dezelfde slot aan. Komt hier een
+	// videotype uit, dan is het gevraagde soort onderweg kwijtgeraakt.
+	if source.ContentType != "image/png" || source.URL == "" {
+		t.Fatalf("de opgeloste beeldbron is %+v", source)
 	}
 }
 

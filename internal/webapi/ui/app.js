@@ -18,22 +18,11 @@ const flowResizeObserver = new ResizeObserver(() => scheduleFlowConnections());
 const deviceLongPressDelay = 450;
 const devicePressMoveTolerance = 10;
 
-function token() { return localStorage.getItem('stulp-token') || ''; }
-function authHeaders(headers = {}) {
-  const result = new Headers(headers);
-  if (token()) result.set('Authorization', `Bearer ${token()}`);
-  return result;
-}
 async function api(path, options = {}) {
-  const headers = authHeaders(options.headers);
+  const headers = new Headers(options.headers);
   if (options.body) headers.set('Content-Type', 'application/json');
   const response = await fetch(path, { ...options, headers });
   const body = await response.json().catch(() => null);
-  if (response.status === 401) {
-    $('token-input').value = token();
-    $('token-dialog').showModal();
-    throw new Error('API-sleutel nodig');
-  }
   if (!response.ok) throw new Error(body?.error_description || body?.error || `HTTP ${response.status}`);
   return body;
 }
@@ -1032,7 +1021,7 @@ async function downloadBackup() {
 	const button = $('download-backup');
 	button.disabled = true;
 	try {
-		const response = await fetch('/api/stulp/backup', { headers: authHeaders() });
+		const response = await fetch('/api/stulp/backup');
 		if (!response.ok) {
 			const error = await response.json().catch(() => null);
 			throw new Error(error?.error_description || `HTTP ${response.status}`);
@@ -1068,14 +1057,9 @@ async function restoreBackup(event) {
 	button.textContent = 'Controleren en herstellen…';
 	try {
 		const response = await fetch('/api/stulp/restore', {
-			method: 'POST', headers: authHeaders({ 'Content-Type': 'application/zip' }), body: file,
+			method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: file,
 		});
 		const result = await response.json().catch(() => null);
-		if (response.status === 401) {
-			$('token-input').value = token();
-			$('token-dialog').showModal();
-			throw new Error('API-sleutel nodig');
-		}
 		if (!response.ok) throw new Error(result?.error_description || result?.error || `HTTP ${response.status}`);
 		$('restore-dialog').close();
 		await load();
@@ -2417,7 +2401,7 @@ async function handlePluginAction(action, args, context) {
   return true;
 }
 async function getAppSetting(appId, name) {
-  const response = await fetch(`/api/manager/apps/app/${encode(appId)}/setting/${encode(name)}`, { headers: authHeaders() });
+  const response = await fetch(`/api/manager/apps/app/${encode(appId)}/setting/${encode(name)}`);
   if (response.status === 404) return null;
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new Error(body?.error_description || `HTTP ${response.status}`);
@@ -2693,11 +2677,7 @@ async function connectRealtime() {
   let retry = 500;
   while (!realtimeAbort.signal.aborted) {
     try {
-      const response = await fetch('/api/stulp/events', { headers: authHeaders(), signal: realtimeAbort.signal });
-      if (response.status === 401) {
-        $('token-input').value = token();
-        if (!$('token-dialog').open) $('token-dialog').showModal();
-      }
+      const response = await fetch('/api/stulp/events', { signal: realtimeAbort.signal });
       if (!response.ok || !response.body) throw new Error(`events HTTP ${response.status}`);
       // The stream is open before this snapshot is read. Events produced
       // during the read wait in the response and are applied afterwards, so
@@ -2791,8 +2771,6 @@ $('flow-dialog').addEventListener('close', () => {
   state.flowMove = null;
   state.flowLink = null;
 });
-$('token-button').addEventListener('click', () => { $('token-input').value = token(); $('token-dialog').showModal(); });
-$('token-form').addEventListener('submit', event => { if (event.submitter?.value === 'save') { localStorage.setItem('stulp-token', $('token-input').value.trim()); setTimeout(load, 0); } });
 window.addEventListener('beforeunload', () => { stopVideo(); realtimeAbort.abort(); });
 window.addEventListener('resize', scheduleFlowConnections);
 window.addEventListener('pointermove', event => { moveDeviceOrder(event); moveFlowNode(event); updateFlowConnectionPreview(event); });

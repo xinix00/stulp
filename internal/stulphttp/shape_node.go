@@ -56,6 +56,9 @@ func Query(r *Request) url.Values { return r.Query() }
 // Path is het %-gedecodeerde pad.
 func Path(r *Request) string { return r.Path }
 
+// Host is de HTTP-host waar de client om vroeg. Zie shape_host.
+func Host(r *Request) string { return r.Header.Get("Host") }
+
 // Flush duwt wat er gebufferd staat naar de client. Elke leanhttp-writer kan
 // dat, dus is de vraag hier altijd ja — en dat is precies waarom Flush op die
 // interface staat in plaats van achter een type-assertie: een stroom die stil
@@ -166,12 +169,13 @@ var streamClient leanhttp.Client
 
 // Fetch haalt een URL op namens een handler. Alleen http: een app op een slot
 // serveert op het interne netwerk, en https daarheen zou een TLS-stapel in dit
-// image betekenen voor een verbinding die de node zelf al isoleert.
-func Fetch(_ *Request, url string, header map[string]string) (*Reply, error) {
+// image betekenen voor een verbinding die de node zelf al isoleert. Timeout nul
+// is onbeperkt voor video; een eindig beeld krijgt wel een grens.
+func Fetch(_ *Request, url string, header map[string]string, timeout time.Duration) (*Reply, error) {
 	if !strings.HasPrefix(url, "http://") {
 		return nil, errors.New("stulphttp: only http:// on a node -- an app on a slot serves on the internal network")
 	}
-	call := leanhttp.Call{Method: MethodGet, URL: url}
+	call := leanhttp.Call{Method: MethodGet, URL: url, Timeout: timeout}
 	if len(header) > 0 {
 		call.Header = make(leanhttp.Header, len(header))
 		for k, v := range header {

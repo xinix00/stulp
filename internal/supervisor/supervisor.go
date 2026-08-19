@@ -737,12 +737,12 @@ func (s *Supervisor) ImageSources(ctx context.Context) ([]plugin.ImageRegistrati
 	return sources, nil
 }
 
-// ImageURL haalt nu het beeld op en geeft het adres waarop het te zien is.
+// ImageURL geeft een kortlevend, onraadbaar adres voor het beeld.
 //
-// Nu ophalen en niet straks: wie een foto bij een melding vraagt wil zien hoe het
-// was toen het gebeurde, niet hoe het is als iemand zijn telefoon uit zijn zak
-// haalt. Een leeg slot betekent het eerste stilstaande beeld dat dit apparaat
-// aanmeldt, want een camera heeft er meestal één.
+// Het beeld zelf wordt pas opgehaald wanneer de service worker dat adres opent.
+// Daardoor hoeft geen proces een complete camerafoto in zijn heap te bewaren.
+// Een leeg slot betekent het eerste stilstaande beeld dat dit apparaat aanmeldt,
+// want een camera heeft er meestal één.
 func (s *Supervisor) ImageURL(ctx context.Context, deviceID, slot string) (string, error) {
 	if s.images == nil {
 		return "", errors.New("deze Stulp deelt geen afbeeldingen")
@@ -766,17 +766,16 @@ func (s *Supervisor) ImageURL(ctx context.Context, deviceID, slot string) (strin
 			return "", fmt.Errorf("%s heeft geen stilstaand beeld", device.Name)
 		}
 	}
-	// Dezelfde weg als de interface gebruikt: de plugin zegt waar het beeld staat
-	// en Stulp haalt het daar op. Het adres bij de camera blijft binnen de plugin.
-	source, err := s.ResolveMedia(ctx, device.ID, slot, "image")
-	if err != nil {
-		return "", fmt.Errorf("%s vragen om beeld: %w", device.Name, err)
-	}
-	data, contentType, err := fetchImage(ctx, source)
-	if err != nil {
-		return "", fmt.Errorf("beeld van %s ophalen: %w", device.Name, err)
-	}
-	id, err := s.images.Put(data, contentType)
+	// Bewaar alleen hoe de bron gevonden wordt. ResolveMedia draait bewust pas
+	// tijdens GET /image/: zo levert de app een verse, eventueel kortlevende URL
+	// en blijven zowel de camera-aanroep als de beeldbytes uit deze SDK-aanroep.
+	id, err := s.images.Put(func(fetchContext context.Context) (imageshare.Source, error) {
+		source, resolveErr := s.ResolveMedia(fetchContext, device.ID, slot, "image")
+		if resolveErr != nil {
+			return imageshare.Source{}, fmt.Errorf("%s vragen om beeld: %w", device.Name, resolveErr)
+		}
+		return imageshare.Source{URL: source.URL, ContentType: source.ContentType}, nil
+	})
 	if err != nil {
 		return "", err
 	}

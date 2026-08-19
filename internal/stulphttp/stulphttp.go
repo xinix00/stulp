@@ -35,6 +35,7 @@ import "io"
 const (
 	StatusOK                    = 200
 	StatusCreated               = 201
+	StatusAccepted              = 202
 	StatusNoContent             = 204
 	StatusBadRequest            = 400
 	StatusUnauthorized          = 401

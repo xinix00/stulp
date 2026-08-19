@@ -59,7 +59,7 @@ house.
 | `internal/appproto` | the wire protocol, with a frame cap checked before allocation |
 | `internal/store` | the one JSON document, and everything that watches it |
 | `internal/flow` | IF/AND/THEN cards and the engine that runs them |
-| `internal/webapi` | the Manage interface and its API |
+| `internal/webapi` | the keyed Manage interface, its private browser API and MCP |
 | `internal/supervisor` | starting, restarting and reporting on apps |
 | `plugins/matter` | the Matter app — its own process, `internal/` and all |
 
@@ -67,8 +67,15 @@ house.
 
 ```sh
 ./build.sh
-./stulp --document stulp.json serve
+./stulp --document stulp.json serve --token EEN-LANGE-WILLEKEURIGE-SLEUTEL
 ```
+
+Open Manage at `http://127.0.0.1:8080/EEN-LANGE-WILLEKEURIGE-SLEUTEL`.
+The same key exposes the stateless MCP server at
+`http://127.0.0.1:8080/mcp/EEN-LANGE-WILLEKEURIGE-SLEUTEL`. Visiting the Manage
+URL establishes an HttpOnly browser session; there is no API-key field in the
+interface and the private browser API does not accept Bearer tokens. Without
+`--token`, local development remains open but MCP stays disabled.
 
 `build.sh` builds the controller and every app in `plugins/*`, each one to its
 own directory under its app id — which is where Stulp looks for it. Name one or

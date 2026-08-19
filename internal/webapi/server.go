@@ -3,6 +3,8 @@ package webapi
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,18 +14,18 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
-	"github.com/xinix00/stulp/internal/appproto"
-	"github.com/xinix00/stulp/internal/stulphttp"
 	"sync"
 	"time"
 
 	"github.com/xinix00/stulp/internal/appinstall"
+	"github.com/xinix00/stulp/internal/appproto"
 	"github.com/xinix00/stulp/internal/backup"
 	flowengine "github.com/xinix00/stulp/internal/flow"
 	"github.com/xinix00/stulp/internal/imageshare"
 	"github.com/xinix00/stulp/internal/manifest"
 	"github.com/xinix00/stulp/internal/stats"
 	"github.com/xinix00/stulp/internal/store"
+	"github.com/xinix00/stulp/internal/stulphttp"
 	"github.com/xinix00/stulp/internal/supervisor"
 	"github.com/xinix00/stulp/internal/units"
 	"github.com/xinix00/stulp/internal/valueutil"
@@ -104,24 +106,85 @@ func New(database *store.Store, apps *supervisor.Supervisor, options Options) *S
 	return s
 }
 
-// Handler is de hele interface plus de API, met de CORS- en token-laag eromheen.
+const accessCookie = "stulp-session"
+
+// Handler is de hele interface plus de API en MCP, met één toegangssleutel
+// eromheen. De sleutel zelf blijft in de URL waarmee iemand voor het eerst
+// binnenkomt. Daarna krijgt de browser een HttpOnly bewijs, zodat de sleutel
+// niet in localStorage en niet in elke API-aanroep terugkomt.
 func (s *Server) Handler() stulphttp.Handler {
 	return func(response stulphttp.ResponseWriter, request *stulphttp.Request) {
-		response.Header().Set("Access-Control-Allow-Origin", "*")
-		response.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		response.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS")
 		response.Header().Set("X-Stulp-ID", s.options.StulpID)
 		response.Header().Set("X-Stulp-Version", s.options.StulpVersion)
+		response.Header().Set("Referrer-Policy", "no-referrer")
+		response.Header().Set("X-Content-Type-Options", "nosniff")
+
+		requestPath := stulphttp.Path(request)
+		// MCP bestaat nooit zonder expliciete sleutel. Ook de key-loze lokale
+		// ontwikkelmodus mag niet per ongeluk een schrijfserver publiceren.
+		if strings.HasPrefix(requestPath, "/mcp/") {
+			if s.options.Token == "" || !s.accessKeyMatches(strings.TrimPrefix(requestPath, "/mcp/")) {
+				stulphttp.NotFound(response, request)
+				return
+			}
+			s.mux.ServeHTTP(response, request)
+			return
+		}
+		if s.options.Token != "" {
+			// Dit is de enige URL waarin de browser de echte sleutel gebruikt.
+			// De pagina zelf krijgt no-store mee, zodat een gedeelde browsercache
+			// nooit een sleutel-URL als bruikbare ingang bewaart.
+			if request.Method == stulphttp.MethodGet && strings.HasPrefix(requestPath, "/") &&
+				s.accessKeyMatches(strings.TrimPrefix(requestPath, "/")) {
+				response.Header().Set("Set-Cookie", accessCookie+"="+s.accessProof()+"; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000")
+				response.Header().Set("Cache-Control", "no-store")
+				response.Header().Set("X-Robots-Tag", "noindex, nofollow")
+				s.serveUI(response, request)
+				return
+			}
+
+			// CSS, JS, iconen en de PWA-hulpen vertellen niets over het huis en
+			// moeten al kunnen laden terwijl de zojuist gezette cookie landt.
+			public := strings.HasPrefix(requestPath, "/assets/") || strings.HasPrefix(requestPath, "/image/") ||
+				requestPath == "/sw.js" || requestPath == "/manifest.webmanifest"
+			if !public && !s.hasAccessCookie(request) {
+				if strings.HasPrefix(requestPath, "/api/") {
+					writeError(response, stulphttp.StatusUnauthorized, errors.New("open /<key> before using Stulp"))
+				} else {
+					stulphttp.NotFound(response, request)
+				}
+				return
+			}
+		}
 		if request.Method == stulphttp.MethodOptions {
 			response.WriteHeader(stulphttp.StatusNoContent)
 			return
 		}
-		if strings.HasPrefix(stulphttp.Path(request), "/api/") && s.options.Token != "" && request.Header.Get("Authorization") != "Bearer "+s.options.Token {
-			writeError(response, stulphttp.StatusUnauthorized, errors.New("valid bearer token required"))
-			return
-		}
 		s.mux.ServeHTTP(response, request)
 	}
+}
+
+func (s *Server) accessKeyMatches(candidate string) bool {
+	want := sha256.Sum256([]byte(s.options.Token))
+	got := sha256.Sum256([]byte(candidate))
+	return subtle.ConstantTimeCompare(want[:], got[:]) == 1
+}
+
+func (s *Server) accessProof() string {
+	sum := sha256.Sum256([]byte("stulp web session\x00" + s.options.Token))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func (s *Server) hasAccessCookie(request *stulphttp.Request) bool {
+	for _, part := range strings.Split(request.Header.Get("Cookie"), ";") {
+		name, value, found := strings.Cut(strings.TrimSpace(part), "=")
+		if found && name == accessCookie {
+			want := sha256.Sum256([]byte(s.accessProof()))
+			got := sha256.Sum256([]byte(value))
+			return subtle.ConstantTimeCompare(want[:], got[:]) == 1
+		}
+	}
+	return false
 }
 
 // invokeCapability is the single command path for Manage and Flows. Native
@@ -152,6 +215,7 @@ func (s *Server) Close() {
 }
 
 func (s *Server) routes() {
+	s.handleMCP()
 	s.handleSystem()
 	s.handleStatistics()
 	s.handleSystemSettings()
@@ -490,9 +554,9 @@ func (s *Server) handleApps() {
 	// een app die Stulp nog niet kent -- en dat is precies de app waarvoor je hem
 	// komt halen.
 	//
-	// Wie dit mag opvragen, mag alles: het zit achter hetzelfde bearer-token als
-	// de rest van de API. Dat is geen versoepeling, want met dat token kun je al
-	// elk apparaat in het huis bedienen.
+	// Wie dit mag opvragen, mag alles: het zit achter dezelfde sessie als de rest
+	// van Manage. Dat is geen versoepeling, want via die sessie kun je al elk
+	// apparaat in het huis bedienen.
 	s.mux.HandleFunc("GET /api/stulp/attach-token/{id}", func(response stulphttp.ResponseWriter, request *stulphttp.Request) {
 		id := request.PathValue("id")
 		secret, err := s.store.AttachSecret(stulphttp.Context(request))

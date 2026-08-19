@@ -40,12 +40,17 @@ func (s *Server) handleUI() {
 		stulphttp.ServeFS(response, request, root, "manifest.webmanifest")
 	})
 	s.mux.HandleFunc(stulphttp.RootPattern, func(response stulphttp.ResponseWriter, request *stulphttp.Request) {
-		response.Header().Set("Content-Type", "text/html; charset=utf-8")
-		response.Header().Set("Cache-Control", "no-cache")
-		stulphttp.ServeFS(response, request, root, "index.html")
+		s.serveUI(response, request)
 	})
 	s.mux.HandleFunc("GET /app", func(response stulphttp.ResponseWriter, request *stulphttp.Request) {
-		response.Header().Set("Content-Type", "text/html; charset=utf-8")
-		stulphttp.ServeFS(response, request, root, "index.html")
+		s.serveUI(response, request)
 	})
+}
+
+func (s *Server) serveUI(response stulphttp.ResponseWriter, request *stulphttp.Request) {
+	response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if response.Header().Get("Cache-Control") == "" {
+		response.Header().Set("Cache-Control", "no-cache")
+	}
+	stulphttp.ServeFS(response, request, uiFiles, "ui/index.html")
 }

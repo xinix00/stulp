@@ -55,6 +55,10 @@ func Query(r *Request) url.Values { return r.URL.Query() }
 // Path is het %-gedecodeerde pad.
 func Path(r *Request) string { return r.URL.Path }
 
+// Host is de HTTP-host waar de client om vroeg. net/http houdt die bewust
+// buiten Header; leanhttp bewaart hem daar juist wel.
+func Host(r *Request) string { return r.Host }
+
 // Flush duwt wat er gebufferd staat naar de client, voor SSE en mediastromen.
 // Op een host kan niet elke writer dat (een middleware die hem inpakt kan het
 // weglaten), dus is het hier een vraag met een antwoord in plaats van een
@@ -106,8 +110,9 @@ func LimitBody(w ResponseWriter, r *Request, n int64) io.Reader {
 }
 
 // Fetch haalt een URL op namens een handler: de stroom van een app doorgeven.
-// header mag nil zijn; Range is de enige die Stulp doorstuurt.
-func Fetch(r *Request, url string, header map[string]string) (*Reply, error) {
+// header mag nil zijn; Range is de enige die Stulp doorstuurt. Een timeout van
+// nul laat een livestream doorlopen zolang de kijker verbonden blijft.
+func Fetch(r *Request, url string, header map[string]string, timeout time.Duration) (*Reply, error) {
 	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -115,7 +120,7 @@ func Fetch(r *Request, url string, header map[string]string) (*Reply, error) {
 	for k, v := range header {
 		request.Header.Set(k, v)
 	}
-	answer, err := (&http.Client{}).Do(request)
+	answer, err := (&http.Client{Timeout: timeout}).Do(request)
 	if err != nil {
 		return nil, err
 	}

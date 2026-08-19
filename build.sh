@@ -48,8 +48,11 @@ build_hopos() {
 			# stulp_notls: op het node-netwerk bewijst het token wie er aanklopt,
 			# en TLS erbovenop kost een app een hele TLS-stapel voor geheimhouding
 			# tegen iets dat al in dat netwerk zit.
-			riscv64) tags="linkramsize linkcpuinit stulp_notls"; ld="-s -w -T 0x88010000 -R 0x1000" ;;
-			arm64)   tags="linkcpuinit stulp_notls";             ld="-s -w -T 0x50010000 -R 0x1000" ;;
+			# GEEN -s: HOP's plaatser (leanelf) leest de symboltabel van het
+			# image (versiewacht, entry) — met -s weigert élk slot het ELF.
+			# -w (DWARF eruit) is de grootte-winst die wél kan.
+			riscv64) tags="linkramsize linkcpuinit stulp_notls"; ld="-w -T 0x88010000 -R 0x1000" ;;
+			arm64)   tags="linkcpuinit stulp_notls";             ld="-w -T 0x50010000 -R 0x1000" ;;
 			esac
 			elf="out/$name-$arch-tamago.elf"
 			GOWORK=off GOTOOLCHAIN=local GOFLAGS=-mod=mod \

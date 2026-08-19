@@ -2,8 +2,8 @@ github.com/usbarmory/tamago v1.26.4 h1:laFvRANKgVYFHxLHjIlhqJCc3Xm+qMyab2SlUoNw6
 github.com/usbarmory/tamago v1.26.4/go.mod h1:HZkb+ZkzFl8aCxAuF7exsKX+XaNM0mYG9Iv7ooX1WDY=
 github.com/xinix00/HopOS/metal v1.20.0 h1:4TyFSH8AxYeS1WmpKtF0DTev6927R4qI1lnQ0mPtJnI=
 github.com/xinix00/HopOS/metal v1.20.0/go.mod h1:IdkRi2Km3c+xByvPBGIsCtrLYHrpWj7ImrQfcv9cCMU=
-github.com/xinix00/lean v0.8.1 h1:ezDm7b7d0nyekEyaByM6RYBdW7u8uXgimSnYbZYeJiQ=
-github.com/xinix00/lean v0.8.1/go.mod h1:gRIa2nL/SIEsi1L/eq9EUqrKQ+jnjxUGb3IAsuVQX7U=
+github.com/xinix00/lean v0.9.0 h1:FtJaLzLAbx1N0g+hlWvl/5I+bJZhwSLuRm0awnPHmck=
+github.com/xinix00/lean v0.9.0/go.mod h1:gRIa2nL/SIEsi1L/eq9EUqrKQ+jnjxUGb3IAsuVQX7U=
 golang.org/x/crypto/x509roots/fallback v0.0.0-20260811175631-f44d03d253a1 h1:0LcVce0NOnpZF3lueZ6uAorLcATPGDmPolJYvQBE0ic=
 golang.org/x/crypto/x509roots/fallback v0.0.0-20260811175631-f44d03d253a1/go.mod h1:+UoQFNBq2p2wO+Q6ddVtYc25GZ6VNdOMyyrd4nrqrKs=
 golang.org/x/net v0.57.0 h1:K5+3DljvIuDG9/Jv9rvyMywYNFCQ9RSUY6OOTTkT+tE=

@@ -9,8 +9,14 @@ package appsdk
 //
 // De identiteit komt uit het manifest van de plugin zelf (app.json draagt de
 // id al); env is alleen wat werkelijk gedeeld wordt: STULP_ATTACH (waar Stulp
-// woont) en STULP_TOKENS (JSON, id → token — tokens zijn per app-id, dus de
-// bundel krijgt ze als één map mee in de jobspec).
+// woont) en het bewijs. Dat bewijs kan op twee manieren binnenkomen:
+//
+//	STULP_ATTACH_SECRET  hetzelfde zaad dat Stulp's document seedt — de bundel
+//	                     leidt elk token zelf af (token = HMAC(geheim, id),
+//	                     appproto.Token). Dit is de statische-startup-file-weg:
+//	                     één gedeeld veld, geen minting vooraf.
+//	STULP_TOKENS         JSON, id → token, per stuk gemint via de API. Wint van
+//	                     het zaad als een id in de map staat.
 //
 // Waarom een bundel: op een node betaalt élke losse app ~12,5MB runtime-tax
 // plus een kopie van dezelfde basis (runtime/netstack/sdk). Negen pollers
@@ -21,10 +27,14 @@ package appsdk
 import (
 	"encoding/json"
 	"errors"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/xinix00/HopOS/metal/app/applib"
 	"github.com/xinix00/HopOS/metal/app/applib/appnet"
+
+	"github.com/xinix00/stulp/internal/appproto"
 )
 
 // BundleApp is één plugin in een bundel: naam (voor de log), het meegebakken
@@ -37,7 +47,18 @@ type BundleApp struct {
 
 func RunNodeBundle(apps []BundleApp) {
 	app := applib.Init() // eerste regel: READY + heartbeat + kill-flag
-	app.Logf("bundle: init done (%d plugins), bringing the netstack up", len(apps))
+
+	// De bundel is de pointer-rijke wereld waarvoor memlimit's kleine-venster-
+	// GOGC (25 onder een 128MB-limiet) niet klopt: negen werklasten alloceren
+	// samen MB's per seconde, en 25 werd 157 GC/s en een thrash-panic bij 18MB
+	// live in een 47MB-limiet (gemeten 19-08). Verdubbelen past hier wél, en
+	// het geheugenplafond — sinds de anker-fix van 15-08 écht werkend — dempt
+	// het tempo vanzelf richting de muur; de thrash-wachter blijft het vangnet.
+	// Groter kan het venster op dit board niet: een ≥130MB-partitie past
+	// meetkundig niet in de 222MB-pool, dus de knop hoort hier, bij de app die
+	// zijn eigen wereld kent.
+	debug.SetGCPercent(100)
+	app.Logf("bundle: init done (%d plugins, GOGC 100), bringing the netstack up", len(apps))
 
 	if _, err := appnet.Up(app); err != nil {
 		app.Logf("bundle: net: %v", err)
@@ -55,6 +76,7 @@ func RunNodeBundle(apps []BundleApp) {
 			app.Exit(1)
 		}
 	}
+	secret := app.Env("STULP_ATTACH_SECRET")
 
 	for _, b := range apps {
 		id := manifestID(b.Manifest)
@@ -62,10 +84,16 @@ func RunNodeBundle(apps []BundleApp) {
 			app.Logf("bundle: %s: manifest carries no id, skipping", b.Name)
 			continue
 		}
+		token := tokens[id]
+		if token == "" && secret != "" {
+			// Zelfde formule als Stulp's kant (appproto.Token): wie het zaad
+			// deelt, hoeft geen tokens vooraf te minten — de startup-file-weg.
+			token = appproto.Token(secret, id)
+		}
 		config := AttachConfig{
 			Target: target,
 			AppID:  id,
-			Token:  tokens[id],
+			Token:  token,
 			// Geen TLS op het node-netwerk: het token bewijst wie er
 			// aanklopt (nonce heen, HMAC terug) — zie examples/virtual.
 			Plaintext: true,
@@ -88,6 +116,13 @@ func attachForever(app *applib.App, name string, config AttachConfig, p Plugin) 
 		err := Attach(config, p)
 		if err == nil {
 			err = errors.New("attach session ended")
+		}
+		if strings.Contains(err.Error(), "is already running") {
+			// De wees-sessie van onze voorganger (rolling replace): stulps
+			// ping-wachter ruimt hem binnen ~15s. Vlak en snel blijven proberen
+			// — exponentieel wachten maakte de wissel tientallen seconden
+			// langer dan het lijk zelf leefde.
+			backoff = 2 * time.Second
 		}
 		app.Logf("%s: attach: %v — retrying in %s", name, err, backoff)
 		time.Sleep(backoff)

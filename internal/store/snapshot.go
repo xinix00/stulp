@@ -36,8 +36,9 @@ func ParseSnapshot(data []byte) (*Snapshot, error) {
 }
 
 // Apps returns just enough of the snapshot's app records for archive
-// validation. A rootless app carries its manifest in the document; a bundled
-// app is validated against app.json after extraction.
+// validation. A bundled app is validated against app.json after extraction; a
+// rootless app carries no manifest anywhere but in its own announcements, so
+// the snapshot has only its identity — which is all a backup should hold.
 func (s *Snapshot) Apps() []App {
 	if s == nil || s.doc == nil {
 		return nil
@@ -46,7 +47,7 @@ func (s *Snapshot) Apps() []App {
 	for _, record := range s.doc.Apps {
 		apps = append(apps, App{
 			ID: record.ID, Version: record.Version, Root: record.Root,
-			Manifest: cloneMap(record.Manifest), Enabled: record.Enabled,
+			Enabled: record.Enabled,
 			Offered: record.Offered, Source: record.Source,
 			UpdateVersion: record.UpdateVersion, UpdateCheckedAt: record.UpdateCheckedAt,
 		})

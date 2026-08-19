@@ -23,7 +23,11 @@ type lamp struct{ device *appsdk.Device }
 type lampDriver struct{ made chan *lamp }
 
 func (d lampDriver) NewDevice(device *appsdk.Device) (appsdk.DeviceHandler, error) {
-	return &lamp{device: device}, nil
+	lamp := &lamp{device: device}
+	if d.made != nil {
+		d.made <- lamp
+	}
+	return lamp, nil
 }
 
 func (d lampDriver) ListDevices() ([]appsdk.PairedDevice, error) {
@@ -173,6 +177,42 @@ func TestUnknownCapabilityIsAnErrorAndNotSilence(t *testing.T) {
 	}
 }
 
+func TestCapabilityReportCommitsAsOneDeviceMerge(t *testing.T) {
+	made := make(chan *lamp, 1)
+	stulp := newFakeStulpWithCapabilities(t, appsdk.Plugin{
+		Drivers: map[string]appsdk.Driver{"switch": lampDriver{made: made}},
+	}, "onoff", "dim")
+	defer stulp.close()
+
+	stulp.call(t, "device.init", map[string]any{"deviceId": "dev-1", "driverId": "switch"}, nil)
+	device := (<-made).device
+	before := stulp.mergeCount()
+	if err := device.SetCapabilityValues(map[string]any{"onoff": true, "dim": 0.42}); err != nil {
+		t.Fatal(err)
+	}
+	if got := stulp.mergeCount() - before; got != 1 {
+		t.Fatalf("one capability report used %d device.merge requests", got)
+	}
+	if got := stulp.deviceState("dev-1", "onoff"); got != true {
+		t.Errorf("onoff = %v", got)
+	}
+	if got := stulp.deviceState("dev-1", "dim"); got != 0.42 {
+		t.Errorf("dim = %v", got)
+	}
+
+	before = stulp.mergeCount()
+	err := device.SetCapabilityValues(map[string]any{"onoff": false, "unknown": true})
+	if err == nil {
+		t.Fatal("a report containing an unknown capability was accepted")
+	}
+	if got := stulp.mergeCount() - before; got != 0 {
+		t.Fatalf("an invalid report used %d device.merge requests", got)
+	}
+	if got := stulp.deviceState("dev-1", "onoff"); got != true {
+		t.Errorf("invalid report partially changed onoff to %v", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 
 // fakeStulp is de kant van Stulp: hij beantwoordt de handshake en de
@@ -186,12 +226,21 @@ type fakeStulp struct {
 	settings map[string]any
 	state    json.RawMessage
 	devices  map[string]map[string]any
+	merges   int
 	done     chan struct{}
 }
 
 func newFakeStulp(t *testing.T, plugin appsdk.Plugin) *fakeStulp {
+	return newFakeStulpWithCapabilities(t, plugin, "onoff")
+}
+
+func newFakeStulpWithCapabilities(t *testing.T, plugin appsdk.Plugin, capabilities ...string) *fakeStulp {
 	t.Helper()
 	ours, theirs := net.Pipe()
+	capabilityValues := make([]any, len(capabilities))
+	for i, capability := range capabilities {
+		capabilityValues[i] = capability
+	}
 
 	s := &fakeStulp{
 		conn:     ours,
@@ -201,7 +250,7 @@ func newFakeStulp(t *testing.T, plugin appsdk.Plugin) *fakeStulp {
 				"name": "Keukenlamp", "class": "light", "available": true,
 				"data": map[string]any{"id": "abc"}, "settings": map[string]any{},
 				"store": map[string]any{}, "state": map[string]any{},
-				"capabilities": []any{"onoff"},
+				"capabilities": capabilityValues,
 			},
 		},
 		done: make(chan struct{}),
@@ -252,6 +301,7 @@ func (s *fakeStulp) handle(_ context.Context, method string, params json.RawMess
 			Patch    map[string]any `json:"patch"`
 		}
 		json.Unmarshal(params, &p)
+		s.merges++
 		device := s.devices[p.DeviceID]
 		target, _ := device[p.Field].(map[string]any)
 		for key, value := range p.Patch {
@@ -309,6 +359,12 @@ func (s *fakeStulp) deviceState(deviceID, capability string) any {
 	defer s.mu.Unlock()
 	state, _ := s.devices[deviceID]["state"].(map[string]any)
 	return state[capability]
+}
+
+func (s *fakeStulp) mergeCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.merges
 }
 
 func (s *fakeStulp) appState() json.RawMessage {

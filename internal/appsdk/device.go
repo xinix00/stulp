@@ -96,8 +96,7 @@ func (d *Device) SetStore(patch map[string]any) error {
 }
 
 func (d *Device) Capabilities() []string {
-	value, _ := d.host.state.DeviceField(d.id, "capabilities")
-	list, _ := value.([]any)
+	list := d.capabilityList()
 	out := make([]string, 0, len(list))
 	for _, item := range list {
 		if name, ok := item.(string); ok {
@@ -108,7 +107,17 @@ func (d *Device) Capabilities() []string {
 }
 
 func (d *Device) HasCapability(name string) bool {
-	for _, have := range d.Capabilities() {
+	return hasCapability(d.capabilityList(), name)
+}
+
+func (d *Device) capabilityList() []any {
+	value, _ := d.host.state.DeviceField(d.id, "capabilities")
+	list, _ := value.([]any)
+	return list
+}
+
+func hasCapability(list []any, name string) bool {
+	for _, have := range list {
 		if have == name {
 			return true
 		}
@@ -137,6 +146,24 @@ func (d *Device) SetCapabilityValue(name string, value any) error {
 		return fmt.Errorf("device %s has no capability %q", d.id, name)
 	}
 	return d.host.MergeDeviceMap(d.id, "state", map[string]any{name: value})
+}
+
+// SetCapabilityValues meldt meerdere standen in één RPC en één store-ronde.
+// Voor rapport-gedreven bronnen is dat het verschil tussen één bericht per
+// rapport en één per attribuut: een energiemeter die vermogen, spanning en
+// stroom in één matter-rapport meldt kostte drie volledige rondes (frame,
+// store-update, SSE) en kost er nu één.
+func (d *Device) SetCapabilityValues(values map[string]any) error {
+	if len(values) == 0 {
+		return nil
+	}
+	capabilities := d.capabilityList()
+	for name := range values {
+		if !hasCapability(capabilities, name) {
+			return fmt.Errorf("device %s has no capability %q", d.id, name)
+		}
+	}
+	return d.host.MergeDeviceMap(d.id, "state", values)
 }
 
 func (d *Device) AddCapability(name string) error {

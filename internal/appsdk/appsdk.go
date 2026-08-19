@@ -57,8 +57,12 @@ type Plugin struct {
 	// Drivers koppelt een driver-id uit app.json aan zijn implementatie. Een
 	// driver die niet in het manifest staat wordt nooit gevraagd.
 	Drivers map[string]Driver
-	// OnStop draait als Stulp de verbinding sluit. Bedoeld om sockets en
-	// tickers op te ruimen; daarna stopt het proces.
+	// OnStop draait als Stulp de verbinding sluit. Ruim hier álles op wat
+	// OnInit en de apparaten aan goroutines startten — ook de pollers per
+	// apparaat. Op een host stopt het proces daarna toch, maar in een bundel
+	// en bij elke her-aanmelding leeft het proces door: wat blijft draaien
+	// wordt een zombie die tegen een dode sessie aan schrijft, naast de verse
+	// generatie van de volgende aanmelding.
 	OnStop func()
 
 	// UI bevat de instellingenpagina en eventuele eigen koppelpagina's van de

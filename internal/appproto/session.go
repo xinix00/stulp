@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
+	"time"
 )
 
 // Handler answers an incoming request. Returning an error turns into an err
@@ -19,12 +21,32 @@ type EventHandler func(method string, params json.RawMessage)
 // ErrClosed is returned by Call once the session is finished.
 var ErrClosed = errors.New("appproto: session is closed")
 
-const maxQueuedRequests = 1024
+const (
+	// Requests are handled in order by one worker. A backlog of a thousand can
+	// never become useful latency; it only retains frames. Thirty-two still
+	// allows a burst of concurrent UI/flow calls without turning one slow app
+	// into an unbounded heap consumer.
+	maxQueuedRequests = 32
+	// Count alone is not a memory bound because frame sizes vary. One full frame
+	// is enough queue budget; a second one waits at the peer instead of occupying
+	// this process as well.
+	maxQueuedRequestBytes = MaxFrameSize
+)
 
 // pingMethod is protocol plumbing, not an application callback. Handling it on
 // the reader goroutine is intentional: a slow OnInit or device callback must
 // not make a healthy connection look dead.
 const pingMethod = "$appproto.ping"
+
+// pingIdleTimeout is hoe lang een sessie mag zwijgen NADAT de peer bewezen
+// heeft dat hij pingt (appsdk pingt elke 5s; drie gemiste is dood). Waarom:
+// een slot dat verdwijnt (rolling replace op een node) stuurt geen FIN of RST
+// over de interne switch, en schrijven in de ring van een dood slot "lukt"
+// gewoon — zonder deze wachter blijft zo'n sessie tientallen seconden als
+// "already running" staan en bonkt zijn opvolger er met backoff tegenaan
+// (gemeten 19-08). De poort is de bewezen ping: een oudere peer die nooit
+// pingt krijgt nooit een deadline en gedraagt zich als vanouds.
+const pingIdleTimeout = 15 * time.Second
 
 // Session runs the protocol over a Conn: it correlates replies to requests and
 // dispatches incoming requests to a handler.
@@ -47,6 +69,7 @@ type Session struct {
 	requestMu      sync.Mutex
 	requestCond    *sync.Cond
 	requestQueue   []Frame
+	requestBytes   int
 	requestsClosed bool
 	handlerCtx     context.Context
 	cancelHandler  context.CancelFunc
@@ -72,7 +95,7 @@ func NewSession(conn *Conn, handle Handler, onEvent EventHandler) *Session {
 // Requests go through one ordered worker. The reader only appends to a bounded
 // in-memory queue, so it remains free to deliver replies (including replies
 // needed by the currently running handler) without spawning an unbounded
-// goroutine per request or reordering requests. A peer that fills the generous
+// goroutine per request or reordering requests. A peer that fills the bounded
 // queue is disconnected instead of consuming memory without limit.
 func (s *Session) Serve() (serveErr error) {
 	go s.answerLoop()
@@ -81,9 +104,19 @@ func (s *Session) Serve() (serveErr error) {
 		s.finish(serveErr)
 	}()
 
+	sawPing := false
 	for {
+		// De ping-wachter: pas actief na de eerste ping (zie pingIdleTimeout).
+		// Elke frame schuift de deadline op, dus een drukke maar levende peer
+		// raakt hem nooit.
+		if sawPing {
+			s.conn.SetReadDeadline(time.Now().Add(pingIdleTimeout))
+		}
 		frame, err := s.conn.ReadFrame()
 		if err != nil {
+			if sawPing && errors.Is(err, os.ErrDeadlineExceeded) {
+				return fmt.Errorf("appproto: peer stopped pinging (silent for %s)", pingIdleTimeout)
+			}
 			return err
 		}
 
@@ -92,6 +125,7 @@ func (s *Session) Serve() (serveErr error) {
 			s.deliver(frame)
 		case KindRequest:
 			if frame.M == pingMethod {
+				sawPing = true
 				if err := s.conn.WriteFrame(Frame{
 					T: KindResponse, ID: frame.ID, R: json.RawMessage("true"),
 				}); err != nil {
@@ -100,7 +134,8 @@ func (s *Session) Serve() (serveErr error) {
 				continue
 			}
 			if !s.enqueueRequest(frame) {
-				return fmt.Errorf("appproto: more than %d requests queued", maxQueuedRequests)
+				return fmt.Errorf("appproto: request queue exceeds %d requests or %d bytes",
+					maxQueuedRequests, maxQueuedRequestBytes)
 			}
 		case KindEvent:
 			if s.onEvent != nil {
@@ -113,12 +148,26 @@ func (s *Session) Serve() (serveErr error) {
 func (s *Session) enqueueRequest(frame Frame) bool {
 	s.requestMu.Lock()
 	defer s.requestMu.Unlock()
-	if s.requestsClosed || len(s.requestQueue) >= maxQueuedRequests {
+	frameBytes := retainedFrameBytes(frame)
+	if s.requestsClosed || len(s.requestQueue) >= maxQueuedRequests ||
+		frameBytes > maxQueuedRequestBytes-s.requestBytes {
 		return false
 	}
 	s.requestQueue = append(s.requestQueue, frame)
+	s.requestBytes += frameBytes
 	s.requestCond.Signal()
 	return true
+}
+
+// retainedFrameBytes counts every variable-sized value that remains reachable
+// while a frame waits. Well-behaved requests only carry M and P, but counting R
+// and E too keeps a malformed request from bypassing the memory bound.
+func retainedFrameBytes(frame Frame) int {
+	bytes := len(frame.M) + len(frame.P) + len(frame.R)
+	if frame.E != nil {
+		bytes += len(frame.E.Message)
+	}
+	return bytes
 }
 
 func (s *Session) answerLoop() {
@@ -134,6 +183,7 @@ func (s *Session) answerLoop() {
 		frame := s.requestQueue[0]
 		s.requestQueue[0] = Frame{}
 		s.requestQueue = s.requestQueue[1:]
+		s.requestBytes -= retainedFrameBytes(frame)
 		s.requestMu.Unlock()
 		s.answer(frame)
 	}
@@ -143,6 +193,7 @@ func (s *Session) stopAnswers() {
 	s.requestMu.Lock()
 	s.requestsClosed = true
 	s.requestQueue = nil
+	s.requestBytes = 0
 	s.requestCond.Broadcast()
 	s.requestMu.Unlock()
 }

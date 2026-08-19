@@ -11,6 +11,7 @@ package appsdk
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/xinix00/HopOS/metal/app/applib"
@@ -60,6 +61,11 @@ func RunNode(name string, manifest []byte, p Plugin) {
 		err := Attach(config, p)
 		if err == nil {
 			err = errors.New("attach session ended")
+		}
+		if strings.Contains(err.Error(), "is already running") {
+			// De wees-sessie van onze voorganger (rolling replace): stulps
+			// ping-wachter ruimt hem binnen ~15s — vlak en snel blijven proberen.
+			backoff = 2 * time.Second
 		}
 		app.Logf("%s: attach: %v — retrying in %s", name, err, backoff)
 		time.Sleep(backoff)

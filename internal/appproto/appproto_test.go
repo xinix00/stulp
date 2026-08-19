@@ -269,6 +269,28 @@ func TestOversizedPrefixIsRejectedWithoutAllocating(t *testing.T) {
 	}
 }
 
+func TestStricterRawLimitRejectsBeforeAllocating(t *testing.T) {
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], 1024)
+
+	conn := NewConn(readOnly{bytes.NewReader(header[:])})
+	_, err := conn.ReadRawLimit(128)
+	if !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("stricter raw limit returned %v", err)
+	}
+}
+
+func TestRequestQueueHasAByteBudget(t *testing.T) {
+	session := NewSession(NewConn(discard{}), nil, nil)
+	half := strings.Repeat("x", maxQueuedRequestBytes/2)
+	if !session.enqueueRequest(Frame{M: "one", P: json.RawMessage(half)}) {
+		t.Fatal("the first half-budget request did not fit")
+	}
+	if session.enqueueRequest(Frame{M: "two", P: json.RawMessage(half)}) {
+		t.Fatal("method bytes let the request queue exceed its byte budget")
+	}
+}
+
 // Een frame dat halverwege ophoudt is geen kortere boodschap maar een kapotte
 // verbinding. Stilzwijgend doorgaan met de helft zou erger zijn dan stoppen.
 func TestTruncatedFrameIsAnError(t *testing.T) {

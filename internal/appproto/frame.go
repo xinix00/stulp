@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 )
 
 // MaxFrameSize caps a single frame.
@@ -25,6 +26,13 @@ import (
 // than stopping. The supervisor restarts the app, which is a visible failure
 // rather than a silent one.
 const MaxFrameSize = 8 << 20 // 8 MiB
+
+// connBufferSize is intentionally much smaller than MaxFrameSize. bufio writes
+// a message larger than its buffer straight to the connection, and ReadFull
+// keeps filling the destination across reads, so making both buffers as large
+// as a rare frame only burns permanent heap. Eight KiB covers ordinary state
+// reports while keeping one Conn at 16 KiB instead of 128 KiB.
+const connBufferSize = 8 << 10
 
 // ErrFrameTooLarge is returned when either side sees an oversized frame.
 var ErrFrameTooLarge = errors.New("appproto: frame exceeds maximum size")
@@ -84,8 +92,8 @@ type Conn struct {
 func NewConn(rw io.ReadWriteCloser) *Conn {
 	return &Conn{
 		rw: rw,
-		br: bufio.NewReaderSize(rw, 64<<10),
-		bw: bufio.NewWriterSize(rw, 64<<10),
+		br: bufio.NewReaderSize(rw, connBufferSize),
+		bw: bufio.NewWriterSize(rw, connBufferSize),
 	}
 }
 
@@ -119,14 +127,25 @@ func (c *Conn) WriteRaw(body []byte) error {
 // The cap is checked before the allocation: a corrupt or hostile prefix must
 // not be able to make us reserve four gigabytes.
 func (c *Conn) ReadRaw() ([]byte, error) {
+	return c.ReadRawLimit(MaxFrameSize)
+}
+
+// ReadRawLimit is ReadRaw with a stricter allocation limit for protocol
+// phases that can never legitimately carry a full application frame. Attach
+// uses it before authentication, so a 256 KiB greeting cannot first force an
+// eight MiB allocation and only then be rejected.
+func (c *Conn) ReadRawLimit(limit int) ([]byte, error) {
+	if limit <= 0 || limit > MaxFrameSize {
+		limit = MaxFrameSize
+	}
 	var header [4]byte
 	if _, err := io.ReadFull(c.br, header[:]); err != nil {
 		return nil, err
 	}
 	length := binary.BigEndian.Uint32(header[:])
 
-	if length > MaxFrameSize {
-		return nil, fmt.Errorf("%w: peer announced %d bytes", ErrFrameTooLarge, length)
+	if length > uint32(limit) {
+		return nil, fmt.Errorf("%w: peer announced %d bytes (limit %d)", ErrFrameTooLarge, length, limit)
 	}
 	if length == 0 {
 		return nil, errors.New("appproto: empty frame")
@@ -155,6 +174,17 @@ func (c *Conn) WriteFrame(f Frame) error {
 		return fmt.Errorf("%w: %d bytes in %s %s", ErrFrameTooLarge, len(body), f.T, f.M)
 	}
 	return c.WriteRaw(body)
+}
+
+// SetReadDeadline geeft de leesdeadline door aan de onderliggende verbinding,
+// als die er een kent (net.Conn op een node, os.File op een host-socketpair).
+// Zonder ondersteuning gebeurt er niets — dan gedraagt de sessie zich als
+// vanouds. De sessie gebruikt dit als ping-wachter; zie session.go.
+func (c *Conn) SetReadDeadline(t time.Time) error {
+	if d, ok := c.rw.(interface{ SetReadDeadline(time.Time) error }); ok {
+		return d.SetReadDeadline(t)
+	}
+	return nil
 }
 
 // ReadFrame reads the next frame. io.EOF means the peer closed cleanly.

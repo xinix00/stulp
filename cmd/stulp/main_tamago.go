@@ -17,7 +17,7 @@
 //	ER_PORT_HTTP    de gepubliceerde poort voor Manage en de API; bind DIE
 //	ER_PORT_ATTACH  de poort waarop apps zich mogen melden
 //	HOPOS_HOST      het node-IP waarop die poorten van buiten open staan
-//	STULP_TOKEN     optioneel bearer-token voor de API
+//	STULP_TOKEN     toegangssleutel voor /<key> en /mcp/<key>
 //	STULP_DOCUMENT  naam van het document in het app-volume (default stulp.json)
 //
 // Jobspec, met de LicheeRV erbij (riscv64):
@@ -104,6 +104,16 @@ func main() {
 	}
 	defer database.Close()
 
+	// Het attach-geheim uit de jobspec, als het document er nog geen heeft.
+	// Zonder volume is het document per boot vers en zou elk token bij een
+	// reboot breken; met dit zaad blijven tokens uit de startup-file geldig
+	// (en kan een bundel ze zelf afleiden). Een document mét geheim wint.
+	if secret := app.Env("STULP_ATTACH_SECRET"); secret != "" {
+		if err := database.SeedAttachSecret(context.Background(), secret); err != nil {
+			app.Logf("stulp: attach secret seed: %v", err)
+		}
+	}
+
 	// Netstack-tellers in het task-log (spin/stilte-jacht 15-08): als Manage
 	// zwijgt terwijl de task leeft, zeggen deze tellers of de pot leeg is.
 	appnet.WatchStats(app.Logf, 20*time.Second)
@@ -177,7 +187,7 @@ func main() {
 		app.Logf("stulp: http port %s: %v", httpPort, err)
 		app.Exit(1)
 	}
-	app.Logf("stulp %s: Manage and the API on http://%s:%s (node %s)",
+	app.Logf("stulp %s: Manage and MCP on http://%s:%s (node %s)",
 		version, ip, httpPort, app.Env("HOPOS_HOST"))
 	// leanhttp begrenst de verzoekkop en de body zelf; er is hier geen
 	// slowloris-wacht in te stellen omdat er ook geen publiek internet aan deze

@@ -199,8 +199,10 @@ func (s *Store) saveLocked() error {
 // no bundle to read one from.
 
 // reloadManifests restores the manifest cache from the source that owns it.
-// Bundled apps are read from app.json; an app that announced itself has no
-// shared directory, so its durable copy in the document is the source.
+// Bundled apps are read from app.json. An app that announced itself carries
+// its manifest ITSELF and repeats it at every attach — the document does not
+// store application knowledge — so it opens as a placeholder and fills in at
+// its first announce, seconds later.
 //
 // An app whose bundle is unreadable keeps its entry with a placeholder, so the
 // failure surfaces where it belongs — the app will not start and Manage says
@@ -213,9 +215,7 @@ func (s *Store) reloadManifests() {
 
 func (s *Store) loadManifest(app appRecord) {
 	if app.Root == "" {
-		if app.Manifest != nil {
-			s.manifests[app.ID] = app.Manifest
-		} else {
+		if s.manifests[app.ID] == nil {
 			s.manifests[app.ID] = map[string]any{"id": app.ID}
 		}
 		return
@@ -314,8 +314,14 @@ func (s *Store) InstallApp(_ context.Context, m *manifest.Manifest, root, source
 		s.doc.Apps = append(s.doc.Apps, record)
 	}
 	// The manifest is read from the bundle that was just published, never from
-	// whatever the caller happened to hand over.
-	s.loadManifest(record)
+	// whatever the caller happened to hand over. A rootless app has no bundle:
+	// there the handed manifest IS the announcement (or, for the native matter
+	// app, the synthesised one) and it goes to the cache — never the document.
+	if root == "" {
+		s.manifests[m.ID] = m.Raw
+	} else {
+		s.loadManifest(record)
+	}
 	err := s.saveLocked()
 	s.mu.Unlock()
 	if err != nil {
@@ -393,12 +399,12 @@ func (s *Store) Apps(_ context.Context) ([]App, error) {
 }
 
 func (s *Store) appLocked(record appRecord) App {
-	// Het manifest komt van de bundel als die er is, en anders uit het document:
-	// een app die zich aanmeldde bracht het zelf mee en heeft geen map om het uit
-	// te lezen.
+	// Het manifest komt uit de cache: van de bundel gelezen als die er is, en
+	// anders door de app zelf verteld bij zijn laatste announce. Nog niets
+	// gehoord (net herstart)? Dan een placeholder — de announce komt zo.
 	appManifest := s.manifests[record.ID]
 	if appManifest == nil {
-		appManifest = record.Manifest
+		appManifest = map[string]any{"id": record.ID}
 	}
 	return App{
 		ID: record.ID, Version: record.Version, Root: record.Root, Enabled: record.Enabled,
@@ -432,8 +438,11 @@ func (s *Store) OfferApp(ctx context.Context, m *manifest.Manifest) (bool, error
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	s.doc.Apps = append(s.doc.Apps, appRecord{
 		ID: m.ID, Version: m.Version, Offered: true, Enabled: false,
-		Manifest: m.Raw, InstalledAt: now, UpdatedAt: now,
+		InstalledAt: now, UpdatedAt: now,
 	})
+	// Het manifest gaat de cache in, niet het document: de app herhaalt het
+	// bij elke aanmelding toch.
+	s.manifests[m.ID] = m.Raw
 	if err := s.saveLocked(); err != nil {
 		s.mu.Unlock()
 		return false, err
@@ -478,9 +487,12 @@ func (s *Store) AcceptApp(ctx context.Context, id string) (App, error) {
 // connecting. A bundled app keeps app.json on disk as its authority and ignores
 // this path.
 //
-// Equal announcements do not rewrite the document. Slot apps retry while they
-// wait for Stulp, so making the common case a no-op is important on flash-backed
-// storage.
+// The manifest itself only touches the cache: it is application knowledge the
+// app repeats at every attach, so persisting it would be both redundant and
+// stale after the next image. Only the version — what the Apps page and update
+// checks reason about — is Stulp's to remember. Equal announcements do not
+// rewrite the document: slot apps retry while they wait for Stulp, so making
+// the common case a no-op is important on flash-backed storage.
 func (s *Store) UpdateAnnouncedApp(ctx context.Context, m *manifest.Manifest) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -498,17 +510,19 @@ func (s *Store) UpdateAnnouncedApp(ctx context.Context, m *manifest.Manifest) (b
 			s.mu.Unlock()
 			return false, nil
 		}
-		if record.Version == m.Version && reflect.DeepEqual(record.Manifest, m.Raw) {
+		sameManifest := reflect.DeepEqual(s.manifests[m.ID], m.Raw)
+		if record.Version == m.Version && sameManifest {
 			s.mu.Unlock()
 			return false, nil
 		}
-		record.Version = m.Version
-		record.Manifest = m.Raw
-		record.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		s.loadManifest(*record)
-		if err := s.saveLocked(); err != nil {
-			s.mu.Unlock()
-			return false, fmt.Errorf("update announced app %q: %w", m.ID, err)
+		s.manifests[m.ID] = m.Raw
+		if record.Version != m.Version {
+			record.Version = m.Version
+			record.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+			if err := s.saveLocked(); err != nil {
+				s.mu.Unlock()
+				return false, fmt.Errorf("update announced app %q: %w", m.ID, err)
+			}
 		}
 		s.mu.Unlock()
 		s.publish(Event{Manager: "apps", Type: "app.update", ID: m.ID})

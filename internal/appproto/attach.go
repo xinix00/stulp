@@ -133,11 +133,14 @@ func SendAttach(conn *Conn, appID, token string, protocol int, appManifest []byt
 	if err != nil {
 		return err
 	}
+	if len(body) > maxAttachSize {
+		return fmt.Errorf("attach: greeting of %d bytes is too large", len(body))
+	}
 	if err := conn.WriteRaw(body); err != nil {
 		return fmt.Errorf("attach: greeting could not be sent: %w", err)
 	}
 
-	answer, err := conn.ReadRaw()
+	answer, err := conn.ReadRawLimit(maxAttachSize)
 	if err != nil {
 		return fmt.Errorf("attach: no answer from stulp: %w", err)
 	}
@@ -170,12 +173,9 @@ func Greet(conn *Conn, protocol int, nonce string) error {
 }
 
 func readAttachHello(conn *Conn) (AttachHello, error) {
-	body, err := conn.ReadRaw()
+	body, err := conn.ReadRawLimit(maxAttachSize)
 	if err != nil {
 		return AttachHello{}, fmt.Errorf("attach: stulp said nothing: %w", err)
-	}
-	if len(body) > maxAttachSize {
-		return AttachHello{}, fmt.Errorf("attach: greeting of %d bytes is too large", len(body))
 	}
 	var hello AttachHello
 	if err := json.Unmarshal(body, &hello); err != nil {
@@ -186,12 +186,9 @@ func readAttachHello(conn *Conn) (AttachHello, error) {
 
 // ReadAttach leest de begroeting van een app die zich meldt.
 func ReadAttach(conn *Conn) (Attach, error) {
-	body, err := conn.ReadRaw()
+	body, err := conn.ReadRawLimit(maxAttachSize)
 	if err != nil {
 		return Attach{}, err
-	}
-	if len(body) > maxAttachSize {
-		return Attach{}, fmt.Errorf("attach: greeting of %d bytes is too large", len(body))
 	}
 	var greeting Attach
 	if err := json.Unmarshal(body, &greeting); err != nil {

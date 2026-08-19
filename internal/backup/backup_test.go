@@ -203,8 +203,19 @@ func TestLiveRestoreIncludesAnAnnouncedAppWithoutABundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restoredApp.Root != "" || restoredApp.Version != announced.Version || restoredApp.Manifest["ui"] == nil {
-		t.Fatalf("announced manifest was not restored: %#v", restoredApp)
+	// Het manifest is applicatie-kennis en reist niet mee in een backup: na de
+	// restore is de app een placeholder tot zijn eerstvolgende announce.
+	if restoredApp.Root != "" || restoredApp.Version != announced.Version || !restoredApp.Enabled {
+		t.Fatalf("announced app identity was not restored: %#v", restoredApp)
+	}
+	if id, _ := restoredApp.Manifest["id"].(string); id != announced.ID {
+		t.Fatalf("placeholder manifest misses the id: %#v", restoredApp.Manifest)
+	}
+	if refreshed, err := target.UpdateAnnouncedApp(ctx, announced); err != nil || !refreshed {
+		t.Fatalf("announce after restore: changed=%v err=%v", refreshed, err)
+	}
+	if reannounced, err := target.App(ctx, announced.ID); err != nil || reannounced.Manifest["ui"] == nil {
+		t.Fatalf("announce did not refill the manifest: %#v err=%v", reannounced, err)
 	}
 	restoredDevice, err := target.Device(ctx, device.ID)
 	if err != nil || restoredDevice.Name != device.Name {

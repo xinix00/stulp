@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/xinix00/stulp/internal/units"
@@ -86,11 +87,12 @@ type appRecord struct {
 	// horen die niet naast elkaar te staan als hetzelfde.
 	Offered bool `json:"offered,omitempty"`
 
-	// Manifest is wat de app over zichzelf zei. Voor een app met een bundel op
-	// schijf staat het daar in app.json en is dit leeg; voor een app die zich
-	// aanmeldde is dit de enige plek waar het staat — een slot-image heeft geen
-	// map om het uit te lezen.
-	Manifest map[string]any `json:"manifest,omitempty"`
+	// Wat hier bewust NIET staat: het manifest. Dat is applicatie-kennis — de
+	// app draagt het zelf en vertelt het bij élke aanmelding opnieuw (en het
+	// verandert bij elke app-update). Het leeft in de manifest-cache van de
+	// store; na een herstart is een aangemelde app even naamloos tot zijn
+	// eerstvolgende announce, seconden later. Het document onthoudt alleen wat
+	// van Stulp zelf is: dát de app er is, en hoe de gebruiker hem zette.
 
 	Source          string `json:"source,omitempty"`
 	UpdateVersion   string `json:"updateVersion,omitempty"`
@@ -142,6 +144,29 @@ func newDeviceRecord(device Device) deviceRecord {
 		Available:    device.Available, Message: device.Message,
 		CreatedAt: now, UpdatedAt: now,
 	}
+}
+
+// MarshalJSON schrijft het record zonder de ~-sleutels uit Store: een sleutel
+// die met '~' begint is een cache van de app — kennis die de app uit de wereld
+// zelf kan terughalen (zoals matter's endpoint-inventaris) en die met elke
+// app-update kan veranderen. In het geheugen doet zo'n sleutel volledig mee
+// (apps lezen hem gewoon terug zolang Stulp draait); het document blijft er
+// vrij van, en na een herstart leidt de app hem opnieuw af.
+func (record deviceRecord) MarshalJSON() ([]byte, error) {
+	for key := range record.Store {
+		if strings.HasPrefix(key, "~") {
+			trimmed := make(map[string]any, len(record.Store))
+			for name, value := range record.Store {
+				if !strings.HasPrefix(name, "~") {
+					trimmed[name] = value
+				}
+			}
+			record.Store = trimmed
+			break
+		}
+	}
+	type persisted deviceRecord // alias zonder methoden: geen recursie
+	return json.Marshal(persisted(record))
 }
 
 func cloneMap(source map[string]any) map[string]any {

@@ -82,3 +82,31 @@ func (s *Store) AttachSecret(ctx context.Context) (string, error) {
 	}
 	return fresh, nil
 }
+
+// SeedAttachSecret zet het geheim, maar alleen als het document er nog geen
+// heeft. Voor een node waar het geheim uit de jobspec komt (STULP_ATTACH_SECRET):
+// zonder volume is het document per boot vers en zou elk uitgedeeld token bij
+// een reboot breken — met dit zaad zijn tokens uit de startup-file houdbaar,
+// want token = HMAC(geheim, app-id) en beide kanten kennen het zaad. Een
+// geheim dat al in het document staat wint: het volume is de waarheid zodra
+// hij er is, de env seedt alleen verse starts.
+func (s *Store) SeedAttachSecret(ctx context.Context, secret string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if secret == "" {
+		return nil
+	}
+	s.mu.Lock()
+	if s.doc.System.AttachSecret != "" {
+		s.mu.Unlock()
+		return nil
+	}
+	s.doc.System.AttachSecret = secret
+	err := s.saveLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("seed attach secret: %w", err)
+	}
+	return nil
+}

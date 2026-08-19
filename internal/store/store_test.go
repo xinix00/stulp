@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -99,7 +100,11 @@ func TestDocumentVersionIsHonoured(t *testing.T) {
 	}
 }
 
-func TestAnAnnouncedManifestSurvivesRestartAndFollowsThePlacedImage(t *testing.T) {
+// Het manifest is applicatie-kennis: de app draagt het zelf en herhaalt het
+// bij elke aanmelding, dus het document slaat het niet op. Na een herstart is
+// een aangemelde app een placeholder tot zijn eerstvolgende announce — en die
+// announce is de waarheid, ook na een app-update.
+func TestAnAnnouncedManifestLivesInMemoryAndFollowsThePlacedImage(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "stulp.json")
 	database, err := Open(path)
@@ -121,7 +126,28 @@ func TestAnAnnouncedManifestSurvivesRestartAndFollowsThePlacedImage(t *testing.T
 	if _, err := database.AcceptApp(ctx, first.ID); err != nil {
 		t.Fatal(err)
 	}
+	// Zolang Stulp draait komt het manifest uit de cache, met alles erop.
+	live, err := database.App(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveManifest, err := manifest.FromRaw(live.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := liveManifest.Driver("sensor"); !ok {
+		t.Fatalf("driver missing while attached: %#v", live.Manifest)
+	}
 	database.Close()
+
+	// Het document zelf draagt het manifest niet — dat is de hele regel.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "Aangemeld") {
+		t.Fatalf("document persists application knowledge:\n%s", raw)
+	}
 
 	reopened, err := Open(path)
 	if err != nil {
@@ -132,12 +158,12 @@ func TestAnAnnouncedManifestSurvivesRestartAndFollowsThePlacedImage(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := manifest.FromRaw(app.Manifest)
-	if err != nil {
-		t.Fatalf("stored manifest became unusable after restart: %v", err)
+	// Vers herstart en nog niets gehoord: geïnstalleerd, met een placeholder.
+	if !app.Enabled {
+		t.Fatal("installed app lost its enabled state on restart")
 	}
-	if _, ok := parsed.Driver("sensor"); !ok {
-		t.Fatalf("driver disappeared after restart: %#v", app.Manifest)
+	if id, _ := app.Manifest["id"].(string); id != first.ID {
+		t.Fatalf("placeholder manifest misses the id: %#v", app.Manifest)
 	}
 
 	second, err := manifest.Parse([]byte(`{
@@ -169,6 +195,64 @@ func TestAnAnnouncedManifestSurvivesRestartAndFollowsThePlacedImage(t *testing.T
 	}
 	if changed, err := reopened.UpdateAnnouncedApp(ctx, second); err != nil || changed {
 		t.Fatalf("equal retry rewrote the app: changed=%v err=%v", changed, err)
+	}
+}
+
+// Een device-store-sleutel die met '~' begint is een cache van de app —
+// afleidbaar uit de wereld zelf (matter's endpoint-inventaris). Zolang Stulp
+// draait doet hij volledig mee; het document blijft er vrij van, en na een
+// herstart leidt de app hem opnieuw af.
+func TestTransientStoreKeysStayOutOfTheDocument(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "stulp.json")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &manifest.Manifest{ID: "com.example.matter", Version: "1.0.0", SDK: 3,
+		Raw: map[string]any{"id": "com.example.matter"}}
+	if err := database.InstallApp(ctx, m, "", "test"); err != nil {
+		t.Fatal(err)
+	}
+	device, err := database.AddDevice(ctx, Device{
+		AppID: m.ID, DriverID: "node", Name: "Thermostaat", Class: "thermostat",
+		Store: map[string]any{
+			"matter.fabric":             "must-persist",
+			"~matter.endpointInventory": []any{map[string]any{"endpoint": 1}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Live doet de cache-sleutel gewoon mee.
+	live, err := database.Device(ctx, device.ID)
+	if err != nil || live.Store["~matter.endpointInventory"] == nil {
+		t.Fatalf("transient key missing while running: %#v err=%v", live.Store, err)
+	}
+	database.Close()
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "endpointInventory") {
+		t.Fatalf("document persists a transient key:\n%s", raw)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	restored, err := reopened.Device(ctx, device.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Store["matter.fabric"] != "must-persist" {
+		t.Fatalf("persistent key lost: %#v", restored.Store)
+	}
+	if restored.Store["~matter.endpointInventory"] != nil {
+		t.Fatalf("transient key survived a restart: %#v", restored.Store)
 	}
 }
 

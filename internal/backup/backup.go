@@ -73,13 +73,9 @@ func Write(ctx context.Context, database *store.Store, output io.Writer) error {
 	for _, app := range apps {
 		entry := AppEntry{ID: app.ID, Version: app.Version}
 		if app.Root == "" {
-			announced, manifestErr := manifest.FromRaw(app.Manifest)
-			if manifestErr != nil {
-				return fmt.Errorf("validate announced app %q before backup: %w", app.ID, manifestErr)
-			}
-			if announced.ID != app.ID || announced.Version != app.Version {
-				return fmt.Errorf("validate announced app %q before backup: manifest identity mismatch", app.ID)
-			}
+			// Een aangemelde app draagt zijn manifest zelf en herhaalt het bij
+			// elke aanmelding; de backup draagt alleen zijn identiteit. Meer
+			// valt hier dus niet na te rekenen — en dat is precies goed.
 			backupManifest.Apps = append(backupManifest.Apps, entry)
 			continue
 		}
@@ -238,13 +234,8 @@ func validateAndRelocate(ctx context.Context, documentPath, stagedApps, finalApp
 			if storedApp.Root != "" {
 				return fmt.Errorf("bundled app %q has no bundle in the backup", entry.ID)
 			}
-			announced, loadErr := manifest.FromRaw(storedApp.Manifest)
-			if loadErr != nil || announced.ID != entry.ID || announced.Version != entry.Version {
-				if loadErr == nil {
-					loadErr = errors.New("manifest identity mismatch")
-				}
-				return fmt.Errorf("validate restored announced app %q: %w", entry.ID, loadErr)
-			}
+			// Aangemeld: identiteit is alles wat de backup van hem draagt; het
+			// manifest komt terug zodra de app zich na de restore meldt.
 			continue
 		}
 		if storedApp.Root == "" {
@@ -330,13 +321,9 @@ func restoreReader(ctx context.Context, input io.ReaderAt, size int64, database 
 			if app.Root != "" {
 				return RestoreResult{}, fmt.Errorf("bundled app %q has no bundle in the backup", entry.ID)
 			}
-			announced, parseErr := manifest.FromRaw(app.Manifest)
-			if parseErr != nil || announced.ID != app.ID || announced.Version != app.Version {
-				if parseErr == nil {
-					parseErr = errors.New("manifest identity mismatch")
-				}
-				return RestoreResult{}, fmt.Errorf("validate restored announced app %q: %w", entry.ID, parseErr)
-			}
+			// Aangemeld: de identiteit tegen het document is hierboven al
+			// nagerekend; het manifest komt van de app zelf zodra hij zich
+			// na de restore meldt.
 			continue
 		}
 		clean := path.Clean(entry.Path)

@@ -916,3 +916,54 @@ func TestBridgeScriptLoadsWithoutTheSessionCookie(t *testing.T) {
 		}
 	}
 }
+
+// En de brug alleen is niet genoeg: het eigen script van zo'n pagina (page.js)
+// is nét zo goed een subresource zonder cookie. Na de brug-fix laadde het
+// document wel (de navigatie komt van de ouder, mét cookie) maar bleef élke
+// instelpagina leeg omdat page.js 404 gaf — page.js draaide dus helemaal niet,
+// en de pagina vult zijn velden nooit. Heel /app-ui/ hoort publiek.
+func TestAppPageScriptsLoadWithoutTheSessionCookie(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.json"), []byte(`{
+	  "id":"com.acme.pages","version":"1.0.0","sdk":3,"name":{"en":"Pages"}
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "settings"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "settings", "index.html"),
+		[]byte(`<p>instellingen</p><script src="page.js"></script>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "settings", "page.js"),
+		[]byte(`Stulp.ready();`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	appManifest, resolved, err := manifest.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := store.Open(filepath.Join(t.TempDir(), "stulp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.InstallApp(context.Background(), appManifest, resolved, ""); err != nil {
+		t.Fatal(err)
+	}
+	apps := supervisor.New(database, plugin.Options{})
+	defer apps.Close()
+	apiServer := New(database, apps, Options{Token: "secret"})
+	defer apiServer.Close()
+	handler := apiServer.Handler()
+
+	page := request(t, handler, http.MethodGet, "/app-ui/com.acme.pages/settings/", nil, "")
+	if page.Code != http.StatusOK || !bytes.Contains(page.Body.Bytes(), []byte("instellingen")) {
+		t.Fatalf("de instelpagina zelf laadt niet zonder cookie: %d", page.Code)
+	}
+	script := request(t, handler, http.MethodGet, "/app-ui/com.acme.pages/settings/page.js", nil, "")
+	if script.Code != http.StatusOK || !bytes.Contains(script.Body.Bytes(), []byte("Stulp.ready")) {
+		t.Fatalf("page.js laadt niet zonder cookie (%d): de pagina draait dan niet en blijft leeg", script.Code)
+	}
+}

@@ -147,18 +147,26 @@ func (s *Server) Handler() stulphttp.Handler {
 			// CSS, JS, iconen en de PWA-hulpen vertellen niets over het huis en
 			// moeten al kunnen laden terwijl de zojuist gezette cookie landt.
 			//
-			// /stulp.js hoort in dezelfde rij, en niet uit gemak: een app-pagina
-			// draait in een iframe met sandbox="allow-scripts allow-forms
-			// allow-modals" — ZONDER allow-same-origin, dus met een opaque origin.
-			// Zo'n document krijgt bij het laden van een subresource geen
-			// SameSite=Strict-cookie mee, hoe geldig de sessie ook is. Achter de
-			// sleutel stond de brug dus altijd op 404, en dan meldt de eerste
-			// Stulp-aanroep van die pagina "Stulp is not defined": geen
-			// koppelpagina, en een instelpagina die zijn eigen waardes niet kan
-			// opvragen (gemeten 19-08 op de node). De brug is statische code, gelijk
-			// in élke installatie, en zegt net zo weinig over dit huis als de CSS.
-			// De sleutel blijft staan waar hij hoort: op /api/ en op de pagina's.
+			// /stulp.js en /app-ui/ horen in dezelfde rij, en niet uit gemak: een
+			// app-pagina draait in een iframe met sandbox="allow-scripts
+			// allow-forms allow-modals" — ZONDER allow-same-origin, dus met een
+			// opaque origin. Zo'n document krijgt bij het laden van een
+			// subresource geen SameSite=Strict-cookie mee, hoe geldig de sessie
+			// ook is. Achter de sleutel stond dus élk script van zo'n pagina op
+			// 404: eerst de brug ("Stulp is not defined" op de koppelpagina), en
+			// na alleen díe fix nog steeds page.js — een instelpagina waarvan het
+			// document laadt (de navigatie komt van de ouder, mét cookie) maar het
+			// eigen script niet, en die dus leeg blijft staan (gemeten 19-08 in een
+			// echte browser tegen de node: page.js mét cookie 200, zonder 404).
+			//
+			// Wat er dan publiek staat is statische plugin-code plus HTML met
+			// vertaling en een context die alleen echoot wat al in de URL zit
+			// (app-id, driver, pair-sessie uit de query). Huisdata komt daar per
+			// ontwerp niet: het iframe is credential-loos en alles wat bevoegdheid
+			// vraagt loopt via de brug door de óuder, die de cookie wél draagt. De
+			// sleutel blijft staan waar hij hoort: op /api/ en op Manage zelf.
 			public := strings.HasPrefix(requestPath, "/assets/") || strings.HasPrefix(requestPath, "/image/") ||
+				strings.HasPrefix(requestPath, "/app-ui/") ||
 				requestPath == "/sw.js" || requestPath == "/manifest.webmanifest" ||
 				requestPath == "/stulp.js"
 			if !public && !s.hasAccessCookie(request) {

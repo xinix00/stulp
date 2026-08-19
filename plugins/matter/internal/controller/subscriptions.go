@@ -124,6 +124,14 @@ func (c *Controller) refreshOperationalConnections(ctx context.Context, devices 
 	return devices, nil
 }
 
+// EnsureSubscription start de rapportage-worker voor een node als die er niet
+// al is. Voor de driver, op device.init: dat is het moment waarop een gekozen
+// apparaat écht in de store staat — bij het koppelen, maar ook bij een adoptie
+// na een restore. Idempotent en niet-blokkerend, dus veilig om royaal te roepen.
+func (c *Controller) EnsureSubscription(nodeID uint64) {
+	c.startSubscription(nodeID)
+}
+
 func (c *Controller) startSubscription(nodeID uint64) {
 	if nodeID == 0 {
 		return
@@ -162,12 +170,36 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64) {
 		c.subMu.Unlock()
 	}()
 	backoff := time.Second
+	goneOnce := false
 	for {
 		started := time.Now()
 		err := c.subscribeOnce(ctx, nodeID)
-		if errors.Is(err, errMatterNodeGone) || ctx.Err() != nil {
+		if ctx.Err() != nil {
 			return
 		}
+		if errors.Is(err, errMatterNodeGone) {
+			// "Geen apparaten voor deze node" is direct ná het commissioneren
+			// de NORMALE toestand: Commission start deze worker terwijl de
+			// apparaten nog prototypes zijn — de gebruiker kiest ze pas daarna
+			// in de koppel-UI. Meteen stoppen liet elk vers gekoppeld apparaat
+			// zonder subscription achter (sessie open, waarden leeg) tot een
+			// plugin-herstart; gemeten 19-08 met twee stekkers. Eén tweede
+			// blik na vijftien seconden dekt dat venster; twee keer niets is
+			// een node die echt weg is, en dan hoort de worker te stoppen.
+			// (Kiest iemand pas ná dat venster, dan herstart OnInit van het
+			// apparaat de worker — zie EnsureSubscription.)
+			if goneOnce {
+				return
+			}
+			goneOnce = true
+			select {
+			case <-time.After(15 * time.Second):
+				continue
+			case <-ctx.Done():
+				return
+			}
+		}
+		goneOnce = false
 		// Speling: een gemist rapportagevenster ná een lang gezonde sessie is
 		// jitter of een korte stall (de rapporten komen precies óp het
 		// maximuminterval, en op een gedeelde core schuift dat weleens), geen

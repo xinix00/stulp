@@ -445,3 +445,20 @@ func (pickyDriver) Pair() map[string]appsdk.PairHandler {
 		},
 	}
 }
+
+// De koppelstroom vervoert kandidaten als JSON; de soort moet die reis
+// overleven. Dit veld ontbrak en dan werd élk matter-apparaat "other".
+func TestPairedDeviceCarriesItsClass(t *testing.T) {
+	encoded, err := json.Marshal(appsdk.PairedDevice{Name: "Stekker", Class: "socket",
+		Data: map[string]any{"id": "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["class"] != "socket" {
+		t.Fatalf("de soort reist niet mee: %s", encoded)
+	}
+}

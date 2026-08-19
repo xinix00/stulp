@@ -284,3 +284,26 @@ func TestNoMatchError(t *testing.T) {
 		t.Fatalf("verkeerde uitleg bij een browse die wél iets zag: %s", busy)
 	}
 }
+
+// De soort moet uit de store terug te rekenen zijn: apparaten die gekoppeld
+// zijn toen de koppelstroom de soort nog liet vallen staan op "other", en hun
+// eigen store weet beter. Een lege store geeft bewust niets terug -- de
+// endpointClass-fallback zou er "sensor" van maken, en niets weten is geen
+// sensor.
+func TestStoredClassRecomputesTheKind(t *testing.T) {
+	socket := map[string]any{
+		// Zoals het na een JSON-rondreis binnenkomt: []any met teksten.
+		"matter.deviceTypes":    []any{"0x510", "0x10A"},
+		"matter.serverClusters": []any{"0x6"},
+	}
+	if got := StoredClass(socket); got != "socket" {
+		t.Fatalf("StoredClass(stekker) = %q, wilde socket", got)
+	}
+	light := map[string]any{"matter.deviceTypes": []string{"0x100"}}
+	if got := StoredClass(light); got != "light" {
+		t.Fatalf("StoredClass(lamp) = %q, wilde light", got)
+	}
+	if got := StoredClass(map[string]any{}); got != "" {
+		t.Fatalf("StoredClass(leeg) = %q, wilde leeg: niets weten is geen sensor", got)
+	}
+}

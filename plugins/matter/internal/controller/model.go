@@ -287,3 +287,41 @@ func hexIDs(values []uint32) []string {
 	}
 	return result
 }
+
+// StoredClass rekent de apparaatsoort opnieuw uit wat het koppelen in de store
+// bewaarde (matter.deviceTypes/serverClusters, als hex-teksten). Hij bestaat om
+// apparaten te helen die gekoppeld zijn toen de koppelstroom de soort nog liet
+// vallen en daardoor op de driver-default "other" staan. Een lege store geeft
+// een lege soort terug — de endpointClass-fallback zou van élk apparaat zonder
+// opgeslagen model "sensor" maken, en niets weten is geen sensor.
+func StoredClass(store map[string]any) string {
+	deviceTypes := storedHexIDs(store["matter.deviceTypes"])
+	servers := storedHexIDs(store["matter.serverClusters"])
+	if len(deviceTypes) == 0 && len(servers) == 0 {
+		return ""
+	}
+	return endpointClass(deviceTypes, servers)
+}
+
+// storedHexIDs leest wat hexIDs schreef, ná een JSON-rondreis: een lijst van
+// "0x..."-teksten, als []string of als []any.
+func storedHexIDs(value any) []uint32 {
+	var texts []string
+	switch list := value.(type) {
+	case []string:
+		texts = list
+	case []any:
+		for _, raw := range list {
+			if text, ok := raw.(string); ok {
+				texts = append(texts, text)
+			}
+		}
+	}
+	result := make([]uint32, 0, len(texts))
+	for _, text := range texts {
+		if parsed, err := strconv.ParseUint(text, 0, 32); err == nil {
+			result = append(result, uint32(parsed))
+		}
+	}
+	return result
+}

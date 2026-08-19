@@ -134,10 +134,16 @@ type PairedDevice struct {
 	// Data is de identiteit van het apparaat en ligt daarna vast. Stulp
 	// gebruikt hem om een apparaat te herkennen; hij hoort dus geen adres of
 	// iets anders veranderlijks te bevatten.
-	Data         map[string]any `json:"data"`
-	Settings     map[string]any `json:"settings,omitempty"`
-	Store        map[string]any `json:"store,omitempty"`
-	Capabilities []string       `json:"capabilities,omitempty"`
+	Data     map[string]any `json:"data"`
+	Settings map[string]any `json:"settings,omitempty"`
+	Store    map[string]any `json:"store,omitempty"`
+	// Class is de apparaatsoort als die afwijkt van de driver-default. Een
+	// driver die één soort koppelt heeft hem niet nodig; een driver die van
+	// alles koppelt (matter) weet per apparaat beter dan zijn manifest. Zonder
+	// dit veld werd élk matter-apparaat de driver-default "other" — de
+	// controller rekende "socket" keurig uit en de koppelstroom liet hem vallen.
+	Class        string   `json:"class,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // Run start de plugin en keert pas terug als Stulp de verbinding sluit.

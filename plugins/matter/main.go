@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -60,10 +61,35 @@ type matterDevice struct {
 	device *appsdk.Device
 }
 
-// OnInit doet niets: de controller kent zijn nodes al uit de fabric en meldt hun
-// waarden zodra een subscription binnenkomt. Hier verbinding zoeken zou de start
-// ophouden voor een apparaat dat misschien uit staat.
-func (m *matterDevice) OnInit() error { return nil }
+// OnInit zoekt bewust geen verbinding -- dat zou de start ophouden voor een
+// apparaat dat misschien uit staat. Wat hier wél hoort is niet-blokkerend:
+//
+//   - De subscription-worker van deze node zeker stellen. Commission start hem
+//     te vroeg (de apparaten zijn dan nog prototypes) en dan sterft hij; dít is
+//     het moment waarop het apparaat echt bestaat -- bij het koppelen, en ook
+//     bij een adoptie na een restore. Zonder deze regel bleef een vers
+//     gekoppelde stekker leeg staan tot een plugin-herstart (gemeten 19-08).
+//   - De soort helen van apparaten die gekoppeld zijn toen de koppelstroom de
+//     soort nog liet vallen: die staan op de driver-default "other" terwijl hun
+//     eigen store weet dat ze een stekker zijn. Alleen vanaf "other", dus een
+//     soort die iemand bewust koos blijft staan.
+func (m *matterDevice) OnInit() error {
+	controller := m.app.controller
+	if controller == nil {
+		return nil
+	}
+	if nodeText, ok := m.device.Data()["nodeId"].(string); ok {
+		if nodeID, err := strconv.ParseUint(nodeText, 16, 64); err == nil && nodeID != 0 {
+			controller.EnsureSubscription(nodeID)
+		}
+	}
+	if m.device.Class() == "other" {
+		if class := mattercontroller.StoredClass(m.device.Store()); class != "" && class != "other" {
+			return m.device.SetClass(class)
+		}
+	}
+	return nil
+}
 
 // OnCapability is een opdracht uit de interface of een Flow: zet die lamp aan.
 func (m *matterDevice) OnCapability(name string, value any) error {
@@ -123,9 +149,13 @@ func (a *app) commission(code, address string) (any, error) {
 			// Wat dit apparaat moet onthouden staat bij het apparaat zelf: het
 			// node-id, het endpoint, waar het over gaat. Niet in de instellingen
 			// van de app -- er is er niet één van, en de volgende heeft andere.
-			Data:         prototype.Data,
-			Settings:     prototype.Settings,
-			Store:        prototype.Store,
+			Data:     prototype.Data,
+			Settings: prototype.Settings,
+			Store:    prototype.Store,
+			// De soort komt uit de Descriptor van het endpoint (0x010A =
+			// stekker, 0x0100 = lamp): de controller weet dat per apparaat
+			// beter dan de driver-default in het manifest.
+			Class:        prototype.Class,
 			Capabilities: prototype.Capabilities,
 		})
 	}

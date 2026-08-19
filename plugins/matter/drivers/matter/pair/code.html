@@ -33,11 +33,13 @@ form.addEventListener('submit', async event => {
   const code = document.getElementById('code').value.trim();
   if (!code) { say('Vul eerst een koppelcode in.', 'bad'); return; }
 
-  // Commissioneren duurt: het apparaat moet wakker worden, een beveiligde
-  // sessie opzetten en zijn certificaten uitwisselen. Zolang dat loopt komt er
-  // niets terug, dus zeg dat er iets gebeurt.
+  // Commissioneren duurt: eerst moet het koppelvenster van het andere systeem
+  // op het netwerk verschijnen -- bij een Thread-apparaat gaat dat via de border
+  // router en dat kost tijd -- en daarna moet het apparaat een beveiligde sessie
+  // opzetten en zijn certificaten uitwisselen. Zolang dat loopt komt er niets
+  // terug, dus zeg dat er iets gebeurt.
   submit.disabled = true;
-  say('Bezig met koppelen. Dit kan een halve minuut duren…', 'busy');
+  say('Bezig met koppelen. Stulp wacht tot het apparaat zich op het netwerk meldt; dit kan een minuut duren…', 'busy');
 
   try {
     const result = await Stulp.emit('commission', {

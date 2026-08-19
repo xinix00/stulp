@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,5 +259,28 @@ func TestElectricalMeasurementsUseMatterUnitsAndNullableSupport(t *testing.T) {
 	}, 1, []uint32{electricalEnergyCluster})
 	if err != nil || slices.Contains(unsupportedCapabilities, "meter_power") {
 		t.Fatalf("unsupported cumulative energy became a capability: capabilities=%v err=%v", unsupportedCapabilities, err)
+	}
+}
+
+// De melding is het enige wat een gebruiker van een mislukte browse te zien
+// krijgt, dus hij moet de twee oorzaken uit elkaar houden: er stond niets open,
+// of er stond wel wat open maar niet dit.
+func TestNoMatchError(t *testing.T) {
+	payload, err := onboarding.Parse("3497 011 2332")
+	if err != nil {
+		t.Fatalf("parse code: %v", err)
+	}
+	empty := noMatchError(payload, nil).Error()
+	if !strings.Contains(empty, "Apple Home") {
+		t.Fatalf("lege browse noemt de route niet: %s", empty)
+	}
+	busy := noMatchError(payload, []discovery.Node{
+		{Instance: "ABC", DeviceName: "Stekker gang", Discriminator: 1234},
+	}).Error()
+	if !strings.Contains(busy, "Stekker gang") || !strings.Contains(busy, "1234") {
+		t.Fatalf("gevonden apparaat wordt niet genoemd: %s", busy)
+	}
+	if strings.Contains(busy, "Apple Home") {
+		t.Fatalf("verkeerde uitleg bij een browse die wél iets zag: %s", busy)
 	}
 }

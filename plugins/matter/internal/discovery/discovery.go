@@ -440,7 +440,12 @@ func (n *Node) decodeText() {
 	if value, err := strconv.Atoi(n.Text["CM"]); err == nil {
 		n.CommissioningMode = value
 	}
-	if vendor, product, ok := strings.Cut(n.Text["VP"], "+"); ok {
+	// VP mag "vendor+product" zijn maar ook alleen "vendor": het product-ID is
+	// optioneel. Cut moest daarom niet over het bestaan van de plus beslissen --
+	// dan hield een apparaat dat alleen zijn vendor meldt er geen van tweeën aan
+	// over.
+	if text, ok := n.Text["VP"]; ok {
+		vendor, product, _ := strings.Cut(text, "+")
 		if value, err := strconv.ParseUint(vendor, 10, 16); err == nil {
 			n.VendorID = uint16(value)
 		}

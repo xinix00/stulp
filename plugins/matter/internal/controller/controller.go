@@ -145,17 +145,33 @@ func (c *Controller) Close() error {
 }
 
 func (c *Controller) Discover(ctx context.Context, code string, window time.Duration) ([]Candidate, error) {
+	candidates, _, err := c.discover(ctx, code, window)
+	return candidates, err
+}
+
+// discover returns the candidates that fit the code, and next to them every
+// commissionable node the browse saw. Commission needs that second list: "niets
+// gevonden" and "wel wat gevonden, maar niet dit" hebben verschillende
+// oorzaken en verschillende oplossingen, en een gebruiker die de code van het
+// doosje intypt verdient te horen dat het apparaat er niet is in plaats van dat
+// de code niet klopt.
+func (c *Controller) discover(ctx context.Context, code string, window time.Duration) ([]Candidate, []discovery.Node, error) {
 	payload, err := onboarding.Parse(code)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	nodes, err := discovery.Browse(ctx, window)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	open := make([]discovery.Node, 0)
 	result := make([]Candidate, 0)
 	for _, node := range nodes {
-		if node.Kind != "commissionable" || node.CommissioningMode == 0 || !matches(payload, node) {
+		if node.Kind != "commissionable" || node.CommissioningMode == 0 {
+			continue
+		}
+		open = append(open, node)
+		if !matches(payload, node) {
 			continue
 		}
 		addresses := node.Addresses
@@ -179,7 +195,7 @@ func (c *Controller) Discover(ctx context.Context, code string, window time.Dura
 			Discriminator: node.Discriminator, VendorID: node.VendorID, ProductID: node.ProductID,
 		})
 	}
-	return result, nil
+	return result, open, nil
 }
 
 func matches(payload onboarding.Payload, node discovery.Node) bool {
@@ -196,6 +212,83 @@ func matches(payload onboarding.Payload, node discovery.Node) bool {
 	return payload.ProductID == 0 || node.ProductID == 0 || payload.ProductID == node.ProductID
 }
 
+// Hoe lang Commission op de advertentie wacht, en hoe lang één browse duurt.
+//
+// Een Thread-apparaat meldt een geopend koppelvenster eerst bij de SRP-server
+// van zijn border router, en die republiceert het daarna pas op het LAN. Tussen
+// "deel dit apparaat" in het andere systeem en het eerste mDNS-antwoord zit
+// daardoor tijd -- gemeten tientallen seconden. Eén browse van vier tellen viel
+// daar geregeld voor, en dan zei Stulp dat er niets paste terwijl het apparaat
+// een halve minuut later gewoon te zien was. Vandaar: kort blijven kijken tot
+// hij verschijnt, in plaats van één keer kijken en het opgeven.
+const (
+	commissioningBrowseWindow  = 4 * time.Second
+	commissioningBrowseTimeout = 60 * time.Second
+	commissioningBrowsePause   = time.Second
+)
+
+// discoverUntil browst herhaald tot er een kandidaat is of de tijd op is. De
+// laatst geziene lijst met open apparaten reist mee, zodat de melding ook na
+// een mislukte wachttijd kan zeggen wat er dan wél stond.
+func (c *Controller) discoverUntil(ctx context.Context, code string, limit time.Duration) ([]Candidate, []discovery.Node, error) {
+	deadline, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	var seen []discovery.Node
+	for attempt := 0; ; attempt++ {
+		candidates, open, err := c.discover(deadline, code, commissioningBrowseWindow)
+		if err != nil {
+			// Een eerste ronde die niet eens van start komt -- een onleesbare
+			// code, geen socket -- is een echte fout. Daarna telt alleen nog of
+			// het apparaat verschijnt.
+			if attempt == 0 {
+				return nil, nil, err
+			}
+			return nil, seen, nil
+		}
+		if len(candidates) > 0 {
+			return candidates, open, nil
+		}
+		if len(open) > 0 {
+			seen = open
+		}
+		select {
+		case <-deadline.Done():
+			return nil, seen, nil
+		case <-time.After(commissioningBrowsePause):
+		}
+	}
+}
+
+// noMatchError zegt wat de browse wél zag. Een fabrieksnieuw Wi-Fi-apparaat
+// staat nog op geen enkel netwerk en adverteert dus niets: dat is geen fout in
+// de code maar de bekende grens van Stulp (docs/matter.md) -- eerst in Apple
+// Home erbij, daar een koppelmodus aanzetten, en die code hier plakken.
+func noMatchError(payload onboarding.Payload, open []discovery.Node) error {
+	if len(open) == 0 {
+		return errors.New("er staat geen enkel Matter-apparaat open om te koppelen, ook niet na een minuut wachten. " +
+			"Zet de koppelmodus aan in het systeem waar het apparaat nu in zit -- Homey, Apple Home, Google, Alexa -- " +
+			"en probeer het daarna opnieuw. Een fabrieksnieuw apparaat staat nog op geen enkel netwerk en is voor " +
+			"Stulp onzichtbaar; dat moet eerst ergens anders gekoppeld worden")
+	}
+	seen := make([]string, 0, len(open))
+	for _, node := range open {
+		name := strings.TrimSpace(node.DeviceName)
+		if name == "" {
+			name = node.Instance
+		}
+		seen = append(seen, fmt.Sprintf("%s (discriminator %d)", name, node.Discriminator))
+	}
+	wanted := fmt.Sprintf("discriminator %d", payload.Discriminator)
+	if payload.ShortDiscriminator {
+		// Een handmatige code draagt alleen de bovenste vier bits, dus meer dan
+		// "hij hoort hiermee te beginnen" valt er niet over te zeggen.
+		wanted = fmt.Sprintf("een discriminator die begint met %d", payload.Discriminator>>8)
+	}
+	return fmt.Errorf("er staan %d Matter-apparaten open om te koppelen, maar geen met %s: %s. "+
+		"Gebruik de koppelcode die het andere systeem nu toont, niet de code op het apparaat zelf",
+		len(open), wanted, strings.Join(seen, ", "))
+}
+
 // Commission turns one on-network pairing code into one or more Stulp device
 // rows (bridges expose multiple endpoints). The method is serialized because
 // Matter fail-safe commissioning is stateful and fabric node IDs are issued in
@@ -209,12 +302,12 @@ func (c *Controller) Commission(ctx context.Context, request CommissionRequest) 
 	}
 	address := strings.TrimSpace(request.Address)
 	if address == "" {
-		candidates, err := c.Discover(ctx, request.Code, 4*time.Second)
+		candidates, open, err := c.discoverUntil(ctx, request.Code, commissioningBrowseTimeout)
 		if err != nil {
 			return nil, err
 		}
 		if len(candidates) == 0 {
-			return nil, errors.New("geen passend commissionable Matter-apparaat gevonden")
+			return nil, noMatchError(payload, open)
 		}
 		if len(candidates) > 1 {
 			return nil, errors.New("meerdere Matter-apparaten passen bij deze code; kies eerst een apparaat")

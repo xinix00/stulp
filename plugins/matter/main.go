@@ -101,9 +101,12 @@ func (a *app) commission(code, address string) (any, error) {
 	if a.controller == nil {
 		return nil, fmt.Errorf("Matter controller is not running")
 	}
-	// Ruim, want commissioneren is een gesprek van meerdere rondes met een
-	// apparaat dat net wakker wordt.
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	// Ruim, want er zitten twee wachttijden in elkaar: eerst tot een minuut
+	// wachten tot het koppelvenster van het andere systeem op het netwerk
+	// verschijnt, en daarna het gesprek van meerdere rondes met een apparaat dat
+	// net wakker wordt (de controller houdt daar twee minuten voor aan). Op 90
+	// seconden at het wachten het commissioneren op.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	prototypes, err := a.controller.Commission(ctx, mattercontroller.CommissionRequest{

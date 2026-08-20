@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,7 +28,7 @@ func TestPairCommissionIsStartPlusPoll(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		state, err := handlers["commission/state"](nil)
+		state, err := handlers["commission_state"](nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -42,5 +43,15 @@ func TestPairCommissionIsStartPlusPoll(t *testing.T) {
 	}
 	if warning, _ := snapshot["warning"].(string); warning == "" {
 		t.Fatalf("zonder controller hoort de mislukking in de snapshot te staan: %#v", snapshot)
+	}
+
+	// De naam moet één URL-padsegment kunnen zijn: de emit-route zet hem in het
+	// pad (/emit/{event}), de browser codeert een '/' als %2F en leanhttp
+	// weigert die dubbelzinnigheid met een 400 — gemeten 20-08 tegen de node,
+	// toen deze handler nog "commission/state" heette.
+	for name := range handlers {
+		if strings.ContainsAny(name, "/?#%") {
+			t.Fatalf("koppelbericht %q overleeft de emit-URL niet", name)
+		}
 	}
 }

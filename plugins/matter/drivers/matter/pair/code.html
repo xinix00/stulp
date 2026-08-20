@@ -51,7 +51,7 @@ form.addEventListener('submit', async event => {
     });
     while (state && state.running) {
       await new Promise(resolve => setTimeout(resolve, 1500));
-      state = await Stulp.emit('commission/state', {});
+      state = await Stulp.emit('commission_state', {});
     }
     if (state && state.warning) {
       say(state.warning, 'bad');

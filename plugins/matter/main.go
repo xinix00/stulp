@@ -56,7 +56,7 @@ func (d matterDriver) Pair() map[string]appsdk.PairHandler {
 			}()
 			return d.app.pairing.snapshot(), nil
 		},
-		"commission/state": func(any) (any, error) {
+		"commission_state": func(any) (any, error) {
 			return d.app.pairing.snapshot(), nil
 		},
 	}

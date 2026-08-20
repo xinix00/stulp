@@ -42,6 +42,7 @@ import (
 	"net"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -275,6 +276,19 @@ func (p *process) startPair(driverID, sessionID string) ([]string, error) {
 	handlers := map[string]PairHandler{}
 	if pages, ok := driver.(PairPages); ok {
 		for name, handle := range pages.Pair() {
+			// De naam van een koppelbericht wordt één padsegment in de
+			// emit-URL (/api/stulp/pair/{id}/emit/{event}), dus een '/' erin
+			// overleeft de reis niet: de browser codeert hem als %2F en
+			// leanhttp weigert die dubbelzinnigheid met een 400 -- een mysterie
+			// dat pas bij de gebruiker opduikt (gemeten 20-08, toen een handler
+			// "commission/state" heette naar het voorbeeld van de settings-API,
+			// waar paden wél expliciet in app.json staan). Hier weigeren is het
+			// enige eerlijke moment: bij het openen van de sessie, met de naam
+			// erbij.
+			if strings.ContainsAny(name, "/?#%") || name == "" {
+				return nil, fmt.Errorf("driver %q has an unusable pair event name %q: it becomes one URL path segment, so /, ?, # and %% cannot occur in it",
+					driverID, name)
+			}
 			handlers[name] = handle
 		}
 	}

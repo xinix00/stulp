@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -305,5 +306,24 @@ func TestStoredClassRecomputesTheKind(t *testing.T) {
 	}
 	if got := StoredClass(map[string]any{}); got != "" {
 		t.Fatalf("StoredClass(leeg) = %q, wilde leeg: niets weten is geen sensor", got)
+	}
+}
+
+// "no IPv6 route" bij een (her)start is een toestand van de node, geen oordeel
+// over een apparaat: de worker hoort stil vast te houden — geen warn-storm,
+// geen grijze tegels — tot de router advertisement geland is. Deze test pint de
+// twee beslissingen vast die dat gedrag dragen: de fout is herkenbaar aan zijn
+// tekst (leannet komt door drie lagen als string binnen; zelfde precedent als
+// subscriptionRetryDelay), en de herkenning is smal genoeg om echte fouten met
+// "route" erin niet op te slokken.
+func TestNoRouteIsRecognisedNarrowly(t *testing.T) {
+	wrapped := fmt.Errorf("send CASE Sigma1: send Matter message: write udp6: %w",
+		errors.New("leannet: no IPv6 route (no router advertised)"))
+	if !strings.Contains(wrapped.Error(), "no IPv6 route") {
+		t.Fatal("de leannet-fout draagt zijn kenmerk niet meer; pas de herkenning aan")
+	}
+	other := errors.New("peer rejected CASE Sigma1: peer is busy")
+	if strings.Contains(other.Error(), "no IPv6 route") {
+		t.Fatal("een apparaatfout mag nooit als route-wachttoestand tellen")
 	}
 }

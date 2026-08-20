@@ -171,6 +171,7 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64) {
 	}()
 	backoff := time.Second
 	goneOnce := false
+	waitedForRoute := false
 	for {
 		started := time.Now()
 		err := c.subscribeOnce(ctx, nodeID)
@@ -200,6 +201,29 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64) {
 			}
 		}
 		goneOnce = false
+		// "no IPv6 route" is een toestand van de NODE, geen oordeel over dit
+		// apparaat: bij een (her)start moet de router advertisement nog landen
+		// voordat leannet een v6-route heeft, en tot die tijd faalt élke CASE
+		// onmiddellijk. Zevenentwintig workers die daar elk per poging een warn
+		// van maken en hun tegel grijs zetten, maken van elke boot een
+		// rampenfilm die zichzelf een minuut later oplost (gemeten 20-08).
+		// Dus: stil vasthouden, niets grijs zetten, en zo weer kijken — de
+		// eerste poging ná de RA slaagt gewoon. Eén debug-regel per worker
+		// per episode houdt het log eerlijk zonder de ringbuffer te verzuipen.
+		if err != nil && strings.Contains(err.Error(), "no IPv6 route") {
+			if !waitedForRoute {
+				waitedForRoute = true
+				c.logger.Debug("IPv6 route not up yet; holding subscription quietly",
+					"node", fmt.Sprintf("%016X", nodeID))
+			}
+			select {
+			case <-time.After(5 * time.Second):
+				continue
+			case <-ctx.Done():
+				return
+			}
+		}
+		waitedForRoute = false
 		// Speling: een gemist rapportagevenster ná een lang gezonde sessie is
 		// jitter of een korte stall (de rapporten komen precies óp het
 		// maximuminterval, en op een gedeelde core schuift dat weleens), geen

@@ -46,7 +46,7 @@ func (s *Snapshot) Apps() []App {
 	apps := make([]App, 0, len(s.doc.Apps))
 	for _, record := range s.doc.Apps {
 		apps = append(apps, App{
-			ID: record.ID, Version: record.Version, Root: record.Root,
+			ID: record.ID, Root: record.Root,
 			Enabled: record.Enabled,
 			Offered: record.Offered, Source: record.Source,
 			UpdateVersion: record.UpdateVersion, UpdateCheckedAt: record.UpdateCheckedAt,

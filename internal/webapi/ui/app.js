@@ -926,7 +926,10 @@ function renderApps() {
     const row = node('article', 'row');
     const head = node('div', 'row-head');
     const name = node('div', 'name');
-    name.append(node('strong', '', app.name || app.id), node('small', '', `${app.id} · ${app.version}`));
+    // Zonder versie (net hersteld, announce nog onderweg) geen kale punt: de
+    // versie is wat de app zégt, en zolang hij niets zei is er niets te tonen.
+    name.append(node('strong', '', app.name || app.id),
+      node('small', '', app.version ? `${app.id} · ${app.version}` : app.id));
     // Aangeboden is niet uitgeschakeld: hij heeft zich gemeld en wacht op jou.
     head.append(name, node('span', `status ${app.offered ? 'off' : app.state === 'running' ? '' : 'off'}`,
       app.offered ? 'aangemeld' : app.state));

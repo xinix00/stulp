@@ -74,7 +74,6 @@ type System struct {
 // appRecord is an installed app minus its manifest.
 type appRecord struct {
 	ID      string `json:"id"`
-	Version string `json:"version"`
 	Root    string `json:"root"`
 	Enabled bool   `json:"enabled"`
 
@@ -87,12 +86,15 @@ type appRecord struct {
 	// horen die niet naast elkaar te staan als hetzelfde.
 	Offered bool `json:"offered,omitempty"`
 
-	// Wat hier bewust NIET staat: het manifest. Dat is applicatie-kennis — de
-	// app draagt het zelf en vertelt het bij élke aanmelding opnieuw (en het
-	// verandert bij elke app-update). Het leeft in de manifest-cache van de
-	// store; na een herstart is een aangemelde app even naamloos tot zijn
-	// eerstvolgende announce, seconden later. Het document onthoudt alleen wat
-	// van Stulp zelf is: dát de app er is, en hoe de gebruiker hem zette.
+	// Wat hier bewust NIET staat: het manifest — en dus ook de VERSIE. Dat is
+	// applicatie-kennis: de app draagt het zelf en vertelt het bij élke
+	// aanmelding opnieuw (en het verandert bij elke app-update). Een versie
+	// hier opslaan maakte er een herinnering van die loog zodra iemand een
+	// nieuw image plaatste, en een backup droeg die leugen dan verder. Het
+	// manifest leeft in de manifest-cache van de store; na een herstart is een
+	// aangemelde app even naamloos tot zijn eerstvolgende announce, seconden
+	// later. Het document onthoudt alleen wat van Stulp zelf is: dát de app er
+	// is, en hoe de gebruiker hem zette.
 
 	Source          string `json:"source,omitempty"`
 	UpdateVersion   string `json:"updateVersion,omitempty"`

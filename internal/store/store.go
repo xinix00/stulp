@@ -307,7 +307,7 @@ func (s *Store) InstallApp(ctx context.Context, m *manifest.Manifest, root, sour
 	s.mu.Lock()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	record := appRecord{
-		ID: m.ID, Version: m.Version, Root: root, Enabled: true, Source: source,
+		ID: m.ID, Root: root, Enabled: true, Source: source,
 		InstalledAt: now, UpdatedAt: now,
 	}
 	replaced := false
@@ -416,8 +416,11 @@ func (s *Store) appLocked(record appRecord) App {
 	if appManifest == nil {
 		appManifest = map[string]any{"id": record.ID}
 	}
+	// De versie komt uit het manifest — wat de app zégt, niet wat wij ooit
+	// opschreven. Bundel: app.json van schijf; aangemeld: de laatste announce.
+	version, _ := appManifest["version"].(string)
 	return App{
-		ID: record.ID, Version: record.Version, Root: record.Root, Enabled: record.Enabled,
+		ID: record.ID, Version: version, Root: record.Root, Enabled: record.Enabled,
 		Offered:  record.Offered,
 		Manifest: appManifest, Source: record.Source,
 		UpdateVersion: record.UpdateVersion, UpdateCheckedAt: record.UpdateCheckedAt,
@@ -447,7 +450,7 @@ func (s *Store) OfferApp(ctx context.Context, m *manifest.Manifest) (bool, error
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	s.doc.Apps = append(s.doc.Apps, appRecord{
-		ID: m.ID, Version: m.Version, Offered: true, Enabled: false,
+		ID: m.ID, Offered: true, Enabled: false,
 		InstalledAt: now, UpdatedAt: now,
 	})
 	// Het manifest gaat de cache in, niet het document: de app herhaalt het
@@ -520,20 +523,14 @@ func (s *Store) UpdateAnnouncedApp(ctx context.Context, m *manifest.Manifest) (b
 			s.mu.Unlock()
 			return false, nil
 		}
-		sameManifest := reflect.DeepEqual(s.manifests[m.ID], m.Raw)
-		if record.Version == m.Version && sameManifest {
+		// Alleen de cache: het manifest (mét versie) is wat de app zegt, geen
+		// document-kennis — er valt hier dus niets te bewaren, en op
+		// flash-gebackte opslag is die gespaarde schrijf zelf ook winst.
+		if reflect.DeepEqual(s.manifests[m.ID], m.Raw) {
 			s.mu.Unlock()
 			return false, nil
 		}
 		s.manifests[m.ID] = m.Raw
-		if record.Version != m.Version {
-			record.Version = m.Version
-			record.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-			if err := s.saveLocked(); err != nil {
-				s.mu.Unlock()
-				return false, fmt.Errorf("update announced app %q: %w", m.ID, err)
-			}
-		}
 		s.mu.Unlock()
 		s.publish(Event{Manager: "apps", Type: "app.update", ID: m.ID})
 		return true, nil

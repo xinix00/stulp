@@ -33,7 +33,7 @@ func RunNode(name string, manifest []byte, p Plugin) {
 		Target:   app.Env("STULP_ATTACH"),
 		AppID:    app.Env("STULP_APP_ID"),
 		Token:    app.Env("STULP_ATTACH_TOKEN"),
-		Manifest: manifest,
+		Manifest: announceManifest(manifest),
 		// Geen TLS op het node-netwerk: het token bewijst wie er aanklopt
 		// (nonce heen, HMAC terug, beide richtingen) — zie examples/virtual.
 		Plaintext: true,

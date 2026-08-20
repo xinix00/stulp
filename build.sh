@@ -58,7 +58,7 @@ build_hopos() {
 			GOWORK=off GOTOOLCHAIN=local GOFLAGS=-mod=mod \
 				GOOS=tamago GOOSPKG=github.com/usbarmory/tamago GOARCH="$arch" \
 				"$tamago" build -tags "$tags" -trimpath \
-				-ldflags "$ld -X main.version=${STULP_VERSION:-hopos-dev}" \
+				-ldflags "$ld -X main.version=${STULP_VERSION:-hopos-dev} -X github.com/xinix00/stulp/internal/appsdk.BuildVersion=${STULP_VERSION:-hopos-dev}" \
 				-o "$elf" "./$dir"
 			echo "$elf ($(( $(wc -c < "$elf") / 1024 )) kB)"
 		done

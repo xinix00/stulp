@@ -97,7 +97,7 @@ func RunNodeBundle(apps []BundleApp) {
 			// Geen TLS op het node-netwerk: het token bewijst wie er
 			// aanklopt (nonce heen, HMAC terug) — zie examples/virtual.
 			Plaintext: true,
-			Manifest:  b.Manifest,
+			Manifest:  announceManifest(b.Manifest),
 		}
 		app.Logf("bundle: %s: attaching to stulp at %s as %s", b.Name, target, id)
 		go attachForever(app, b.Name, config, b.Plugin)

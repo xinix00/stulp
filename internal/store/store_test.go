@@ -750,3 +750,65 @@ func TestForeignAppRootDoesNotEraseAKnownManifest(t *testing.T) {
 		t.Fatal("de naam van de app is weg")
 	}
 }
+
+// De versie is wat de app zégt, niet wat het document onthoudt: een nieuwe
+// announce met een nieuwe versie is meteen de waarheid, en in het opgeslagen
+// document komt het woord versie niet meer voor bij een app.
+func TestVersionFollowsTheAnnouncedManifestAndIsNotPersisted(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "stulp.json")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	announced, err := manifest.Parse([]byte(`{"id":"com.stulp.thing","version":"v0.5.9","sdk":3,"name":{"en":"Thing"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.OfferApp(ctx, announced); err != nil {
+		t.Fatal(err)
+	}
+	app, err := database.App(ctx, "com.stulp.thing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Version != "v0.5.9" {
+		t.Fatalf("versie na de eerste announce = %q", app.Version)
+	}
+
+	// Een nieuw image meldt zich met een nieuwe versie: dat ís de versie.
+	newer, err := manifest.Parse([]byte(`{"id":"com.stulp.thing","version":"v0.5.11","sdk":3,"name":{"en":"Thing"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.UpdateAnnouncedApp(ctx, newer); err != nil {
+		t.Fatal(err)
+	}
+	app, err = database.App(ctx, "com.stulp.thing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.Version != "v0.5.11" {
+		t.Fatalf("versie na een nieuwe announce = %q, wilde v0.5.11", app.Version)
+	}
+
+	// En het document draagt hem niet: wie hem wil weten vraagt het de app.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	apps, _ := doc["apps"].([]any)
+	for _, entry := range apps {
+		record, _ := entry.(map[string]any)
+		if _, has := record["version"]; has {
+			t.Fatalf("het document draagt nog een versie: %v", record)
+		}
+	}
+}

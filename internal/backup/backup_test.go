@@ -203,9 +203,11 @@ func TestLiveRestoreIncludesAnAnnouncedAppWithoutABundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Het manifest is applicatie-kennis en reist niet mee in een backup: na de
-	// restore is de app een placeholder tot zijn eerstvolgende announce.
-	if restoredApp.Root != "" || restoredApp.Version != announced.Version || !restoredApp.Enabled {
+	// Het manifest is applicatie-kennis en reist niet mee in een backup — en de
+	// VERSIE dus ook niet: na de restore is de app een placeholder zónder
+	// versie tot zijn eerstvolgende announce. Een versie die hier al gevuld was
+	// zou een herinnering zijn, geen waarheid.
+	if restoredApp.Root != "" || restoredApp.Version != "" || !restoredApp.Enabled {
 		t.Fatalf("announced app identity was not restored: %#v", restoredApp)
 	}
 	if id, _ := restoredApp.Manifest["id"].(string); id != announced.ID {
@@ -214,8 +216,9 @@ func TestLiveRestoreIncludesAnAnnouncedAppWithoutABundle(t *testing.T) {
 	if refreshed, err := target.UpdateAnnouncedApp(ctx, announced); err != nil || !refreshed {
 		t.Fatalf("announce after restore: changed=%v err=%v", refreshed, err)
 	}
-	if reannounced, err := target.App(ctx, announced.ID); err != nil || reannounced.Manifest["ui"] == nil {
-		t.Fatalf("announce did not refill the manifest: %#v err=%v", reannounced, err)
+	if reannounced, err := target.App(ctx, announced.ID); err != nil || reannounced.Manifest["ui"] == nil ||
+		reannounced.Version != announced.Version {
+		t.Fatalf("announce did not refill the manifest and version: %#v err=%v", reannounced, err)
 	}
 	restoredDevice, err := target.Device(ctx, device.ID)
 	if err != nil || restoredDevice.Name != device.Name {

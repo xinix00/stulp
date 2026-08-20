@@ -662,11 +662,12 @@ func TestManageRestoresAnAnnouncedAppBackup(t *testing.T) {
 	if err != nil || restored.Name != device.Name {
 		t.Fatalf("device did not reach the live store: %#v err=%v", restored, err)
 	}
-	// Het manifest (en dus de UI-beschrijving) reist niet mee in een backup —
-	// de app vertelt het zelf bij zijn eerstvolgende announce; hier hoort na
-	// een restore alleen zijn identiteit te staan.
+	// Het manifest (en dus de UI-beschrijving én de versie) reist niet mee in
+	// een backup — de app vertelt het zelf bij zijn eerstvolgende announce;
+	// hier hoort na een restore alleen zijn identiteit te staan, mét lege
+	// versie: die is van de app, niet van het document.
 	app, err := target.App(ctx, announced.ID)
-	if err != nil || !app.Enabled || app.Version == "" {
+	if err != nil || !app.Enabled || app.Version != "" {
 		t.Fatalf("announced app identity did not reach the live store: %#v err=%v", app, err)
 	}
 	if runtime := apps.State(announced.ID); runtime.State != "waiting" {

@@ -36,8 +36,13 @@ type Manifest struct {
 }
 
 type AppEntry struct {
-	ID      string `json:"id"`
-	Version string `json:"version"`
+	ID string `json:"id"`
+	// Wat hier bewust NIET staat: de versie. Die is van de app zelf — hij
+	// vertelt hem bij elke aanmelding (of hij staat in de app.json van zijn
+	// bundel) — en een backup die hem meedroeg loog zodra iemand een nieuw
+	// image plaatste; de restore-validatie struikelde dan over een verschil
+	// dat er geen is. Oudere backups dragen het veld nog; het wordt genegeerd.
+	//
 	// Path is empty for an app that announced itself over the attach protocol.
 	// Such an app has no bundle in Stulp's filesystem; its manifest (including
 	// UI declarations) is already part of stulp.json.
@@ -71,7 +76,7 @@ func Write(ctx context.Context, database *store.Store, output io.Writer) error {
 	}
 	archived := make([]archivedApp, 0, len(apps))
 	for _, app := range apps {
-		entry := AppEntry{ID: app.ID, Version: app.Version}
+		entry := AppEntry{ID: app.ID}
 		if app.Root == "" {
 			// Een aangemelde app draagt zijn manifest zelf en herhaalt het bij
 			// elke aanmelding; de backup draagt alleen zijn identiteit. Meer
@@ -227,7 +232,7 @@ func validateAndRelocate(ctx context.Context, documentPath, stagedApps, finalApp
 		}
 		seen[entry.ID] = true
 		storedApp, ok := stored[entry.ID]
-		if !ok || storedApp.Version != entry.Version {
+		if !ok {
 			return fmt.Errorf("app %q does not match the document", entry.ID)
 		}
 		if entry.Path == "" {
@@ -251,7 +256,7 @@ func validateAndRelocate(ctx context.Context, documentPath, stagedApps, finalApp
 		if loadErr != nil {
 			return fmt.Errorf("validate restored app %q: %w", entry.ID, loadErr)
 		}
-		if loaded.ID != entry.ID || loaded.Version != entry.Version {
+		if loaded.ID != entry.ID {
 			return fmt.Errorf("validate restored app %q: manifest identity mismatch", entry.ID)
 		}
 		if err := database.SetAppRoot(ctx, entry.ID, filepath.Join(finalApps, filepath.FromSlash(relative))); err != nil {
@@ -314,7 +319,7 @@ func restoreReader(ctx context.Context, input io.ReaderAt, size int64, database 
 		}
 		seen[entry.ID] = true
 		app, ok := stored[entry.ID]
-		if !ok || app.Version != entry.Version {
+		if !ok {
 			return RestoreResult{}, fmt.Errorf("app %q does not match the document", entry.ID)
 		}
 		if entry.Path == "" {
@@ -381,7 +386,7 @@ func restoreReader(ctx context.Context, input io.ReaderAt, size int64, database 
 			if loadErr != nil {
 				return RestoreResult{}, fmt.Errorf("validate restored app %q: %w", entry.ID, loadErr)
 			}
-			if loaded.ID != entry.ID || loaded.Version != entry.Version {
+			if loaded.ID != entry.ID {
 				return RestoreResult{}, fmt.Errorf("validate restored app %q: manifest identity mismatch", entry.ID)
 			}
 			if err := snapshot.SetAppRoot(entry.ID, filepath.Join(appsRoot, filepath.FromSlash(relative))); err != nil {

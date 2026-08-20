@@ -960,7 +960,14 @@ func (s *Server) handleDevices() {
 }
 
 func (s *Server) health(response stulphttp.ResponseWriter, request *stulphttp.Request) {
-	writeJSON(response, stulphttp.StatusOK, map[string]any{"ok": true, "runtime": "go", "store": "json"})
+	// stulpVersion: Manage leest dit veld al sinds de eerste dag ("de
+	// controller zelf · …") maar het werd nooit meegegeven — de regel bleef
+	// leeg staan. Dezelfde waarde als de X-Stulp-Version-kop, maar de UI hoort
+	// niet in koppen te hoeven graven.
+	writeJSON(response, stulphttp.StatusOK, map[string]any{
+		"ok": true, "runtime": "go", "store": "json",
+		"stulpVersion": s.options.StulpVersion,
+	})
 }
 
 func (s *Server) events(response stulphttp.ResponseWriter, request *stulphttp.Request) {

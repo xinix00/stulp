@@ -461,7 +461,10 @@ func (c Client) StaleFabricIndex(ctx context.Context, fabricID uint64) (uint8, e
 	endpoint := uint16(0)
 	cluster := ClusterOperationalCredentials
 	attribute := uint32(0x0001) // Fabrics
-	reports, err := c.IM.Read(ctx, im.AttributePath{Endpoint: &endpoint, Cluster: &cluster, Attribute: &attribute})
+	// Over PASE en zónder fabric-filter: de commissioning-sessie heeft geen
+	// eigen fabric, dus een gefilterde read komt leeg terug en de wees blijft
+	// onvindbaar.
+	reports, err := c.IM.ReadAcrossFabrics(ctx, im.AttributePath{Endpoint: &endpoint, Cluster: &cluster, Attribute: &attribute})
 	if err != nil {
 		return 0, err
 	}

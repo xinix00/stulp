@@ -60,13 +60,22 @@ func TestStaleFabricIndexFindsOurOrphan(t *testing.T) {
 				return err
 			}
 			defer exchange.Close()
-			opcode, _, err := exchange.Receive(ctx)
+			opcode, payload, err := exchange.Receive(ctx)
 			if err != nil {
 				return err
 			}
 			if opcode != im.OpcodeReadRequest {
 				t.Errorf("nep-apparaat kreeg opcode %#x, wilde ReadRequest", opcode)
 			}
+			// Zoals een écht apparaat over PASE: een fabric-GEFILTERDE read van
+			// een fabric-scoped lijst komt leeg terug, want de commissioning-
+			// sessie heeft geen eigen fabric. De eerste fake negeerde die vlag
+			// en verzweeg zo precies de bug die de heler stil liet opgeven.
+			request, err := im.DecodeReadRequest(payload)
+			if err != nil {
+				return err
+			}
+			filtered := request.FabricFiltered
 			endpoint := uint16(0)
 			cluster := ClusterOperationalCredentials
 			attribute := uint32(0x0001)
@@ -83,8 +92,10 @@ func TestStaleFabricIndexFindsOurOrphan(t *testing.T) {
 				Path: im.AttributePath{Endpoint: &endpoint, Cluster: &cluster, Attribute: &attribute},
 				Value: func(writer *tlv.Writer, tag tlv.Tag) {
 					writer.StartArray(tag)
-					fabricEntry(writer, tlv.Anonymous(), 0xBEEF0000BEEF, 1)
-					fabricEntry(writer, tlv.Anonymous(), ourFabricID, 3)
+					if !filtered {
+						fabricEntry(writer, tlv.Anonymous(), 0xBEEF0000BEEF, 1)
+						fabricEntry(writer, tlv.Anonymous(), ourFabricID, 3)
+					}
 					writer.EndContainer()
 				},
 			}}, nil, true, false)

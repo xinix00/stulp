@@ -172,7 +172,20 @@ func ReceiveSubscriptionReport(ctx context.Context, exchange *transport.Exchange
 }
 
 func (c Client) Read(ctx context.Context, paths ...AttributePath) ([]AttributeReport, error) {
-	payload, err := EncodeReadRequest(paths, true)
+	return c.read(ctx, true, paths)
+}
+
+// ReadAcrossFabrics leest zonder fabric-filter. Nodig voor precies één geval:
+// de fabric-tabel bekijken over een PASE-sessie. PASE heeft geen eigen fabric,
+// dus een gefilterde read van een fabric-scoped lijst komt dan LEEG terug —
+// en een heler die daarop vertrouwt vindt de wees nooit (gemeten 20-08: de
+// FabricConflict-heling gaf stil op en 0x09 viel door).
+func (c Client) ReadAcrossFabrics(ctx context.Context, paths ...AttributePath) ([]AttributeReport, error) {
+	return c.read(ctx, false, paths)
+}
+
+func (c Client) read(ctx context.Context, fabricFiltered bool, paths []AttributePath) ([]AttributeReport, error) {
+	payload, err := EncodeReadRequest(paths, fabricFiltered)
 	if err != nil {
 		return nil, err
 	}

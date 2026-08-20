@@ -171,6 +171,19 @@ type statefulMatterDevice struct {
 	on             bool
 	removed        bool
 	eventNumber    uint64
+
+	// orphanFabricID/orphanIndex: een achtergebleven fabric-entry (half
+	// afgemaakt verwijderen). Het echte apparaat (IKEA, 20-08) weigerde AddNOC
+	// met 0x09 zolang die er stond, en een TWEEDE AddNOC binnen dezelfde
+	// fail-safe met 0x03 — beide gedragingen zitten hieronder, zodat de
+	// controller-volgorde (eerst opruimen, dan één AddNOC) bewezen wordt en
+	// niet alleen het happy path.
+	orphanFabricID uint64
+	orphanIndex    uint8
+	nocAttempts    int
+	// commissioningInvokes: hoeveel invokes de PASE-fase telt vóór CASE begint
+	// (8 op het gewone pad, 9 mét een RemoveFabric van de wees).
+	commissioningInvokes int
 }
 
 func newStatefulMatterDevice(t *testing.T, logger *slog.Logger) (*statefulMatterDevice, error) {
@@ -293,7 +306,11 @@ func (d *statefulMatterDevice) serve(ctx context.Context, fabric *credentials.Fa
 func (d *statefulMatterDevice) serveCommissioning(ctx context.Context, _ *transport.SecureSession,
 	fabric *credentials.Fabric) error {
 	commandsSeen := 0
-	for commandsSeen < 8 {
+	expected := d.commissioningInvokes
+	if expected == 0 {
+		expected = 8
+	}
+	for commandsSeen < expected {
 		exchange, err := d.node.Accept(ctx)
 		if err != nil {
 			return err
@@ -419,7 +436,39 @@ func (d *statefulMatterDevice) commissioningResponse(command im.InvokeRequestCom
 		}
 		status := im.Status{Global: im.StatusSuccess}
 		response.Status = &status
+	case command.Path.Cluster == commissioning.ClusterOperationalCredentials && command.Path.Command == commissioning.CommandRemoveFabric:
+		index, ok := command.Fields.Field(0)
+		if !ok || index.Type != tlv.TypeUint || d.orphanIndex == 0 || index.Uint != uint64(d.orphanIndex) {
+			return response, fmt.Errorf("RemoveFabric for index %v while orphan is %d", index.Uint, d.orphanIndex)
+		}
+		d.orphanIndex = 0
+		response.Path.Command = commissioning.CommandNOCResponse
+		response.Fields = func(writer *tlv.Writer, tag tlv.Tag) {
+			writer.StartStructure(tag)
+			writer.PutUint(tlv.Context(0), 0)
+			writer.EndContainer()
+		}
 	case command.Path.Cluster == commissioning.ClusterOperationalCredentials && command.Path.Command == commissioning.CommandAddNOC:
+		// Zoals het echte apparaat (20-08): een wees van dezelfde fabric is
+		// 0x09, en een herkansing binnen dezelfde fail-safe is 0x03 — de
+		// CSR/root-staat is verbruikt. Wie hier doorheen wil moet dus eerst
+		// opruimen en dan in ÉÉN keer raak schieten.
+		d.nocAttempts++
+		nocStatus := uint64(0)
+		if d.orphanIndex != 0 {
+			nocStatus = uint64(commissioning.StatusFabricConflict)
+		} else if d.nocAttempts > 1 {
+			nocStatus = 0x03 // InvalidNOC
+		}
+		if nocStatus != 0 {
+			response.Path.Command = commissioning.CommandNOCResponse
+			response.Fields = func(writer *tlv.Writer, tag tlv.Tag) {
+				writer.StartStructure(tag)
+				writer.PutUint(tlv.Context(0), nocStatus)
+				writer.EndContainer()
+			}
+			return response, nil
+		}
 		noc, err := fakeBytes(command.Fields, 0, -1)
 		ipk, ipkErr := fakeBytes(command.Fields, 2, 16)
 		if err != nil || ipkErr != nil || !bytes.Equal(ipk, fabric.IPK) {
@@ -681,6 +730,23 @@ func (d *statefulMatterDevice) attribute(path im.AttributePath) (func(*tlv.Write
 		}
 	}
 	switch {
+	case endpoint == 0 && cluster == commissioning.ClusterOperationalCredentials && attribute == 0x0001:
+		// De fabric-tabel. Alleen de wees staat erin; een vers apparaat geeft
+		// een lege lijst — precies wat StaleFabricIndex moet aankunnen.
+		orphanID, orphanIndex := d.orphanFabricID, d.orphanIndex
+		return func(writer *tlv.Writer, tag tlv.Tag) {
+			writer.StartArray(tag)
+			if orphanIndex != 0 {
+				writer.StartStructure(tlv.Anonymous())
+				writer.PutBytes(tlv.Context(1), bytes.Repeat([]byte{0x11}, 65))
+				writer.PutUint(tlv.Context(2), 0xFFF1)
+				writer.PutUint(tlv.Context(3), orphanID)
+				writer.PutUint(tlv.Context(4), 0x10019)
+				writer.PutUintWidth(tlv.Context(254), uint64(orphanIndex), 1)
+				writer.EndContainer()
+			}
+			writer.EndContainer()
+		}, nil
 	case endpoint == 0 && cluster == commissioning.ClusterGeneralCommissioning &&
 		attribute == commissioning.AttributeRegulatoryConfig:
 		return putUint(uint64(commissioning.RegulatoryOutdoor)), nil
@@ -840,4 +906,51 @@ func commissionAndStore(ctx context.Context, t *testing.T, controller *Controlle
 		added = append(added, device)
 	}
 	return added, nil
+}
+
+// De wees van een half afgemaakt verwijderen (0x09 op ijzer, 20-08) moet VÓÓR
+// AddNOC opgeruimd worden. De nep-stekker gedraagt zich als de echte: 0x09
+// zolang de wees er staat, en 0x03 bij een tweede AddNOC in dezelfde fail-safe
+// — dus wie na het conflict pas opruimt en herkanst (het oude pad) faalt hier,
+// en wie eerst opruimt komt er in één AddNOC doorheen.
+func TestCommissioningRemovesAnOrphanedFabricFirst(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	database := newBacking()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	controller, err := New(ctx, database, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer controller.Close()
+	controller.node.RetryInterval = 20 * time.Millisecond
+	device, err := newStatefulMatterDevice(t, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer device.node.Close()
+	// De wees: ónze fabric, achtergebleven op index 3. De PASE-fase telt er
+	// één invoke bij (RemoveFabric).
+	device.orphanFabricID = controller.fabric.ID
+	device.orphanIndex = 3
+	device.commissioningInvokes = 9
+	serverErr := make(chan error, 1)
+	go func() { serverErr <- device.serve(ctx, controller.fabric) }()
+
+	added, err := commissionAndStore(ctx, t, controller, database, CommissionRequest{
+		Code: "34970112332", Address: device.node.LocalAddr().String(),
+	})
+	if err != nil {
+		t.Fatalf("Commission met wees: %v", err)
+	}
+	if len(added) != 1 {
+		t.Fatalf("commissioned devices = %d, want 1", len(added))
+	}
+	if device.orphanIndex != 0 {
+		t.Fatal("de wees staat nog op het apparaat")
+	}
+	if device.nocAttempts != 1 {
+		t.Fatalf("AddNOC is %d keer geprobeerd; opruimen hoort VÓÓR de ene poging te gebeuren", device.nocAttempts)
+	}
 }

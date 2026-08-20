@@ -361,6 +361,16 @@ func (c *Controller) Commission(ctx context.Context, request CommissionRequest) 
 	if payload.ProductID == 0 {
 		payload.ProductID = attestation.ProductID
 	}
+	// Draagt het apparaat nog een wees van ÓNZE fabric (een half afgemaakt
+	// verwijderen), ruim die dan NU op — vóór de credential-fase, niet erná.
+	// Twee keer op ijzer geleerd (20-08, 0x09→0x03): een tweede AddNOC binnen
+	// dezelfde fail-safe weigert het apparaat (InvalidNOC), en een RemoveFabric
+	// in een fail-safe die daarna faalt wordt bij het verlopen TERUGGEDRAAID —
+	// de wees kwam elke poging terug. Hiervóór opruimen betekent één AddNOC
+	// over het gewone pad, en het slagen van de commissioning commit de
+	// verwijdering mee.
+	c.removeOrphanFabric(commissioningContext, commissioner)
+
 	csr, err := commissioner.CSR(commissioningContext, paseResult.Keys.AttestationChallenge, attestation.DAC)
 	if err != nil {
 		return nil, err
@@ -391,25 +401,10 @@ func (c *Controller) Commission(ctx context.Context, request CommissionRequest) 
 	fabricIndex, err := commissioner.AddNOC(commissioningContext, nocMatter, nil, c.fabric.IPK,
 		c.fabric.ControllerNodeID, credentials.TestVendorID)
 	if err != nil {
-		// FabricConflict: het apparaat draagt ÓNZE fabric nog. Dat is de
-		// vingerafdruk van een half afgemaakt verwijderen — Stulp is de rij
-		// kwijt (dat beleid is bewust: een mislukte opruiming mag verwijderen
-		// niet blokkeren, zie plugin.DeleteDevice) terwijl RemoveFabric het
-		// apparaat nooit bereikte. De gebruiker die nu opnieuw koppelt ís de
-		// opruimopdracht: haal de wees weg en probeer één keer opnieuw, in
-		// plaats van hem naar een fabrieksreset te sturen.
-		var conflict commissioning.CommissioningError
-		if errors.As(err, &conflict) && conflict.Status == commissioning.StatusFabricConflict {
-			if staleIndex, findErr := commissioner.StaleFabricIndex(commissioningContext, c.fabric.ID); findErr == nil {
-				if removeErr := commissioner.RemoveFabric(commissioningContext, staleIndex); removeErr == nil {
-					fabricIndex, err = commissioner.AddNOC(commissioningContext, nocMatter, nil, c.fabric.IPK,
-						c.fabric.ControllerNodeID, credentials.TestVendorID)
-				}
-			}
-		}
-		if err != nil {
-			return nil, fmt.Errorf("add Matter NOC: %w", err)
-		}
+		// Ook een 0x09 hier is een echte fout: de wees is hierboven al
+		// opgeruimd (removeOrphanFabric), en een herkansing binnen dezelfde
+		// fail-safe weigert het apparaat toch (InvalidNOC, gemeten 20-08).
+		return nil, fmt.Errorf("add Matter NOC: %w", err)
 	}
 	c.node.RemoveSession(paseResult.LocalSessionID)
 	paseActive = false
@@ -442,6 +437,28 @@ func (c *Controller) Commission(ctx context.Context, request CommissionRequest) 
 	// gebruiker, en dat is niet aan een app. Wat een node moet onthouden staat
 	// in zijn data, dus een bewaard exemplaar is later terug te vinden.
 	return prototypes, nil
+}
+
+
+// removeOrphanFabric ruimt een achtergebleven fabric-entry van ónze fabric op,
+// vóór AddNOC. Zo'n wees is de vingerafdruk van een half afgemaakt verwijderen:
+// Stulp is de rij kwijt (bewust beleid — een mislukte opruiming mag verwijderen
+// niet blokkeren, zie plugin.DeleteDevice) terwijl RemoveFabric het apparaat
+// nooit bereikte. De gebruiker die opnieuw koppelt ís de opruimopdracht.
+// Best effort: geen wees (of niet te lezen) is geen fout — AddNOC velt zo
+// meteen het echte oordeel, en een 0x09 dáár is dan eerlijk.
+func (c *Controller) removeOrphanFabric(ctx context.Context, commissioner commissioning.Client) {
+	staleIndex, err := commissioner.StaleFabricIndex(ctx, c.fabric.ID)
+	if err != nil {
+		return
+	}
+	if err := commissioner.RemoveFabric(ctx, staleIndex); err != nil {
+		c.logger.Warn("could not remove the orphaned fabric entry before commissioning",
+			"fabricIndex", staleIndex, "error", err)
+		return
+	}
+	c.logger.Info("removed an orphaned entry of our fabric before commissioning",
+		"fabricIndex", staleIndex)
 }
 
 func (c *Controller) establishAfterCommissioning(ctx context.Context, initial *net.UDPAddr, nodeID uint64,

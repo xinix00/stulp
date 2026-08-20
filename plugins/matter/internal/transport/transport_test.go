@@ -701,3 +701,67 @@ func pow(base float64, exponent int) float64 {
 	}
 	return result
 }
+
+// Een retransmit voor een uitwisseling die wij al sloten — ons afsluitende ack
+// is één onbetrouwbaar schot en kan verloren gaan — hoort een standalone ack te
+// krijgen, niet vijf keer stilte. Zonder ack telt een strenge publisher de
+// mislukte bezorging tegen het abonnement.
+func TestLateRetransmitForAClosedExchangeGetsAnAck(t *testing.T) {
+	node, peer := testNode(t)
+	i2r := bytes.Repeat([]byte{0x24}, 16)
+	r2i := bytes.Repeat([]byte{0x42}, 16)
+	if _, err := node.RegisterSession(SessionConfig{
+		LocalID: 0x1001, PeerID: 0x2001, OutboundKey: i2r, InboundKey: r2i,
+		Remote: peer.LocalAddr().(*net.UDPAddr),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Het apparaat her-zendt zijn laatste betrouwbare antwoord op een
+	// uitwisseling die wij ooit initieerden (Initiator=false) en al vergaten.
+	retransmit, err := message.Message{
+		Header: message.Header{SessionID: 0x1001, Counter: 99},
+		Protocol: message.ProtocolHeader{
+			Reliable: true, Opcode: 0x05, ExchangeID: 0x4BC6,
+			ProtocolID: message.ProtocolInteractionModel,
+		},
+	}.SealWithSource(r2i, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := peer.WriteToUDP(retransmit, node.LocalAddr()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := peer.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 2048)
+	count, _, err := peer.ReadFromUDP(buffer)
+	if err != nil {
+		t.Fatal("geen standalone ack voor de late retransmit: de peer blijft zo tot vijf keer zenden")
+	}
+	ack, err := message.OpenWithSource(buffer[:count], i2r, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ack.Protocol.ProtocolID != message.ProtocolSecureChannel ||
+		ack.Protocol.Opcode != message.OpcodeStandaloneAck {
+		t.Fatalf("verwachtte een standalone ack, kreeg protocol %#x opcode %#x",
+			ack.Protocol.ProtocolID, ack.Protocol.Opcode)
+	}
+	if ack.Protocol.AckCounter == nil || *ack.Protocol.AckCounter != 99 {
+		t.Fatalf("ack dekt %v, wilde counter 99", ack.Protocol.AckCounter)
+	}
+	if ack.Protocol.ExchangeID != 0x4BC6 || !ack.Protocol.Initiator {
+		t.Fatalf("ack hoort op dezelfde uitwisseling en met de gespiegelde rol: exchange %#x initiator %t",
+			ack.Protocol.ExchangeID, ack.Protocol.Initiator)
+	}
+
+	// En het bericht is niet bezorgd: er is geen uitwisseling om aan te nemen.
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if _, err := node.Accept(ctx); err == nil {
+		t.Fatal("de late retransmit is als nieuwe uitwisseling aangenomen")
+	}
+}

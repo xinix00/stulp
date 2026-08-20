@@ -482,6 +482,18 @@ func (n *Node) dispatch(packet []byte, remote *net.UDPAddr) {
 	n.mu.Unlock()
 
 	if exchange == nil {
+		// Een betrouwbaar antwoord op een uitwisseling die wij al sloten is
+		// vrijwel altijd een retransmit waarvan ons afsluitende ack verloren
+		// ging — Acknowledge is één onbetrouwbaar schot. Stil droppen liet de
+		// peer tot vijf keer opnieuw zenden (gemeten 20-08: 18 drops per
+		// apparaat in één ringbuffer), en een strenge publisher mag dat zijn
+		// abonnement aanrekenen. Dus: alsnog een standalone ack, zónder de
+		// boodschap te bezorgen — dezelfde keuze als connectedhomeip's
+		// ephemeral ack. Alleen op een beveiligde sessie: die bewijst wie het
+		// vraagt, en een onbeveiligd zwerfpakket verdient geen antwoord.
+		if session != nil && msg.Protocol.Reliable {
+			n.ackWithoutExchange(session, remote, msg)
+		}
 		n.logger.Debug("Matter transport dropped a message for an unknown exchange",
 			"exchange", msg.Protocol.ExchangeID, "remote", remote)
 		return
@@ -525,6 +537,29 @@ func (n *Node) dispatch(packet []byte, remote *net.UDPAddr) {
 			exchange.fail(errors.New("inbound exchange backlog full"))
 		}
 	}
+}
+
+// ackWithoutExchange beantwoordt een betrouwbaar bericht voor een al gesloten
+// uitwisseling met een standalone ack. De rolvlag spiegelt de afzender: wie
+// óns antwoordt krijgt een ack van de initiator die wij op die uitwisseling
+// waren. Best effort — als dit pakket ook verloren gaat, retransmit de peer en
+// komt hij hier gewoon opnieuw langs.
+func (n *Node) ackWithoutExchange(session *SecureSession, remote *net.UDPAddr, received message.Message) {
+	counter := received.Header.Counter
+	frame, err := message.Message{
+		Header: message.Header{SessionID: session.PeerID, Counter: session.nextCounter()},
+		Protocol: message.ProtocolHeader{
+			Initiator:  !received.Protocol.Initiator,
+			AckCounter: &counter,
+			Opcode:     message.OpcodeStandaloneAck,
+			ExchangeID: received.Protocol.ExchangeID,
+			ProtocolID: message.ProtocolSecureChannel,
+		},
+	}.SealWithSource(session.outboundKey, session.LocalNodeID)
+	if err != nil {
+		return
+	}
+	_, _ = n.sendConn(remote).WriteToUDP(frame, remote)
 }
 
 func sameUDPAddr(left, right *net.UDPAddr) bool {

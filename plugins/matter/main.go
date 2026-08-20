@@ -29,6 +29,12 @@ type matterDriver struct{ app *app }
 // Koppelen begint bij een code: een QR-payload of de handmatige code op het
 // apparaat. Zonder die code is er niets te vinden -- een Matter-apparaat laat
 // zich niet ongevraagd toevoegen, en dat is precies de bedoeling.
+// Commissioneren duurt minuten (wachten op de mDNS-advertentie plus het
+// certificaat-gesprek) en HTTP-verzoeken die zo lang hangen sterven onderweg —
+// de tunnel kapt ze af en dan ziet de gebruiker een 502 terwijl stulp gewoon
+// doorwerkt (gemeten 20-08, exact op de proxy-timeout). Lange dingen zijn hier
+// dus start-plus-poll, hetzelfde snapshot-patroon als scan/mesh/diagnostiek:
+// élk verzoek is kort, en de pagina kijkt hoe het ervoor staat.
 func (d matterDriver) Pair() map[string]appsdk.PairHandler {
 	return map[string]appsdk.PairHandler{
 		"commission": func(data any) (any, error) {
@@ -38,7 +44,20 @@ func (d matterDriver) Pair() map[string]appsdk.PairHandler {
 			if strings.TrimSpace(code) == "" {
 				return nil, fmt.Errorf("een koppelcode is nodig")
 			}
-			return d.app.commission(code, address)
+			if !d.app.pairing.begin() {
+				return d.app.pairing.snapshot(), nil
+			}
+			go func() {
+				result, err := d.app.commission(code, address)
+				if err == nil {
+					d.app.pairing.put("found", result)
+				}
+				d.app.pairing.done(err)
+			}()
+			return d.app.pairing.snapshot(), nil
+		},
+		"commission/state": func(any) (any, error) {
+			return d.app.pairing.snapshot(), nil
 		},
 	}
 }
@@ -111,6 +130,7 @@ type app struct {
 	// gevraagd. Diagnostiek is per apparaat en staat onder a.mu.
 	discovery scan
 	mesh      scan
+	pairing   scan
 	diagnoses map[string]*scan
 }
 

@@ -41,11 +41,24 @@ form.addEventListener('submit', async event => {
   submit.disabled = true;
   say('Bezig met koppelen. Stulp wacht tot het apparaat zich op het netwerk meldt; dit kan een minuut duren…', 'busy');
 
+  // Start-plus-poll: het koppelen loopt in de plugin en deze pagina kijkt elke
+  // paar tellen hoe het staat. Zo blijft elk verzoek kort — een verzoek dat
+  // minuten hangt sterft onderweg (de tunnel kapt hem af en dan zie je een 502
+  // terwijl het koppelen gewoon doorloopt).
   try {
-    const result = await Stulp.emit('commission', {
+    let state = await Stulp.emit('commission', {
       code, address: document.getElementById('address').value.trim(),
     });
-    if (!result || !result.found) {
+    while (state && state.running) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      state = await Stulp.emit('commission/state', {});
+    }
+    if (state && state.warning) {
+      say(state.warning, 'bad');
+      submit.disabled = false;
+      return;
+    }
+    if (!state || !state.found || !state.found.found) {
       say('Het apparaat meldde niets om toe te voegen.', 'bad');
       submit.disabled = false;
       return;

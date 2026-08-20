@@ -171,7 +171,8 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64) {
 	}()
 	backoff := time.Second
 	goneOnce := false
-	waitedForRoute := false
+	var routeWaitStarted time.Time
+	routeWaitLouded := false
 	for {
 		started := time.Now()
 		err := c.subscribeOnce(ctx, nodeID)
@@ -211,10 +212,21 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64) {
 		// eerste poging ná de RA slaagt gewoon. Eén debug-regel per worker
 		// per episode houdt het log eerlijk zonder de ringbuffer te verzuipen.
 		if err != nil && strings.Contains(err.Error(), "no IPv6 route") {
-			if !waitedForRoute {
-				waitedForRoute = true
+			if routeWaitStarted.IsZero() {
+				routeWaitStarted = time.Now()
 				c.logger.Debug("IPv6 route not up yet; holding subscription quietly",
 					"node", fmt.Sprintf("%016X", nodeID))
+			}
+			// Stil is goed voor een opstartmoment, niet voor een toestand: na
+			// routeWaitLoud is dit geen boot meer maar een node zonder route,
+			// en dan hoort er iets te zien te zijn. Eén keer luid per episode
+			// (gemeten 20-08: Derek zat minuten naar "nada" te kijken terwijl
+			// er letterlijk niets in het log stond dat opviel).
+			if !routeWaitLouded && time.Since(routeWaitStarted) > routeWaitLoud {
+				routeWaitLouded = true
+				c.logger.Warn("still no IPv6 route; Matter cannot reach anything",
+					"node", fmt.Sprintf("%016X", nodeID),
+					"waiting", time.Since(routeWaitStarted).Round(time.Second).String())
 			}
 			select {
 			case <-time.After(5 * time.Second):
@@ -223,7 +235,12 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64) {
 				return
 			}
 		}
-		waitedForRoute = false
+		if !routeWaitStarted.IsZero() && routeWaitLouded {
+			c.logger.Info("IPv6 route is back; Matter is reconnecting",
+				"node", fmt.Sprintf("%016X", nodeID),
+				"waited", time.Since(routeWaitStarted).Round(time.Second).String())
+		}
+		routeWaitStarted, routeWaitLouded = time.Time{}, false
 		// Speling: een gemist rapportagevenster ná een lang gezonde sessie is
 		// jitter of een korte stall (de rapporten komen precies óp het
 		// maximuminterval, en op een gedeelde core schuift dat weleens), geen
@@ -350,6 +367,12 @@ func (c *Controller) subscribeOnce(ctx context.Context, nodeID uint64) error {
 // hier ruim vers genoeg; een gemiste nieuwkomer doet hooguit één minuut over
 // zijn eerste rapport.
 const nodeIndexTTL = time.Minute
+
+// routeWaitLoud: hoe lang "de route komt nog" een stil opstartmoment mag zijn.
+// Twee minuten is ruim boven wat een router-advertisement kost (leannet vraagt
+// er sinds RFC 7559 om met 4s-8s-16s-backoff) en ruim onder de tijd waarin
+// iemand zich afvraagt waarom er niets gebeurt.
+const routeWaitLoud = 2 * time.Minute
 
 func (c *Controller) nodeDevices(ctx context.Context, nodeID uint64) ([]Device, connectionInfo, error) {
 	c.nodeIdxMu.Lock()

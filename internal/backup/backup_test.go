@@ -315,3 +315,20 @@ func TestLiveRestorePublishesAndRetainsAppBundleTrees(t *testing.T) {
 		t.Fatalf("published app bundle is invalid: manifest=%#v err=%v", loaded, err)
 	}
 }
+
+// Een backup is een ander tijdperk: velden die wij niet (meer) kennen zijn
+// geschiedenis, geen fout. De backup van 19-08 droeg "version" per app; één
+// release nadat dat veld verdween weigerde de strenge decoder de hele restore
+// en hield hij de eigenaar zijn eigen huis uit.
+func TestManifestFromAnotherEraStillDecodes(t *testing.T) {
+	older := []byte(`{"format":1,"createdAt":"2026-08-19T21:00:00Z",
+	  "apps":[{"id":"com.stulp.matter","version":"1.0.0"}],
+	  "futureField":{"whatever":true}}`)
+	decoded, err := decodeManifest(older)
+	if err != nil {
+		t.Fatalf("een ouder/nieuwer backup-manifest hoort te decoderen: %v", err)
+	}
+	if len(decoded.Apps) != 1 || decoded.Apps[0].ID != "com.stulp.matter" {
+		t.Fatalf("manifest-inhoud verloren: %#v", decoded)
+	}
+}

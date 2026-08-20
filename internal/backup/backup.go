@@ -513,7 +513,13 @@ func readArchiveFile(entries []*zip.File, name string, limit int64) ([]byte, err
 
 func decodeManifest(data []byte) (Manifest, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
+	// Bewust GEEN DisallowUnknownFields: een backup is per definitie een ander
+	// tijdperk — ouder (een veld dat wij niet meer kennen, zoals "version" tot
+	// 20-08) of nieuwer (een veld dat wij nog niet kennen). Een onbekend veld
+	// is geen fout maar geschiedenis, en een restore die daarop weigert houdt
+	// iemand zijn eigen huis uit (gemeten 20-08, één release na het schrappen
+	// van het versie-veld). Wat er wél toe doet — id's, paden, bundels — wordt
+	// hierna semantisch getoetst; dáár hoort de strengheid.
 	var result Manifest
 	if err := decoder.Decode(&result); err != nil {
 		return Manifest{}, fmt.Errorf("decode backup manifest: %w", err)

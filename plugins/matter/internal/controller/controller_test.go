@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"slices"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/xinix00/stulp/plugins/matter/internal/im"
 	"github.com/xinix00/stulp/plugins/matter/internal/onboarding"
 	"github.com/xinix00/stulp/plugins/matter/internal/tlv"
+	"github.com/xinix00/stulp/plugins/matter/internal/transport"
 )
 
 type stubAttributeClient struct {
@@ -75,6 +77,52 @@ func TestLoadOrCreateFabricPersistsIdentity(t *testing.T) {
 	}
 	if !first.RootCertificate.Equal(second.RootCertificate) || !first.ControllerNOC.Equal(second.ControllerNOC) {
 		t.Fatal("fabric certificates changed after reload")
+	}
+}
+
+// Eén CASE-opzet naar een node die niet antwoordt mag de rest niet gijzelen.
+// MRP mag Sigma1 vijf keer versturen met backoff op het opgeslagen
+// idle-interval van de peer (tot 60s per stap), en zonder grens hield één dode
+// node zo c.mu — en bij de start de route-canary — minutenlang vast, met de
+// hele vloot erachter: elke boot ~2 minuten stilte, en "daarna verbond alles
+// ineens" zodra die ene poging opgaf (gemeten 21-08). De grens maakt dat
+// opgeven begrensd; de per-node backoff blijft het daarna gewoon proberen.
+func TestSessionEstablishmentIsBounded(t *testing.T) {
+	bound := caseEstablishTimeout
+	caseEstablishTimeout = 200 * time.Millisecond
+	defer func() { caseEstablishTimeout = bound }()
+
+	node, err := transport.Listen("127.0.0.1:0", discardMatterLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer node.Close()
+	// Een peer die bestaat maar nooit antwoordt: een kale UDP-socket.
+	peer, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close()
+	fabric, err := loadOrCreateFabric(context.Background(), newBacking())
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &Controller{node: node, fabric: fabric, sessions: make(map[uint64]*transport.SecureSession)}
+	info := connectionInfo{
+		nodeID: 0x7777, remote: peer.LocalAddr().(*net.UDPAddr), noc: []byte{1},
+		// Een trage slaper: zonder de grens wacht de eerste retransmissie hier
+		// alleen al dertig seconden.
+		timing: transport.MRPTiming{Idle: 30 * time.Second},
+	}
+
+	started := time.Now()
+	_, err = controller.session(context.Background(), info)
+	elapsed := time.Since(started)
+	if err == nil {
+		t.Fatal("CASE tegen een stomme peer slaagde")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("CASE naar een dode node hield de aanroeper %v vast; de grens hoort dat te kappen", elapsed)
 	}
 }
 

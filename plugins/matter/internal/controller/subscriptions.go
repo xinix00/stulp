@@ -440,7 +440,8 @@ func (c *Controller) finishSubscriptionAttempt(ctx context.Context, token uint64
 		started := c.routeStarted
 		c.routeMu.Unlock()
 		if newEpisode && c.logger != nil {
-			c.logger.Debug("IPv6 route not up yet; holding subscription quietly",
+			// Eerlijke woorden: er ís nog geen subscription om vast te houden.
+			c.logger.Debug("IPv6 route not up yet; Matter waits before connecting",
 				"node", fmt.Sprintf("%016X", nodeID))
 		}
 		return started

@@ -683,11 +683,26 @@ func deviceConnection(device Device) (connectionInfo, error) {
 	}, nil
 }
 
+// caseEstablishTimeout begrenst één CASE-opzet. Zonder grens mag MRP Sigma1
+// vijf keer versturen met backoff op het opgeslagen idle-interval van de peer
+// (tot 60s per stap), en tegen een node die er niet is loopt één poging dan
+// tot ver boven de twee minuten — terwijl hij vasthoudt wat de hele vloot
+// nodig heeft: c.mu, en bij de start ook de route-canary. Gemeten 21-08: elke
+// boot bleef ~2 minuten stil en "daarna verbond alles ineens" — dat was één
+// onbereikbare node wiens opgave de rij losliet, niet de route. Veertig
+// seconden dekt een trage maar levende slaper ruim; wie dan nog niet antwoordt
+// is voor bediening toch onbereikbaar, en de backoff blijft het proberen.
+// Een var, zodat de test de grens kan verkorten zonder veertig seconden te
+// wachten.
+var caseEstablishTimeout = 40 * time.Second
+
 func (c *Controller) session(ctx context.Context, info connectionInfo) (*transport.SecureSession, error) {
 	if existing := c.lookupSession(info.nodeID); existing != nil {
 		return existing, nil
 	}
-	session, err := casesession.EstablishWithRetry(ctx, c.node, info.remote, c.fabric, info.nodeID, info.noc, info.timing)
+	establishCtx, cancel := context.WithTimeout(ctx, caseEstablishTimeout)
+	defer cancel()
+	session, err := casesession.EstablishWithRetry(establishCtx, c.node, info.remote, c.fabric, info.nodeID, info.noc, info.timing)
 	if err != nil {
 		return nil, err
 	}

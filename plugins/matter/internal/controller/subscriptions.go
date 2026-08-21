@@ -149,7 +149,7 @@ func (c *Controller) startSubscription(nodeID uint64) {
 	c.workers[nodeID] = cancel
 	c.wg.Add(1)
 	c.subMu.Unlock()
-	go c.maintainSubscription(ctx, nodeID)
+	go c.maintainSubscription(ctx, nodeID, c.subscribeOnce)
 }
 
 func (c *Controller) stopSubscription(nodeID uint64) {
@@ -161,7 +161,12 @@ func (c *Controller) stopSubscription(nodeID uint64) {
 	c.subMu.Unlock()
 }
 
-func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64) {
+// maintainSubscription krijgt subscribe als parameter en niet als veld op de
+// Controller: de lus is het gedrag dat getest moet worden (stil binnen het
+// route-venster, grijs en retry erbuiten) en een echte subscribeOnce is in een
+// test niet tot een route-fout te dwingen. Een parameter draagt dat zonder
+// productie-state toe te voegen.
+func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64, subscribe func(context.Context, uint64) error) {
 	defer c.wg.Done()
 	defer func() {
 		c.subMu.Lock()
@@ -172,10 +177,9 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64) {
 	backoff := time.Second
 	goneOnce := false
 	var routeWaitStarted time.Time
-	routeWaitLouded := false
 	for {
 		started := time.Now()
-		err := c.subscribeOnce(ctx, nodeID)
+		err := subscribe(ctx, nodeID)
 		if ctx.Err() != nil {
 			return
 		}
@@ -208,39 +212,46 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64) {
 		// onmiddellijk. Zevenentwintig workers die daar elk per poging een warn
 		// van maken en hun tegel grijs zetten, maken van elke boot een
 		// rampenfilm die zichzelf een minuut later oplost (gemeten 20-08).
-		// Dus: stil vasthouden, niets grijs zetten, en zo weer kijken — de
-		// eerste poging ná de RA slaagt gewoon. Eén debug-regel per worker
-		// per episode houdt het log eerlijk zonder de ringbuffer te verzuipen.
+		// Dus: binnen routeWaitLoud stil vasthouden, niets grijs zetten, en zo
+		// weer kijken — de eerste poging ná de RA slaagt gewoon. Eén debug-regel
+		// per worker per episode houdt het log eerlijk zonder de ringbuffer te
+		// verzuipen.
 		if err != nil && strings.Contains(err.Error(), "no IPv6 route") {
 			if routeWaitStarted.IsZero() {
 				routeWaitStarted = time.Now()
 				c.logger.Debug("IPv6 route not up yet; holding subscription quietly",
 					"node", fmt.Sprintf("%016X", nodeID))
 			}
-			// Stil is goed voor een opstartmoment, niet voor een toestand: na
-			// routeWaitLoud is dit geen boot meer maar een node zonder route,
-			// en dan hoort er iets te zien te zijn. Eén keer luid per episode
-			// (gemeten 20-08: Derek zat minuten naar "nada" te kijken terwijl
-			// er letterlijk niets in het log stond dat opviel).
-			if !routeWaitLouded && time.Since(routeWaitStarted) > routeWaitLoud {
-				routeWaitLouded = true
-				c.logger.Warn("still no IPv6 route; Matter cannot reach anything",
+			// Stil is goed voor een opstartmoment, niet voor een toestand. Na
+			// routeWaitLoud is dit geen boot meer maar een node zonder route, en
+			// dan hoort dit géén eigen wachtlus te zijn: DOORVALLEN naar het
+			// gedeelde pad hieronder, dat de node onbereikbaar markeert (grijs is
+			// hier de waarheid), één keer waarschuwt met de échte fout, en blijft
+			// proberen met backoff tot 30s. Vóór 21-08 bleef deze tak eeuwig
+			// doorlussen: na een restore hielden achtentwintig workers stil een
+			// "subscription" vast die nooit bestond, terwijl elke tegel op
+			// UNDEFINED bleef staan omdat markNodeUnavailable werd overgeslagen --
+			// stilte die eruitzag als een werkende node.
+			if time.Since(routeWaitStarted) <= routeWaitLoud {
+				select {
+				case <-time.After(routeWaitPoll):
+					continue
+				case <-ctx.Done():
+					return
+				}
+			}
+		} else {
+			// Het wachten is voorbij (gelukt, of een ándere fout). De stempel
+			// blijft bewust staan zolang de route wég is: zou hij in de tak
+			// hierboven gewist worden, dan begon élke volgende poging een vers
+			// venster van twee minuten en was "één keer stil" een stille lus.
+			if !routeWaitStarted.IsZero() {
+				c.logger.Info("IPv6 route is back; Matter is reconnecting",
 					"node", fmt.Sprintf("%016X", nodeID),
-					"waiting", time.Since(routeWaitStarted).Round(time.Second).String())
+					"waited", time.Since(routeWaitStarted).Round(time.Second).String())
 			}
-			select {
-			case <-time.After(5 * time.Second):
-				continue
-			case <-ctx.Done():
-				return
-			}
+			routeWaitStarted = time.Time{}
 		}
-		if !routeWaitStarted.IsZero() && routeWaitLouded {
-			c.logger.Info("IPv6 route is back; Matter is reconnecting",
-				"node", fmt.Sprintf("%016X", nodeID),
-				"waited", time.Since(routeWaitStarted).Round(time.Second).String())
-		}
-		routeWaitStarted, routeWaitLouded = time.Time{}, false
 		// Speling: een gemist rapportagevenster ná een lang gezonde sessie is
 		// jitter of een korte stall (de rapporten komen precies óp het
 		// maximuminterval, en op een gedeelde core schuift dat weleens), geen
@@ -371,8 +382,14 @@ const nodeIndexTTL = time.Minute
 // routeWaitLoud: hoe lang "de route komt nog" een stil opstartmoment mag zijn.
 // Twee minuten is ruim boven wat een router-advertisement kost (leannet vraagt
 // er sinds RFC 7559 om met 4s-8s-16s-backoff) en ruim onder de tijd waarin
-// iemand zich afvraagt waarom er niets gebeurt.
-const routeWaitLoud = 2 * time.Minute
+// iemand zich afvraagt waarom er niets gebeurt. Een var en geen const, zodat een
+// test de grens kan verkorten: het gedrag eróver -- grijs en retry in plaats van
+// stil vasthouden -- is anders niet te bewijzen zonder twee minuten te wachten.
+var routeWaitLoud = 2 * time.Minute
+
+// routeWaitPoll: hoe vaak we binnen dat venster stil opnieuw kijken. Ook een
+// var, om dezelfde reden als hierboven.
+var routeWaitPoll = 5 * time.Second
 
 func (c *Controller) nodeDevices(ctx context.Context, nodeID uint64) ([]Device, connectionInfo, error) {
 	c.nodeIdxMu.Lock()

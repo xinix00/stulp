@@ -435,6 +435,27 @@ func TestAnOwnListDevicesHandlerWins(t *testing.T) {
 	}
 }
 
+// Een pair.close ruimt niet alleen handlers op: een plugin kan er een lopende
+// BLE-/netwerkjob mee afbreken. Dat is best-effort en close blijft idempotent.
+func TestClosingPairInvokesItsCancelHandler(t *testing.T) {
+	cancelled := make(chan struct{}, 1)
+	stulp := newFakeStulp(t, appsdk.Plugin{
+		Drivers: map[string]appsdk.Driver{"switch": cancellingDriver{cancelled: cancelled}},
+	})
+	defer stulp.close()
+	stulp.call(t, "app.init", map[string]any{}, nil)
+	stulp.call(t, "pair.start", map[string]any{"driverId": "switch", "sessionId": "s1"}, nil)
+	stulp.call(t, "pair.close", map[string]any{"sessionId": "s1"}, nil)
+
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("pair.close riep de cancel-handler niet aan")
+	}
+	// Nogmaals sluiten heeft niets meer om te annuleren en blijft geldig.
+	stulp.call(t, "pair.close", map[string]any{"sessionId": "s1"}, nil)
+}
+
 // pickyDriver heeft allebei: ListDevices én een eigen list_devices-handler.
 type pickyDriver struct{ lampDriver }
 
@@ -442,6 +463,20 @@ func (pickyDriver) Pair() map[string]appsdk.PairHandler {
 	return map[string]appsdk.PairHandler{
 		"list_devices": func(any) (any, error) {
 			return []appsdk.PairedDevice{{Name: "Alleen deze", Data: map[string]any{"id": "x"}}}, nil
+		},
+	}
+}
+
+type cancellingDriver struct {
+	lampDriver
+	cancelled chan struct{}
+}
+
+func (d cancellingDriver) Pair() map[string]appsdk.PairHandler {
+	return map[string]appsdk.PairHandler{
+		"cancel": func(any) (any, error) {
+			d.cancelled <- struct{}{}
+			return nil, nil
 		},
 	}
 }

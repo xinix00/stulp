@@ -339,6 +339,10 @@ func (s *Store) CreateFlow(ctx context.Context, flow Flow) (Flow, error) {
 			return Flow{}, fmt.Errorf("flow %q already exists", flow.ID)
 		}
 	}
+	if err := s.validateSceneDeviceReferencesLocked(flow); err != nil {
+		s.mu.Unlock()
+		return Flow{}, err
+	}
 	flows := make([]Flow, len(s.doc.Flows)+1)
 	copy(flows, s.doc.Flows)
 	flows[len(s.doc.Flows)] = cloneFlow(flow)
@@ -381,6 +385,10 @@ func (s *Store) updateFlow(ctx context.Context, flow Flow, expectedRevision *uin
 	if expectedRevision != nil && existing.Revision != *expectedRevision {
 		s.mu.Unlock()
 		return Flow{}, fmt.Errorf("flow %q: %w", flow.ID, ErrFlowChanged)
+	}
+	if err := s.validateSceneDeviceReferencesLocked(flow); err != nil {
+		s.mu.Unlock()
+		return Flow{}, err
 	}
 	flow.CreatedAt = existing.CreatedAt
 	flow.LastRunAt, flow.LastError = existing.LastRunAt, existing.LastError

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	flowengine "github.com/xinix00/stulp/internal/flow"
+	"github.com/xinix00/stulp/internal/scene"
 	"github.com/xinix00/stulp/internal/store"
 	"github.com/xinix00/stulp/internal/stulphttp"
 )
@@ -24,6 +25,9 @@ const (
 	mcpToolTimeout        = 45 * time.Second
 	maxMCPRequestBytes    = 256 << 10
 	maxMCPStructuredBytes = 256 << 10
+	// Leave ample room for the request metadata and counters around a projected
+	// Scene result. State entries are added in order until this budget is spent.
+	mcpSceneStatesBytes = 96 << 10
 
 	// Output limits. Every string Stulp hands to a client is bounded, because
 	// an app manifest and a device name are not under Stulp's control.
@@ -37,7 +41,8 @@ const (
 	mcpMaximumGroupDepth = 16
 
 	mcpInstructions = "Control this Stulp home through its devices and visual Flows. Start with system_context: it names the device groups (rooms) of this home. " +
-		"Then narrow with devices_list (groupId, capabilityId, search) and flow_cards_list before changing anything; only set capabilities marked setable."
+		"Then narrow with devices_list (groupId, capabilityId, search) and flow_cards_list before changing anything; only set capabilities marked setable. " +
+		"A device with class=scene is a normal on/off scene device: the first on saves the current target states and applies the scene, repeated on keeps that original snapshot, and off restores it."
 )
 
 var supportedMCPVersions = [...]string{
@@ -378,27 +383,42 @@ func (s *Server) callMCPTool(ctx context.Context, name string, arguments map[str
 	}
 	value, summary, err := handler(s, ctx, arguments)
 	if err != nil {
+		if value != nil {
+			return mcpStructuredToolResult(value, summary, err), true
+		}
 		return mcpToolError(err), true
 	}
+	return mcpStructuredToolResult(value, summary, nil), true
+}
+
+func mcpStructuredToolResult(value any, summary string, toolErr error) map[string]any {
 	structured, ok := value.(map[string]any)
 	if !ok {
 		structured = map[string]any{"result": value}
 	}
 	encoded, encodeErr := json.Marshal(structured)
 	if encodeErr != nil {
-		return mcpToolError(fmt.Errorf("encode tool result: %w", encodeErr)), true
+		return mcpToolError(errors.Join(toolErr, fmt.Errorf("encode tool result: %w", encodeErr)))
 	}
 	if len(encoded) > maxMCPStructuredBytes {
-		return mcpToolError(fmt.Errorf("tool result exceeds %d KiB; use filters, pagination or an exact id", maxMCPStructuredBytes>>10)), true
+		return mcpToolError(errors.Join(toolErr,
+			fmt.Errorf("tool result exceeds %d KiB; use filters, pagination or an exact id", maxMCPStructuredBytes>>10)))
 	}
-	if summary == "" {
+	if toolErr != nil {
+		errorText := mcpTrimString(toolErr.Error(), mcpErrorLimit)
+		if summary == "" {
+			summary = errorText
+		} else {
+			summary = mcpTrimString(summary+" Error: "+errorText, mcpErrorLimit)
+		}
+	} else if summary == "" {
 		summary = string(encoded)
 	}
 	return map[string]any{
 		"content":           []any{map[string]any{"type": "text", "text": summary}},
 		"structuredContent": json.RawMessage(encoded),
-		"isError":           false,
-	}, true
+		"isError":           toolErr != nil,
+	}
 }
 
 func mcpToolError(err error) map[string]any {
@@ -744,12 +764,21 @@ func (s *Server) mcpWriteDevice(ctx context.Context, arguments map[string]any) (
 		return nil, "", fmt.Errorf("value for capability %q: %w", capabilityID, err)
 	}
 	canonical := s.canonicalCapabilityValue(ctx, device, capabilityID, value)
-	if err := s.invokeCapability(ctx, deviceID, capabilityID, canonical, map[string]any{}); err != nil {
-		return nil, "", err
+	activation, invokeErr := s.invokeCapabilityDetailed(ctx, deviceID, capabilityID, canonical, map[string]any{})
+	accepted := invokeErr == nil
+	if activation != nil && activation.Attempted > 0 {
+		// A partial Scene result still means the request reached its state plan.
+		// A pre-execution cancellation or persistence failure remains unaccepted.
+		accepted = true
 	}
 	result := map[string]any{
-		"accepted": true, "deviceId": deviceID, "capabilityId": capabilityID,
+		"accepted": accepted, "deviceId": deviceID, "capabilityId": capabilityID,
 		"requestedValue": value,
+	}
+	summary := fmt.Sprintf("Accepted the %s change request for %s; the device has not necessarily reported it yet.", capabilityID, device.Name)
+	if activation != nil {
+		result["sceneActivation"] = mcpSceneActivationObject(*activation)
+		summary = mcpSceneActivationSummary(*activation)
 	}
 	if reported, ok := mcpCapabilityValue(capability["value"]); ok {
 		result["lastReportedValue"] = reported
@@ -757,7 +786,72 @@ func (s *Server) mcpWriteDevice(ctx context.Context, arguments map[string]any) (
 	if capability["units"] != nil {
 		result["requestedUnits"] = capability["units"]
 	}
-	return result, fmt.Sprintf("Accepted the %s change request for %s; the device has not necessarily reported it yet.", capabilityID, device.Name), nil
+	if invokeErr != nil {
+		if activation != nil {
+			return result, summary, invokeErr
+		}
+		return nil, "", invokeErr
+	}
+	return result, summary, nil
+}
+
+// mcpSceneActivationObject projects the runner's internal result through the
+// same output boundary as every other MCP object. Plugin errors and imported
+// Scene values are not trusted to be small, scalar or shallow.
+func mcpSceneActivationObject(activation scene.ActivationResult) map[string]any {
+	result := map[string]any{
+		"sceneId":     mcpTrimString(activation.SceneID, mcpIDLimit),
+		"sceneName":   mcpTrimString(activation.SceneName, mcpNameLimit),
+		"requestedOn": activation.RequestedOn,
+		"active":      activation.Active,
+		"success":     activation.Success,
+		"attempted":   activation.Attempted,
+		"succeeded":   activation.Succeeded,
+		"failed":      activation.Failed,
+	}
+	states := make([]any, 0, len(activation.States))
+	used := 0
+	for index, state := range activation.States {
+		projected := map[string]any{
+			"deviceId":     mcpTrimString(state.DeviceID, mcpIDLimit),
+			"capabilityId": mcpTrimString(state.CapabilityID, mcpIDLimit),
+			"success":      state.Success,
+		}
+		if state.Error != "" {
+			projected["error"] = mcpTrimString(state.Error, mcpErrorLimit)
+		}
+		if value, ok := mcpCapabilityValue(state.Value); ok {
+			projected["value"] = value
+		} else if state.Value != nil {
+			projected["valueOmitted"] = true
+		}
+		encoded, err := json.Marshal(projected)
+		if err != nil || used+len(encoded) > mcpSceneStatesBytes {
+			result["statesOmitted"] = len(activation.States) - index
+			break
+		}
+		used += len(encoded)
+		states = append(states, projected)
+	}
+	result["states"] = states
+	return result
+}
+
+func mcpSceneActivationSummary(activation scene.ActivationResult) string {
+	direction := "on"
+	if !activation.RequestedOn {
+		direction = "off"
+	}
+	summary := fmt.Sprintf("Scene %q requested %s; durable active=%t; %d of %d attempted states succeeded and %d failed.",
+		mcpTrimString(activation.SceneName, mcpNameLimit), direction, activation.Active,
+		activation.Succeeded, activation.Attempted, activation.Failed)
+	switch {
+	case !activation.RequestedOn && activation.Active:
+		summary += " Restore is incomplete; writing onoff=false again safely retries the remaining states."
+	case activation.RequestedOn && activation.Active && !activation.Success:
+		summary += " The successfully applied part is active; writing onoff=false restores it."
+	}
+	return mcpTrimString(summary, mcpErrorLimit)
 }
 
 func (s *Server) mcpFlowCards(ctx context.Context, arguments map[string]any) (any, string, error) {

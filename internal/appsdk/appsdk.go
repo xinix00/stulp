@@ -502,8 +502,16 @@ func (p *process) handle(ctx context.Context, method string, params json.RawMess
 			return nil, err
 		}
 		p.mu.Lock()
+		handlers := p.sessions[p2.SessionID]
 		delete(p.sessions, p2.SessionID)
 		p.mu.Unlock()
+		// Een pair-pagina kan minutenwerk hebben gestart. Sluiten betekent ook
+		// dat die sessie het mag annuleren; anders verdwijnt alleen de handler
+		// terwijl de netwerkjob op de achtergrond doorloopt. De handler is
+		// best-effort: opruimen mag het idempotente sluiten niet laten falen.
+		if cancel := handlers["cancel"]; cancel != nil {
+			_, _ = cancel(nil)
+		}
 		return nil, nil
 
 	case "registrations":

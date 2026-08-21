@@ -96,6 +96,58 @@ func TestFlowsUsingAppFindsCardsAndDeviceArguments(t *testing.T) {
 	}
 }
 
+func TestFlowsUsingAppTreatsSceneAsANativeDevice(t *testing.T) {
+	database, err := Open(InMemoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+	definition, err := database.CreateScene(ctx, Scene{
+		Name: "Film", States: []SceneState{{DeviceID: "lamp", CapabilityID: "onoff", Value: false}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceID := SceneDeviceID(definition.ID)
+	flow := createFlow(t, database, "scene-apparaat",
+		FlowStep{AppID: "stulp", CardID: "capability.onoff.on", CardType: "trigger",
+			Args: map[string]any{"device": map[string]any{"$device": deviceID}}},
+		FlowStep{AppID: "stulp", CardID: "notification", CardType: "action",
+			Args: map[string]any{"text": "Film staat aan"}})
+	affected, err := database.FlowsUsingApp(ctx, NativeSceneAppID, []string{deviceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(affected) != 1 || affected[0].ID != flow.ID {
+		t.Fatalf("flows using native scene device = %#v, want %q", affected, flow.ID)
+	}
+}
+
+func TestPhysicalDeviceMayUseSceneIDPrefix(t *testing.T) {
+	database, light, _ := flowFixture(t)
+	physical, err := database.AddDevice(context.Background(), Device{
+		ID: "scene:physical", AppID: light.AppID, DriverID: "prefixed-id", Name: "Echt apparaat", Class: "light",
+		Data: map[string]any{"endpoint": 2}, Capabilities: []string{"onoff"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateScene(context.Background(), Scene{
+		ID: "physical", Name: "Botsing", States: []SceneState{{DeviceID: light.ID, CapabilityID: "onoff", Value: true}},
+	}); err == nil {
+		t.Fatal("Scene creation accepted an id belonging to a physical prefixed device")
+	}
+	flow := createFlow(t, database, "fysiek-scene-prefix",
+		FlowStep{AppID: "stulp", CardID: "capability.onoff.on", CardType: "trigger",
+			Args: map[string]any{"device": map[string]any{"$device": physical.ID}}},
+		FlowStep{AppID: "stulp", CardID: "notification", CardType: "action",
+			Args: map[string]any{"text": "Aan"}})
+	if _, err := database.Flow(context.Background(), flow.ID); err != nil {
+		t.Fatalf("physical device with scene prefix was treated as a Scene: %v", err)
+	}
+}
+
 // A flow the user built is worth more than the app that happened to supply one
 // of its cards, so an uninstall disables it and says why instead of deleting it.
 func TestDisableFlowsForExplainsWhyAndKeepsTheFlow(t *testing.T) {

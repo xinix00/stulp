@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -138,6 +139,96 @@ func TestCapabilityCardsAreScopedToTheDevicesThatHaveThem(t *testing.T) {
 		if card["capability"] == nil {
 			t.Fatalf("%s does not name its capability, so the value widget cannot follow it", id)
 		}
+	}
+}
+
+func TestSceneDeviceGetsGenericOnOffFlowCards(t *testing.T) {
+	server, _ := capabilityCardServer(t)
+	sceneDevice := store.Device{
+		ID: store.SceneDeviceID("movie"), AppID: store.NativeSceneAppID, DriverID: "scene", Name: "Film kijken", Class: "scene",
+		Capabilities: []string{"onoff"}, State: map[string]any{"onoff": false},
+	}
+	cards := server.capabilityCards([]store.Device{sceneDevice})
+
+	for _, expected := range []struct {
+		kind, id string
+	}{
+		{"triggers", "capability.onoff.on"},
+		{"triggers", "capability.onoff.off"},
+		{"conditions", "capability.onoff.is"},
+		{"actions", "capability.onoff.set"},
+	} {
+		var found map[string]any
+		for _, card := range cards[expected.kind] {
+			if card["id"] == expected.id {
+				found = card
+				break
+			}
+		}
+		if found == nil {
+			t.Errorf("scene device has no %s card %q", expected.kind, expected.id)
+			continue
+		}
+		deviceIDs, ok := found["deviceIds"].([]string)
+		if !ok || len(deviceIDs) != 1 || deviceIDs[0] != sceneDevice.ID {
+			t.Errorf("%s deviceIds = %#v, want [%q]", expected.id, found["deviceIds"], sceneDevice.ID)
+		}
+		if found["scope"] != "device" || found["capability"] != "onoff" {
+			t.Errorf("%s is not the generic device-scoped onoff card: %#v", expected.id, found)
+		}
+	}
+}
+
+func TestSceneDeviceKeepsOnOffActionBesideReadOnlyDevice(t *testing.T) {
+	server, _ := capabilityCardServer(t)
+	readOnlyManifest, err := manifest.Parse([]byte(`{
+		"id":"com.acme.readonly","version":"1.0.0","sdk":3,"name":{"en":"Read only"},
+		"capabilities":{"onoff":{"type":"boolean","getable":true,"setable":false}},
+		"drivers":[{"id":"sensor","name":{"en":"Sensor"},"class":"sensor","capabilities":["onoff"]}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.store.InstallApp(context.Background(), readOnlyManifest, "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	readOnlyDevice := store.Device{
+		ID: "read-only", AppID: readOnlyManifest.ID, DriverID: "sensor", Name: "Sensor", Class: "sensor",
+		Capabilities: []string{"onoff"}, State: map[string]any{"onoff": false},
+	}
+	sceneDevice := store.Device{
+		ID: store.SceneDeviceID("movie"), AppID: store.NativeSceneAppID, DriverID: "scene", Name: "Film kijken", Class: "scene",
+		Capabilities: []string{"onoff"}, State: map[string]any{"onoff": false},
+	}
+	cards := server.capabilityCards([]store.Device{readOnlyDevice, sceneDevice})
+
+	var action map[string]any
+	for _, card := range cards["actions"] {
+		if card["id"] == "capability.onoff.set" {
+			action = card
+			break
+		}
+	}
+	if action == nil {
+		t.Fatal("scene device lost its generic onoff action because a read-only onoff device was listed first")
+	}
+	if got := action["deviceIds"]; !reflect.DeepEqual(got, []string{sceneDevice.ID}) {
+		t.Fatalf("onoff action deviceIds = %#v, want only the writable scene device", got)
+	}
+
+	var trigger map[string]any
+	for _, card := range cards["triggers"] {
+		if card["id"] == "capability.onoff.on" {
+			trigger = card
+			break
+		}
+	}
+	if trigger == nil {
+		t.Fatal("missing generic onoff trigger")
+	}
+	if got := trigger["deviceIds"]; !reflect.DeepEqual(got, []string{readOnlyDevice.ID, sceneDevice.ID}) {
+		t.Fatalf("onoff trigger deviceIds = %#v, want both readable devices", got)
 	}
 }
 

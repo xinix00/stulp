@@ -150,3 +150,53 @@ func TestReplaceDeviceReferencesLeavesOthersAlone(t *testing.T) {
 		t.Fatalf("een Flow die er niets mee te maken had is veranderd: %v", got)
 	}
 }
+
+func TestReplaceDeviceReferencesRewritesScenes(t *testing.T) {
+	database, err := Open(InMemoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx := context.Background()
+
+	created, err := database.CreateScene(ctx, Scene{
+		Name: "Film",
+		States: []SceneState{
+			{DeviceID: "curtain-old", CapabilityID: "position", Value: 0.0},
+			{DeviceID: "lamp", CapabilityID: "dim", Value: 0.3},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, started, err := database.BeginScene(ctx, created.ID, []SceneState{{
+		DeviceID: "curtain-old", CapabilityID: "position", Value: 0.8,
+	}})
+	if err != nil || !started || !active.Active {
+		t.Fatalf("BeginScene = %#v, started=%t, err=%v", active, started, err)
+	}
+
+	if err := database.ReplaceDeviceReferences(ctx, map[string]DeviceReplacement{
+		"curtain-old": {DeviceID: "curtain-new", Capabilities: map[string]string{"position": "windowcoverings_set"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := database.Scene(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.States[0].DeviceID != "curtain-new" || updated.States[0].CapabilityID != "windowcoverings_set" {
+		t.Fatalf("scene reference was not replaced: %#v", updated.States[0])
+	}
+	if updated.States[1] != created.States[1] {
+		t.Fatalf("unrelated scene state changed: got %#v want %#v", updated.States[1], created.States[1])
+	}
+	if !updated.Active || len(updated.Previous) != 1 || updated.Previous[0].DeviceID != "curtain-new" ||
+		updated.Previous[0].CapabilityID != "windowcoverings_set" {
+		t.Fatalf("active restore reference was not replaced: %#v", updated)
+	}
+	if updated.Revision != created.Revision+1 {
+		t.Fatalf("scene revision = %d, want %d", updated.Revision, created.Revision+1)
+	}
+}

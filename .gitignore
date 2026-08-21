@@ -1,5 +1,13 @@
 .DS_Store
 
+# Xcode user state and local build output
+ios/DerivedData/
+ios/build/
+ios/.build/
+ios/.swiftpm/
+ios/**/*.xcuserstate
+ios/**/xcuserdata/
+
 # Maintainer-only files
 /docs/
 /tools/

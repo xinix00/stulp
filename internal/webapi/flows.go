@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"strings"
 	"github.com/xinix00/stulp/internal/stulphttp"
+	"strings"
 	"time"
 
 	"github.com/xinix00/stulp/internal/flow"
@@ -227,20 +227,25 @@ func (s *Server) flowCards(ctx context.Context) (map[string][]map[string]any, er
 // "a value changed" card with a capability to guess.
 func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string]any {
 	type entry struct {
-		definition map[string]any
-		deviceIDs  []string
+		definition       map[string]any
+		deviceIDs        []string
+		setableDeviceIDs []string
 	}
 	byCapability := make(map[string]*entry)
 	order := make([]string, 0, 16)
 	for _, device := range devices {
 		for _, capability := range device.Capabilities {
+			definition := s.capabilityObject(device, capability, device.State[capability])
 			existing, known := byCapability[capability]
 			if !known {
-				existing = &entry{definition: s.capabilityObject(device, capability, device.State[capability])}
+				existing = &entry{definition: definition}
 				byCapability[capability] = existing
 				order = append(order, capability)
 			}
 			existing.deviceIDs = append(existing.deviceIDs, device.ID)
+			if setable, _ := definition["setable"].(bool); setable {
+				existing.setableDeviceIDs = append(existing.setableDeviceIDs, device.ID)
+			}
 		}
 	}
 
@@ -255,10 +260,13 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 		found := byCapability[capability]
 		title := titles[capability]
 		valueType, _ := found.definition["type"].(string)
-		setable, _ := found.definition["setable"].(bool)
 		values, hasValues := found.definition["values"].([]any)
 
 		card := func(kind, suffix, cardTitle string, extra ...map[string]any) {
+			deviceIDs := found.deviceIDs
+			if kind == "actions" {
+				deviceIDs = found.setableDeviceIDs
+			}
 			args := []any{deviceArgument()}
 			for _, argument := range extra {
 				args = append(args, argument)
@@ -267,7 +275,7 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 				"appId": "stulp", "appName": "Apparaat", "id": flow.CapabilityCardPrefix + capability + "." + suffix,
 				"type": strings.TrimSuffix(kind, "s"), "title": cardTitle, "available": true,
 				"capability": capability, "args": args,
-				"scope": "device", "deviceArgument": "device", "deviceIds": found.deviceIDs,
+				"scope": "device", "deviceArgument": "device", "deviceIds": deviceIDs,
 				"tokens": []any{
 					map[string]any{"name": "device", "type": "string", "title": "Apparaat"},
 					map[string]any{"name": "value", "type": "string", "title": "Nieuwe waarde"},
@@ -295,7 +303,7 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 			card("triggers", "changed", title+" is veranderd")
 			card("conditions", "is", title+" is gelijk aan", valueArgument)
 		}
-		if setable {
+		if len(found.setableDeviceIDs) > 0 {
 			card("actions", "set", "Zet "+title, valueArgument)
 		}
 	}

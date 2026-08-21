@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -662,6 +663,13 @@ func (p *Process) AddPairedDevice(ctx context.Context, driverID string, candidat
 	}
 	created, err := p.store.AddDevice(ctx, device)
 	if err != nil {
+		// POST /pair/devices kan zijn antwoord verliezen nadat AddDevice al op
+		// schijf stond. Een retry met dezelfde fysieke identiteit hoort dan het
+		// bestaande apparaat terug te krijgen, niet een onherstelbare duplicate-
+		// fout. Dit maakt de generieke pair-naad idempotent voor iedere plugin.
+		if existing, ok := p.existingPairedDevice(ctx, device); ok {
+			return existing, nil
+		}
 		return store.Device{}, err
 	}
 
@@ -686,6 +694,19 @@ func (p *Process) AddPairedDevice(ctx context.Context, driverID string, candidat
 		return store.Device{}, err
 	}
 	return created, nil
+}
+
+func (p *Process) existingPairedDevice(ctx context.Context, candidate store.Device) (store.Device, bool) {
+	devices, err := p.store.Devices(ctx, candidate.AppID)
+	if err != nil {
+		return store.Device{}, false
+	}
+	for _, device := range devices {
+		if device.DriverID == candidate.DriverID && reflect.DeepEqual(device.Data, candidate.Data) {
+			return device, true
+		}
+	}
+	return store.Device{}, false
 }
 
 func (p *Process) startDevice(ctx context.Context, device store.Device) error {

@@ -23,6 +23,7 @@ import (
 	flowengine "github.com/xinix00/stulp/internal/flow"
 	"github.com/xinix00/stulp/internal/imageshare"
 	"github.com/xinix00/stulp/internal/manifest"
+	"github.com/xinix00/stulp/internal/scene"
 	"github.com/xinix00/stulp/internal/stats"
 	"github.com/xinix00/stulp/internal/store"
 	"github.com/xinix00/stulp/internal/stulphttp"
@@ -50,6 +51,7 @@ type Server struct {
 	options    Options
 	mux        *stulphttp.Mux
 	flows      *flowengine.Engine
+	scenes     *scene.Activator
 	stats      *stats.Collector
 	images     *imageshare.Store
 	mcpLimit   mcpLimiter
@@ -96,6 +98,7 @@ func New(database *store.Store, apps *supervisor.Supervisor, options Options) *S
 	if system, err := database.System(context.Background()); err == nil {
 		s.unitsSet = system.Units
 	}
+	s.scenes = scene.New(database, s.invokeCapability)
 	s.flows = flowengine.NewWithOptions(database, apps, flowengine.Options{
 		Timezone: options.Timezone, InvokeCapability: s.invokeCapability,
 		// Een token in een pushbericht leest in de eenheid van dit huis; een token
@@ -213,11 +216,31 @@ func (s *Server) hasAccessCookie(request *stulphttp.Request) bool {
 // Matter devices do not have a JavaScript app runtime, so sending them through
 // the supervisor would incorrectly report com.stulp.matter as stopped.
 func (s *Server) invokeCapability(ctx context.Context, deviceID, capabilityID string, value any, options map[string]any) error {
+	_, err := s.invokeCapabilityDetailed(ctx, deviceID, capabilityID, value, options)
+	return err
+}
+
+// invokeCapabilityDetailed keeps the normal capability boundary while letting
+// callers that can present structured results (currently MCP) retain the
+// durable outcome of a Scene. Manage and Flows intentionally use the simpler
+// error-only wrapper above, just like they do for a physical device command.
+func (s *Server) invokeCapabilityDetailed(ctx context.Context, deviceID, capabilityID string, value any, options map[string]any) (*scene.ActivationResult, error) {
 	device, err := s.store.Device(ctx, deviceID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return s.supervisor.InvokeCapability(ctx, device.ID, capabilityID, value, options)
+	if sceneID, sceneDevice := store.SceneIDFromDeviceID(device.ID); sceneDevice && device.AppID == store.NativeSceneAppID {
+		if capabilityID != "onoff" {
+			return nil, fmt.Errorf("scene-apparaat heeft geen capability %q", capabilityID)
+		}
+		on, ok := value.(bool)
+		if !ok {
+			return nil, errors.New("de onoff-status van een scene moet true of false zijn")
+		}
+		result, activationErr := s.scenes.Set(ctx, sceneID, on)
+		return &result, activationErr
+	}
+	return nil, s.supervisor.InvokeCapability(ctx, device.ID, capabilityID, value, options)
 }
 
 // UseStatistics hangt een verzamelaar aan de API. Zonder is de route er wel en
@@ -243,6 +266,7 @@ func (s *Server) routes() {
 	s.handleSystemSettings()
 	s.handleApps()
 	s.handleDrivers()
+	s.handleScenes()
 	s.handleFlows()
 	s.handleNotifications()
 	s.handleImages()
@@ -921,9 +945,25 @@ func (s *Server) handleDevices() {
 				return
 			}
 			if name != device.Name {
-				device, err = s.supervisor.RenameDevice(stulphttp.Context(request), device.ID, name)
+				if sceneID, sceneDevice := store.SceneIDFromDeviceID(device.ID); sceneDevice && device.AppID == store.NativeSceneAppID {
+					definition, sceneErr := s.store.Scene(stulphttp.Context(request), sceneID)
+					if sceneErr == nil {
+						definition.Name = name
+						_, sceneErr = s.store.UpdateScene(stulphttp.Context(request), definition)
+					}
+					if sceneErr == nil {
+						device, sceneErr = s.store.Device(stulphttp.Context(request), device.ID)
+					}
+					err = sceneErr
+				} else {
+					device, err = s.supervisor.RenameDevice(stulphttp.Context(request), device.ID, name)
+				}
 				if err != nil {
-					writeError(response, stulphttp.StatusBadRequest, err)
+					status := stulphttp.StatusBadRequest
+					if errors.Is(err, store.ErrSceneActive) {
+						status = stulphttp.StatusConflict
+					}
+					writeError(response, status, err)
 					return
 				}
 			}
@@ -949,9 +989,17 @@ func (s *Server) handleDevices() {
 			writeError(response, stulphttp.StatusNotFound, err)
 			return
 		}
-		err = s.supervisor.DeleteDevice(stulphttp.Context(request), device.ID)
+		if sceneID, sceneDevice := store.SceneIDFromDeviceID(device.ID); sceneDevice && device.AppID == store.NativeSceneAppID {
+			err = s.deleteScene(stulphttp.Context(request), sceneID)
+		} else {
+			err = s.supervisor.DeleteDevice(stulphttp.Context(request), device.ID)
+		}
 		if err != nil {
-			writeError(response, stulphttp.StatusBadRequest, err)
+			status := stulphttp.StatusBadRequest
+			if errors.Is(err, store.ErrSceneActive) || errors.Is(err, store.ErrSceneInUse) {
+				status = stulphttp.StatusConflict
+			}
+			writeError(response, status, err)
 			return
 		}
 		writeJSON(response, stulphttp.StatusOK, true)
@@ -1112,6 +1160,9 @@ func (s *Server) deviceObject(device store.Device) map[string]any {
 }
 
 func (s *Server) deviceManufacturer(device store.Device) string {
+	if device.AppID == store.NativeSceneAppID {
+		return "Stulp"
+	}
 	for _, values := range []map[string]any{device.Store, device.Data} {
 		if value, _ := values["manufacturer"].(string); strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)

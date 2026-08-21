@@ -498,6 +498,21 @@ func TestAPIControlsRunningApp(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("add paired device returned %d: %s", response.Code, response.Body.String())
 	}
+	var firstPairResult map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &firstPairResult); err != nil {
+		t.Fatal(err)
+	}
+	response = request(t, api, http.MethodPost, "/api/stulp/apps/"+appManifest.ID+"/drivers/switch/pair/devices", candidates[0], "")
+	if response.Code != http.StatusCreated {
+		t.Fatalf("retry paired device returned %d: %s", response.Code, response.Body.String())
+	}
+	var retriedPairResult map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &retriedPairResult); err != nil {
+		t.Fatal(err)
+	}
+	if retriedPairResult["id"] != firstPairResult["id"] {
+		t.Fatalf("pair retry created another identity: first=%#v retry=%#v", firstPairResult, retriedPairResult)
+	}
 	pairedDevices, err := database.Devices(ctx, appManifest.ID)
 	if err != nil || len(pairedDevices) != 2 {
 		t.Fatalf("paired device was not persisted and started: count=%d err=%v", len(pairedDevices), err)

@@ -1,0 +1,617 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		05F26C7E0D17E3952BF3FB26 /* StulpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750F5C6B88DDEBFD2E42AE2E /* StulpClient.swift */; };
+		0EED009DAC31475564706C44 /* MatterRequestHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0332A77976DC10B879522D4C /* MatterRequestHandler.swift */; };
+		17D97C63DFC46F4C42AD3FBD /* MatterSupport.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A27C742A34A8A838013515CC /* MatterSupport.framework */; };
+		20B5D5401A449E04D56E2483 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6774D88719857E62146B76E /* ContentView.swift */; };
+		5DBFB0200CE67CA44F780BBC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83E056019C24853575DE8911 /* Security.framework */; };
+		61C228DE03D6DF9456A35C08 /* StulpConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5653D6639F5060568726EA78 /* StulpConfiguration.swift */; };
+		64EC54540D685993FC8D2E8E /* StulpClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02AE1924BF1922B64C136F31 /* StulpClientTests.swift */; };
+		6DA74AA7B78831F0E642D600 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83E056019C24853575DE8911 /* Security.framework */; };
+		773C155F158E7A74C3DDB075 /* Matter.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C69155DB6161D4DBD0B07E0 /* Matter.framework */; };
+		8A9AAD015CD822B40BDF7E57 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 72DBABE41AB6B60128EA5AA2 /* Assets.xcassets */; };
+		9217CCE84FD7D95CC81DF402 /* StulpConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7A7A8567394C3C5BECF60C /* StulpConnectionTests.swift */; };
+		B6D7EE7685B67B746B6F8084 /* StulpAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77BCD2C148E4A5DDFC4AA2E5 /* StulpAppModel.swift */; };
+		B8123A9B0CABD247AD8D4897 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83E056019C24853575DE8911 /* Security.framework */; };
+		BB82AECA77B0043575B07673 /* StulpMatterSetup.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CE82EC490A9F09B6A73DAF70 /* StulpConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5653D6639F5060568726EA78 /* StulpConfiguration.swift */; };
+		D323A5C445B0C826DC639D9B /* StulpApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B99E566786425961656933 /* StulpApp.swift */; };
+		D7AE09664A2A1137F0E01CBB /* MatterSupport.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A27C742A34A8A838013515CC /* MatterSupport.framework */; };
+		D919430837642FF91D96EDC6 /* StulpConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5653D6639F5060568726EA78 /* StulpConfiguration.swift */; };
+		E0931212142A9253026FD652 /* Matter.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C69155DB6161D4DBD0B07E0 /* Matter.framework */; };
+		E0A178945BEC4DE4CB41FA0E /* StulpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750F5C6B88DDEBFD2E42AE2E /* StulpClient.swift */; };
+		F7CC2EABEB45891023698430 /* StulpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750F5C6B88DDEBFD2E42AE2E /* StulpClient.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		F9A3A00824E043EA101CC61E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F7DD2946D52E99515703E648 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8AFF5CF616EB2FB6C73DA2F0;
+			remoteInfo = StulpMatterSetup;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		513C34B050483901A27136D4 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				BB82AECA77B0043575B07673 /* StulpMatterSetup.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		02AE1924BF1922B64C136F31 /* StulpClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpClientTests.swift; sourceTree = "<group>"; };
+		0332A77976DC10B879522D4C /* MatterRequestHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatterRequestHandler.swift; sourceTree = "<group>"; };
+		3120B54BF9679107EEC67959 /* Stulp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Stulp.entitlements; sourceTree = "<group>"; };
+		5653D6639F5060568726EA78 /* StulpConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpConfiguration.swift; sourceTree = "<group>"; };
+		71FA3C0D7305776B8060CEF9 /* Stulp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Stulp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		72DBABE41AB6B60128EA5AA2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		750F5C6B88DDEBFD2E42AE2E /* StulpClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpClient.swift; sourceTree = "<group>"; };
+		77BCD2C148E4A5DDFC4AA2E5 /* StulpAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpAppModel.swift; sourceTree = "<group>"; };
+		829363CDBEC4ABFDA0251E79 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		83E056019C24853575DE8911 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		8C69155DB6161D4DBD0B07E0 /* Matter.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Matter.framework; path = System/Library/Frameworks/Matter.framework; sourceTree = SDKROOT; };
+		A27C742A34A8A838013515CC /* MatterSupport.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MatterSupport.framework; path = System/Library/Frameworks/MatterSupport.framework; sourceTree = SDKROOT; };
+		A3B4C61A7B2739127606947B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A6774D88719857E62146B76E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AA960AE3B576D47263AE7FBA /* StulpMatterSetup.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StulpMatterSetup.entitlements; sourceTree = "<group>"; };
+		B2B99E566786425961656933 /* StulpApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpApp.swift; sourceTree = "<group>"; };
+		BC7A7A8567394C3C5BECF60C /* StulpConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpConnectionTests.swift; sourceTree = "<group>"; };
+		CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = StulpMatterSetup.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		EFCB9019B47187A68BC078A7 /* StulpTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StulpTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		18CFBD2954B135431BC54D4D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5DBFB0200CE67CA44F780BBC /* Security.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		72421D3CEE5C258EEB770F09 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E0931212142A9253026FD652 /* Matter.framework in Frameworks */,
+				17D97C63DFC46F4C42AD3FBD /* MatterSupport.framework in Frameworks */,
+				6DA74AA7B78831F0E642D600 /* Security.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DA26F2ACD5B65292A1837F65 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				773C155F158E7A74C3DDB075 /* Matter.framework in Frameworks */,
+				D7AE09664A2A1137F0E01CBB /* MatterSupport.framework in Frameworks */,
+				B8123A9B0CABD247AD8D4897 /* Security.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		239C22D00108D23FC51CC51D = {
+			isa = PBXGroup;
+			children = (
+				91C7FF098A0EB1B5214CC44B /* Shared */,
+				4C42CE947F1AE6AAC68C6889 /* StulpApp */,
+				83EB88409F172C43476F3DE1 /* StulpMatterSetup */,
+				8F81A5C0C7D2AFA0217E2013 /* StulpTests */,
+				8ED584BE8AC9EB55CD121E1D /* Frameworks */,
+				FE81B68948C28A22EEC4286B /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		4C42CE947F1AE6AAC68C6889 /* StulpApp */ = {
+			isa = PBXGroup;
+			children = (
+				72DBABE41AB6B60128EA5AA2 /* Assets.xcassets */,
+				A6774D88719857E62146B76E /* ContentView.swift */,
+				829363CDBEC4ABFDA0251E79 /* Info.plist */,
+				3120B54BF9679107EEC67959 /* Stulp.entitlements */,
+				B2B99E566786425961656933 /* StulpApp.swift */,
+				77BCD2C148E4A5DDFC4AA2E5 /* StulpAppModel.swift */,
+			);
+			path = StulpApp;
+			sourceTree = "<group>";
+		};
+		83EB88409F172C43476F3DE1 /* StulpMatterSetup */ = {
+			isa = PBXGroup;
+			children = (
+				A3B4C61A7B2739127606947B /* Info.plist */,
+				0332A77976DC10B879522D4C /* MatterRequestHandler.swift */,
+				AA960AE3B576D47263AE7FBA /* StulpMatterSetup.entitlements */,
+			);
+			path = StulpMatterSetup;
+			sourceTree = "<group>";
+		};
+		8ED584BE8AC9EB55CD121E1D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				8C69155DB6161D4DBD0B07E0 /* Matter.framework */,
+				A27C742A34A8A838013515CC /* MatterSupport.framework */,
+				83E056019C24853575DE8911 /* Security.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		8F81A5C0C7D2AFA0217E2013 /* StulpTests */ = {
+			isa = PBXGroup;
+			children = (
+				02AE1924BF1922B64C136F31 /* StulpClientTests.swift */,
+				BC7A7A8567394C3C5BECF60C /* StulpConnectionTests.swift */,
+			);
+			path = StulpTests;
+			sourceTree = "<group>";
+		};
+		91C7FF098A0EB1B5214CC44B /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				750F5C6B88DDEBFD2E42AE2E /* StulpClient.swift */,
+				5653D6639F5060568726EA78 /* StulpConfiguration.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		FE81B68948C28A22EEC4286B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				71FA3C0D7305776B8060CEF9 /* Stulp.app */,
+				CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */,
+				EFCB9019B47187A68BC078A7 /* StulpTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		265F9E53F6D88BC1F2B7E0BC /* StulpTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 79BFBD3634F0C10FDAB01F0F /* Build configuration list for PBXNativeTarget "StulpTests" */;
+			buildPhases = (
+				3AD3D9286FC88F1120A973F1 /* Sources */,
+				18CFBD2954B135431BC54D4D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = StulpTests;
+			packageProductDependencies = (
+			);
+			productName = StulpTests;
+			productReference = EFCB9019B47187A68BC078A7 /* StulpTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		8AFF5CF616EB2FB6C73DA2F0 /* StulpMatterSetup */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2161E43311CA43EBBC226DE1 /* Build configuration list for PBXNativeTarget "StulpMatterSetup" */;
+			buildPhases = (
+				C752F311D61EA5DBF180588E /* Sources */,
+				DA26F2ACD5B65292A1837F65 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = StulpMatterSetup;
+			packageProductDependencies = (
+			);
+			productName = StulpMatterSetup;
+			productReference = CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		A6AEDD6EDE89B9F1C34D6444 /* Stulp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B86362B99A9B579113B445B0 /* Build configuration list for PBXNativeTarget "Stulp" */;
+			buildPhases = (
+				E29B47496A010327E8BE4122 /* Sources */,
+				D5CE298FF4B227A856F7C597 /* Resources */,
+				72421D3CEE5C258EEB770F09 /* Frameworks */,
+				513C34B050483901A27136D4 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				44C68FA91D116BA3DD4F795F /* PBXTargetDependency */,
+			);
+			name = Stulp;
+			packageProductDependencies = (
+			);
+			productName = Stulp;
+			productReference = 71FA3C0D7305776B8060CEF9 /* Stulp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F7DD2946D52E99515703E648 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					8AFF5CF616EB2FB6C73DA2F0 = {
+						ProvisioningStyle = Automatic;
+					};
+					A6AEDD6EDE89B9F1C34D6444 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 0AD2DC4C25A72344495C63CE /* Build configuration list for PBXProject "Stulp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 239C22D00108D23FC51CC51D;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = FE81B68948C28A22EEC4286B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A6AEDD6EDE89B9F1C34D6444 /* Stulp */,
+				8AFF5CF616EB2FB6C73DA2F0 /* StulpMatterSetup */,
+				265F9E53F6D88BC1F2B7E0BC /* StulpTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D5CE298FF4B227A856F7C597 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8A9AAD015CD822B40BDF7E57 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3AD3D9286FC88F1120A973F1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				05F26C7E0D17E3952BF3FB26 /* StulpClient.swift in Sources */,
+				64EC54540D685993FC8D2E8E /* StulpClientTests.swift in Sources */,
+				D919430837642FF91D96EDC6 /* StulpConfiguration.swift in Sources */,
+				9217CCE84FD7D95CC81DF402 /* StulpConnectionTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C752F311D61EA5DBF180588E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0EED009DAC31475564706C44 /* MatterRequestHandler.swift in Sources */,
+				F7CC2EABEB45891023698430 /* StulpClient.swift in Sources */,
+				CE82EC490A9F09B6A73DAF70 /* StulpConfiguration.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E29B47496A010327E8BE4122 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				20B5D5401A449E04D56E2483 /* ContentView.swift in Sources */,
+				D323A5C445B0C826DC639D9B /* StulpApp.swift in Sources */,
+				B6D7EE7685B67B746B6F8084 /* StulpAppModel.swift in Sources */,
+				E0A178945BEC4DE4CB41FA0E /* StulpClient.swift in Sources */,
+				61C228DE03D6DF9456A35C08 /* StulpConfiguration.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		44C68FA91D116BA3DD4F795F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8AFF5CF616EB2FB6C73DA2F0 /* StulpMatterSetup */;
+			targetProxy = F9A3A00824E043EA101CC61E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0ED34F773C726967936E944B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = StulpMatterSetup/StulpMatterSetup.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = StulpMatterSetup/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp.MatterSetup;
+				PRODUCT_NAME = StulpMatterSetup;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		12063EE28D6C56DD62C265BF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		16039F13FFE08A8303E766D0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = StulpApp/Stulp.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = StulpApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp;
+				PRODUCT_NAME = Stulp;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		8CD45AA36B1A9AF692A82C1E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		8E44C606D864A4BBFAAF9667 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = StulpMatterSetup/StulpMatterSetup.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = StulpMatterSetup/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp.MatterSetup;
+				PRODUCT_NAME = StulpMatterSetup;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B315BD27F5A98959CC45AED1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = StulpApp/Stulp.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = StulpApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp;
+				PRODUCT_NAME = Stulp;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B525F7E89CBE29512E63888E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		E4AAFD64BDB4F85D79E85769 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0AD2DC4C25A72344495C63CE /* Build configuration list for PBXProject "Stulp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B525F7E89CBE29512E63888E /* Debug */,
+				8CD45AA36B1A9AF692A82C1E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2161E43311CA43EBBC226DE1 /* Build configuration list for PBXNativeTarget "StulpMatterSetup" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8E44C606D864A4BBFAAF9667 /* Debug */,
+				0ED34F773C726967936E944B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		79BFBD3634F0C10FDAB01F0F /* Build configuration list for PBXNativeTarget "StulpTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E4AAFD64BDB4F85D79E85769 /* Debug */,
+				12063EE28D6C56DD62C265BF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B86362B99A9B579113B445B0 /* Build configuration list for PBXNativeTarget "Stulp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B315BD27F5A98959CC45AED1 /* Debug */,
+				16039F13FFE08A8303E766D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = F7DD2946D52E99515703E648 /* Project object */;
+}

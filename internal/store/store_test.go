@@ -87,7 +87,7 @@ func TestDocumentVersionIsHonoured(t *testing.T) {
 	}
 	database, err := Open(path)
 	if err != nil {
-		t.Fatalf("a document of the current format was refused: %v", err)
+		t.Fatalf("a document of an older supported format was refused: %v", err)
 	}
 	database.Close()
 

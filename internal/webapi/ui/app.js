@@ -1,12 +1,12 @@
 'use strict';
 
 const state = {
-  apps: [], devices: [], deviceGroups: [], drivers: [], flows: [], flowCards: { triggers: [], conditions: [], actions: [] },
+  apps: [], devices: [], deviceGroups: [], drivers: [], scenes: [], flows: [], flowCards: { triggers: [], conditions: [], actions: [] },
   // De schakelaars van Stulp zelf. Hij staat als eerste in de app-lijst.
   system: {},
   collapsedGroups: new Set(), editingGroup: null, openDeviceID: null, deviceTab: 'overview',
   devicePress: null, deviceOrder: null, suppressDeviceClickUntil: 0,
-  editingFlow: null, flowPickerKind: null, flowPickerDevice: null, flowMove: null, flowLink: null, flowAddPoint: null,
+  editingScene: null, editingFlow: null, flowPickerKind: null, flowPickerDevice: null, flowMove: null, flowLink: null, flowAddPoint: null,
   pair: null, peer: null, settingsAppId: null,
 };
 const $ = id => document.getElementById(id);
@@ -46,10 +46,10 @@ function encode(value) { return encodeURIComponent(value); }
 async function load() {
   try {
 	const previousDevices = new Map(state.devices.map(device => [device.id, device]));
-    const [health, apps, devices, deviceGroups, drivers, flows, flowCards, system] = await Promise.all([
+    const [health, apps, devices, deviceGroups, drivers, scenes, flows, flowCards, system] = await Promise.all([
       api('/api/stulp/health'), api('/api/manager/apps/app'),
       api('/api/manager/devices/device'), api('/api/stulp/device-groups'), api('/api/manager/drivers/driver'),
-      api('/api/manager/flow/flow'), api('/api/stulp/flow/cards'), api('/api/stulp/system'),
+      api('/api/stulp/scenes'), api('/api/manager/flow/flow'), api('/api/stulp/flow/cards'), api('/api/stulp/system'),
     ]);
     state.system = { ...system, version: health.stulpVersion || health.version || '' };
     state.apps = Object.values(apps);
@@ -59,11 +59,13 @@ async function load() {
 	});
     state.deviceGroups = Array.isArray(deviceGroups) ? deviceGroups : Object.values(deviceGroups);
     state.drivers = Object.values(drivers);
+    state.scenes = Array.isArray(scenes) ? scenes : Object.values(scenes);
     state.flows = Array.isArray(flows) ? flows : Object.values(flows);
     state.flowCards = flowCards;
     $('connection').textContent = health.ok ? 'Online' : 'Offline';
     renderDevices();
     renderApps();
+    renderScenes();
     renderFlows();
   } catch (error) {
     $('connection').textContent = 'Offline';
@@ -526,7 +528,7 @@ function deviceClassSymbol(deviceClass) {
     phone: 'phone_iphone',
     thermostat: 'thermostat', speaker: 'speaker', blinds: 'blinds', sunshade: 'blinds',
     windowcoverings: 'curtains', battery: 'battery_5_bar', solarpanel: 'solar_power',
-    heatpump: 'heat_pump', evcharger: 'ev_station', other: 'devices_other',
+    heatpump: 'heat_pump', evcharger: 'ev_station', scene: 'auto_awesome', other: 'devices_other',
   }[deviceClass] || 'devices_other';
 }
 
@@ -1153,6 +1155,324 @@ async function openNotifications() {
 			list.append(row);
 		}
 	} catch (error) { list.replaceChildren(node('p', 'app-error', error.message)); }
+}
+
+function sceneStateKey(deviceID, capabilityID) { return `${deviceID}\u0000${capabilityID}`; }
+
+function sceneWritableCapabilities(device) {
+  if (device.class === 'scene' || device.appId === 'com.stulp.scene') return [];
+  return Object.values(device.capabilitiesObj || {}).filter(capability =>
+    capability.setable && capability.getable !== false && !statelessCapability(capability.id));
+}
+
+function sceneValueEquals(left, right) {
+  if (typeof left === 'number' || typeof right === 'number') {
+    const a = Number(left); const b = Number(right);
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 1e-6;
+  }
+  return left === right;
+}
+
+function sceneDevice(scene) {
+  return state.devices.find(device => device.data?.sceneId === scene.id);
+}
+
+function sceneIsOn(scene) {
+  const value = sceneDevice(scene)?.capabilitiesObj?.onoff?.value;
+  return typeof value === 'boolean' ? value : Boolean(scene.active);
+}
+
+function sceneLiveStatus(scene) {
+  if (!sceneIsOn(scene)) return { label: 'Uit', className: '' };
+  let unknown = false; let mismatch = false;
+  for (const wanted of scene.states || []) {
+    const device = state.devices.find(candidate => candidate.id === wanted.deviceId);
+    const capability = device?.capabilitiesObj?.[wanted.capabilityId];
+    if (!device || !capability || !device.available || unknownCapabilityValue(capability.value)) {
+      unknown = true;
+      continue;
+    }
+    if (!sceneValueEquals(capability.value, wanted.value)) mismatch = true;
+  }
+  if (!unknown && !mismatch) return { label: 'Aan', className: 'active' };
+  if (unknown) return { label: 'Aan · deels bekend', className: 'partial' };
+  return { label: 'Aan · wijkt af', className: 'partial' };
+}
+
+function formatSceneValue(capability, value) {
+  const choice = capabilityChoices(capability)?.find(candidate => String(candidate.id) === String(value));
+  if (choice) return choice.title;
+  return formatValue(value, capability?.units);
+}
+
+function scenePreview(scene) {
+  return (scene.states || []).slice(0, 5).map(wanted => {
+    const device = state.devices.find(candidate => candidate.id === wanted.deviceId);
+    const capability = device?.capabilitiesObj?.[wanted.capabilityId];
+    const deviceName = device?.name || 'Ontbrekend apparaat';
+    const title = localized(capability?.title) || wanted.capabilityId;
+    return `${deviceName}: ${title} → ${formatSceneValue(capability || {}, wanted.value)}`;
+  }).join(' · ');
+}
+
+function renderScenes() {
+  const list = $('scenes');
+  list.replaceChildren();
+  if (!state.scenes.length) {
+    return list.append(node('p', 'empty', 'Nog geen scenes. Leg één keer vast hoe je huis moet staan.'));
+  }
+  for (const scene of state.scenes) {
+    const card = node('article', 'scene-card');
+    const head = node('div', 'scene-card-head');
+    const icon = node('span', 'scene-card-icon'); icon.append(materialIcon('auto_awesome'));
+    const copy = node('div', 'scene-card-copy');
+    const devices = new Set((scene.states || []).map(wanted => wanted.deviceId)).size;
+    copy.append(node('strong', '', scene.name), node('small', '', `${devices} ${devices === 1 ? 'apparaat' : 'apparaten'} · ${(scene.states || []).length} standen`));
+    const live = sceneLiveStatus(scene);
+    head.append(icon, copy, node('span', `scene-card-status ${live.className}`.trim(), live.label));
+    card.append(head, node('div', 'scene-preview', scenePreview(scene)));
+    const actions = node('div', 'scene-card-actions');
+    const device = sceneDevice(scene); const on = sceneIsOn(scene);
+    const toggle = actionButton(on ? 'Zet uit' : 'Zet aan', event => setScene(scene, !on, event.currentTarget), 'primary');
+    toggle.disabled = !device;
+    if (!device) toggle.title = 'Het scene-apparaat ontbreekt';
+    const edit = actionButton('Bewerk', () => openScene(scene));
+    const remove = iconButton('delete', 'Scene verwijderen', () => deleteScene(scene), 'danger');
+    edit.disabled = on; remove.disabled = on;
+    if (on) {
+      edit.title = 'Zet de scene eerst uit zodat de vorige standen bewaard blijven';
+      remove.title = edit.title;
+    }
+    actions.append(toggle, edit, remove);
+    card.append(actions); list.append(card);
+  }
+}
+
+function openScene(existing = null) {
+  state.editingScene = existing
+    ? JSON.parse(JSON.stringify(existing))
+    : { name: '', states: [] };
+  state.editingScene.states ||= [];
+  $('scene-title').textContent = existing ? 'Scene bewerken' : 'Nieuwe scene';
+  $('scene-name').value = state.editingScene.name || '';
+  renderSceneEditor();
+  $('scene-dialog').showModal();
+  $('scene-name').focus();
+}
+
+function sceneDefaultValue(capability) {
+  if (!unknownCapabilityValue(capability.value)) return capability.value;
+  const choices = capabilityChoices(capability);
+  if (choices?.length) return choices[0].id;
+  if (capability.type === 'number') return Number.isFinite(Number(capability.min)) ? Number(capability.min) : 0;
+  return '';
+}
+
+function sceneTarget(deviceID, capabilityID) {
+  return state.editingScene.states.find(wanted => wanted.deviceId === deviceID && wanted.capabilityId === capabilityID);
+}
+
+function setSceneTarget(target, selected) {
+  const key = sceneStateKey(target.deviceId, target.capabilityId);
+  state.editingScene.states = state.editingScene.states.filter(wanted => sceneStateKey(wanted.deviceId, wanted.capabilityId) !== key);
+  if (selected) state.editingScene.states.push(target);
+  updateSceneSelectionSummary();
+}
+
+function updateSceneSelectionSummary() {
+  const states = state.editingScene?.states || [];
+  const devices = new Set(states.map(wanted => wanted.deviceId)).size;
+  $('scene-selection-summary').textContent = states.length
+    ? `${states.length} ${states.length === 1 ? 'stand' : 'standen'} gekozen op ${devices} ${devices === 1 ? 'apparaat' : 'apparaten'}.`
+    : 'Nog niets gekozen — deze scene verandert nog niets.';
+}
+
+function sceneValueEditor(capability, target, enabled) {
+  const wrapper = node('div', `scene-value ${enabled ? '' : 'disabled'}`.trim());
+  let input;
+  const choices = capabilityChoices(capability);
+  if (choices) {
+    input = node('select');
+    for (const choice of choices) {
+      const option = node('option', '', choice.title); option.value = String(choice.id); input.append(option);
+    }
+    input.value = String(target.value);
+    input.addEventListener('change', () => { target.value = capabilityChoiceValue(input.value, capability); });
+    wrapper.append(input);
+  } else if (capability.type === 'number' && Number(capability.min) === 0 && Number(capability.max) === 1) {
+    const range = node('div', 'scene-range');
+    input = node('input'); input.type = 'range'; input.min = 0; input.max = 1; input.step = capability.step ?? 0.01; input.value = target.value;
+    const output = node('output');
+    const show = () => { output.textContent = `${Math.round(Number(input.value) * 100)}%`; };
+    show();
+    input.addEventListener('input', () => { target.value = Number(input.value); show(); });
+    range.append(input, output); wrapper.append(range);
+  } else {
+    input = node('input'); input.type = capability.type === 'number' ? 'number' : 'text'; input.value = target.value ?? '';
+    if (capability.min !== undefined) input.min = capability.min;
+    if (capability.max !== undefined) input.max = capability.max;
+    if (capability.step !== undefined) input.step = capability.step;
+    input.addEventListener('input', () => { target.value = capabilityChoiceValue(input.value, capability); });
+    wrapper.append(input);
+  }
+  const setEnabled = selected => {
+    wrapper.classList.toggle('disabled', !selected);
+    input.disabled = !selected;
+    input.required = selected;
+  };
+  setEnabled(enabled);
+  return { element: wrapper, setEnabled };
+}
+
+function renderSceneCapability(device, capability) {
+  const row = node('div', 'scene-capability');
+  let target = sceneTarget(device.id, capability.id) || {
+    deviceId: device.id, capabilityId: capability.id, value: sceneDefaultValue(capability),
+  };
+  const selected = Boolean(sceneTarget(device.id, capability.id));
+  const toggle = node('label', 'scene-capability-toggle');
+  const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.checked = selected;
+  toggle.append(checkbox, node('span', '', localized(capability.title) || capability.id));
+  const editor = sceneValueEditor(capability, target, selected);
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) {
+      setSceneTarget(target, true);
+    } else {
+      setSceneTarget(target, false);
+    }
+    editor.setEnabled(checkbox.checked);
+  });
+  row.append(toggle, editor.element);
+  return row;
+}
+
+function captureSceneDevice(device) {
+  const capabilities = sceneWritableCapabilities(device);
+  const ids = new Set(capabilities.map(capability => sceneStateKey(device.id, capability.id)));
+  state.editingScene.states = state.editingScene.states.filter(wanted => !ids.has(sceneStateKey(wanted.deviceId, wanted.capabilityId)));
+  let captured = 0;
+  for (const capability of capabilities) {
+    if (unknownCapabilityValue(capability.value)) continue;
+    state.editingScene.states.push({ deviceId: device.id, capabilityId: capability.id, value: capability.value });
+    captured++;
+  }
+  renderSceneEditor();
+  if (!captured) toast(`${device.name} heeft nog geen bekende standen.`, true);
+}
+
+function renderSceneDevice(device, capabilities) {
+  const article = node('article', 'scene-device');
+  const head = node('div', 'scene-device-head');
+  const symbol = node('span', 'scene-device-symbol'); symbol.append(materialIcon(deviceClassSymbol(device.class)));
+  const copy = node('span', 'scene-device-name');
+  copy.append(node('strong', '', device.name), node('small', '', device.available ? `${capabilities.length} schrijfbare standen` : 'Niet beschikbaar · laatst bekende standen'));
+  const capture = actionButton('Huidige standen', () => captureSceneDevice(device), 'scene-device-capture');
+  head.append(symbol, copy, capture); article.append(head);
+  const list = node('div', 'scene-capabilities');
+  for (const capability of capabilities) list.append(renderSceneCapability(device, capability));
+  article.append(list);
+  return article;
+}
+
+function renderMissingSceneStates(known) {
+  const missing = (state.editingScene.states || []).filter(wanted => !known.has(sceneStateKey(wanted.deviceId, wanted.capabilityId)));
+  if (!missing.length) return null;
+  const section = node('section', 'scene-device-group');
+  section.append(node('h3', '', 'Niet meer beschikbaar'));
+  const article = node('article', 'scene-device scene-missing');
+  const head = node('div', 'scene-device-head');
+  const symbol = node('span', 'scene-device-symbol'); symbol.append(materialIcon('warning'));
+  const copy = node('span', 'scene-device-name'); copy.append(node('strong', '', 'Scene bevat verdwenen standen'), node('small', '', 'Verwijder ze of herstel het apparaat voordat je opslaat.'));
+  head.append(symbol, copy); article.append(head);
+  for (const wanted of missing) {
+    const row = node('div', 'scene-missing-state');
+    row.append(node('span', '', `${wanted.deviceId} · ${wanted.capabilityId}`), actionButton('Verwijder', () => {
+      setSceneTarget(wanted, false); renderSceneEditor();
+    }, 'danger small'));
+    article.append(row);
+  }
+  section.append(article); return section;
+}
+
+function renderSceneEditor() {
+  const target = $('scene-devices'); target.replaceChildren();
+  const known = new Set();
+  const byLocation = new Map();
+  for (const device of state.devices) {
+    const capabilities = sceneWritableCapabilities(device);
+    if (!capabilities.length) continue;
+    for (const capability of capabilities) known.add(sceneStateKey(device.id, capability.id));
+    const group = state.deviceGroups.find(candidate => candidate.id === device.groupId);
+    const location = group ? groupPath(group.id) : 'Zonder groep';
+    if (!byLocation.has(location)) byLocation.set(location, []);
+    byLocation.get(location).push({ device, capabilities });
+  }
+  const orderedLocations = [
+    ...deviceGroupsInDisplayOrder().map(group => groupPath(group.id)).filter(location => byLocation.has(location)),
+    ...(byLocation.has('Zonder groep') ? ['Zonder groep'] : []),
+  ];
+  for (const location of [...new Set(orderedLocations)]) {
+    const section = node('section', 'scene-device-group'); section.append(node('h3', '', location));
+    const entries = byLocation.get(location).sort((left, right) => compareDevices(left.device, right.device));
+    for (const entry of entries) section.append(renderSceneDevice(entry.device, entry.capabilities));
+    target.append(section);
+  }
+  const missing = renderMissingSceneStates(known);
+  if (missing) target.append(missing);
+  if (!target.childElementCount) target.append(node('p', 'empty', 'Nog geen apparaten met een schrijfbare, uitleesbare status.'));
+  updateSceneSelectionSummary();
+}
+
+function captureWholeScene() {
+  const captured = [];
+  let skipped = 0;
+  for (const device of state.devices) {
+    for (const capability of sceneWritableCapabilities(device)) {
+      if (unknownCapabilityValue(capability.value)) { skipped++; continue; }
+      captured.push({ deviceId: device.id, capabilityId: capability.id, value: capability.value });
+    }
+  }
+  state.editingScene.states = captured;
+  renderSceneEditor();
+  toast(`${captured.length} huidige standen gekozen${skipped ? ` · ${skipped} nog onbekend` : ''}`);
+}
+
+async function saveScene(event) {
+  event.preventDefault();
+  const scene = state.editingScene;
+  scene.name = $('scene-name').value.trim();
+  if (!scene.states?.length) return toast('Kies ten minste één stand voor deze scene.', true);
+  if (!$('scene-form').reportValidity()) return;
+  try {
+    const path = scene.id ? `/api/stulp/scenes/${encode(scene.id)}` : '/api/stulp/scenes';
+    await api(path, { method: scene.id ? 'PUT' : 'POST', body: JSON.stringify(scene) });
+    $('scene-dialog').close(); await load(); toast('Scene opgeslagen');
+  } catch (error) { toast(error.message, true); }
+}
+
+async function setScene(scene, on, button = null) {
+  const device = sceneDevice(scene);
+  if (!device) return toast('Het scene-apparaat ontbreekt.', true);
+  if (button) button.disabled = true;
+  try {
+    await api(`/api/manager/devices/device/${encode(device.id)}/capability/onoff`, {
+      method: 'PUT', body: JSON.stringify({ value: on }),
+    });
+    await load();
+    toast(on ? 'Scene staat aan · vorige standen zijn onthouden' : 'Scene staat uit · vorige standen zijn hersteld');
+  } catch (error) {
+    try { await load(); } catch (_) { /* keep the original write error */ }
+    toast(error.message, true);
+  }
+  finally { if (button) button.disabled = false; }
+}
+
+async function deleteScene(scene) {
+  if (!confirm(`Scene “${scene.name}” verwijderen?`)) return;
+  try {
+    await api(`/api/stulp/scenes/${encode(scene.id)}`, { method: 'DELETE' });
+    await load(); toast('Scene verwijderd');
+  } catch (error) { toast(error.message, true); }
 }
 
 function renderFlows() {
@@ -2659,6 +2979,7 @@ function applyRealtimeDevice(updated) {
   };
   if (state.deviceOrder) return;
   renderDevices();
+  renderScenes();
   refreshOpenDevicePopover(state.devices[index]);
 }
 
@@ -2678,7 +2999,7 @@ function handleRealtimeEvent(event) {
     applyRealtimeDevice(event.data);
     return;
   }
-  if (event.manager === 'devices' || event.manager === 'apps' || event.manager === 'flow') {
+  if (event.manager === 'devices' || event.manager === 'apps' || event.manager === 'scene' || event.manager === 'flow') {
     scheduleRealtimeReload();
   }
 }
@@ -2739,6 +3060,11 @@ $('add-group').addEventListener('click', () => openGroupEditor());
 $('group-form').addEventListener('submit', saveGroup);
 $('group-delete').addEventListener('click', deleteGroup);
 $('group-dialog').addEventListener('close', () => { state.editingGroup = null; $('group-form').reset(); });
+$('add-scene').addEventListener('click', () => openScene());
+$('scene-form').addEventListener('submit', saveScene);
+$('scene-capture').addEventListener('click', captureWholeScene);
+$('scene-clear').addEventListener('click', () => { state.editingScene.states = []; renderSceneEditor(); });
+$('scene-dialog').addEventListener('close', () => { state.editingScene = null; $('scene-form').reset(); });
 $('add-flow').addEventListener('click', () => openFlow());
 $('flow-form').addEventListener('submit', saveFlow);
 $('flow-add').addEventListener('click', () => openFlowTypePicker());

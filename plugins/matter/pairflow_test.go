@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/xinix00/stulp/internal/appsdk"
 )
 
 // Koppelen is start-plus-poll: het startverzoek komt meteen terug en de pagina
@@ -53,5 +55,67 @@ func TestPairCommissionIsStartPlusPoll(t *testing.T) {
 		if strings.ContainsAny(name, "/?#%") {
 			t.Fatalf("koppelbericht %q overleeft de emit-URL niet", name)
 		}
+	}
+}
+
+// Pair() wordt door de SDK voor iedere sessie opnieuw aangeroepen. De status
+// en kandidaten horen daarom in die closure en niet op app: een telefoon mag
+// nooit het resultaat zien van een tegelijk open Manage-scherm.
+func TestMatterPairSessionsKeepStateAndCandidatesSeparate(t *testing.T) {
+	instance := &app{
+		found: []appsdk.PairedDevice{{Name: "oude globale kandidaat"}},
+	}
+	first := matterDriver{app: instance}.Pair()
+	second := matterDriver{app: instance}.Pair()
+
+	if _, err := first["commission"](map[string]any{"code": "34970112332"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		state, err := first["commission_state"](nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot := state.(map[string]any)
+		if running, _ := snapshot["running"].(bool); !running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("eerste sessie bleef lopen")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	state, err := second["commission_state"](nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := state.(map[string]any)
+	if snapshot["warning"] != nil || snapshot["found"] != nil {
+		t.Fatalf("tweede sessie zag toestand van de eerste: %#v", snapshot)
+	}
+	found, err := second["list_devices"](nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if devices := found.([]appsdk.PairedDevice); len(devices) != 0 {
+		t.Fatalf("tweede sessie zag globale kandidaten: %#v", devices)
+	}
+}
+
+func TestBusyMatterPairGetsItsOwnWarning(t *testing.T) {
+	instance := &app{commissioning: true}
+	handlers := matterDriver{app: instance}.Pair()
+	state, err := handlers["commission"](map[string]any{"code": "34970112332"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := state.(map[string]any)
+	if running, _ := snapshot["running"].(bool); running {
+		t.Fatalf("bezette sessie bleef lopen: %#v", snapshot)
+	}
+	if warning, _ := snapshot["warning"].(string); !strings.Contains(warning, "andere Matter-koppeling") {
+		t.Fatalf("bezette sessie kreeg geen eigen waarschuwing: %#v", snapshot)
 	}
 }

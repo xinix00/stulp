@@ -44,6 +44,10 @@ type Store struct {
 	state map[string]map[string]any
 	// manifests are read from each app's bundle at open and on install.
 	manifests map[string]map[string]any
+	// deletedSceneDevices closes the delete-vs-Flow-write race. It only needs
+	// to live for this process: across a restart no pre-delete Flow write can
+	// still be waiting to acquire the store lock.
+	deletedSceneDevices map[string]struct{}
 
 	eventsMu       sync.RWMutex
 	subscribers    map[uint64]chan Event
@@ -135,7 +139,8 @@ func Open(path string) (*Store, error) {
 	}
 	s := &Store{
 		path: path, state: make(map[string]map[string]any),
-		manifests: make(map[string]map[string]any), subscribers: make(map[uint64]chan Event),
+		manifests: make(map[string]map[string]any), deletedSceneDevices: make(map[string]struct{}),
+		subscribers: make(map[uint64]chan Event),
 	}
 	loaded := &document{Version: documentVersion}
 	if path != InMemoryPath {
@@ -148,6 +153,7 @@ func Open(path string) (*Store, error) {
 	if s.doc.Settings == nil {
 		s.doc.Settings = make(map[string]map[string]any)
 	}
+	s.seedSceneDeviceStates()
 	s.reloadManifests()
 	return s, nil
 }
@@ -630,6 +636,10 @@ func (s *Store) AddDevice(ctx context.Context, device Device) (Device, error) {
 	// One physical accessory pairs once. The old schema enforced this with a
 	// unique index; here it is a scan, which is the same guarantee at this size.
 	for _, existing := range s.doc.Devices {
+		if existing.ID == device.ID {
+			s.mu.Unlock()
+			return Device{}, fmt.Errorf("device id %q already exists", device.ID)
+		}
 		if existing.AppID == device.AppID && existing.DriverID == device.DriverID &&
 			reflect.DeepEqual(existing.Data, device.Data) {
 			s.mu.Unlock()
@@ -642,6 +652,9 @@ func (s *Store) AddDevice(ctx context.Context, device Device) (Device, error) {
 	s.doc.Devices = append(s.doc.Devices, newDeviceRecord(device))
 	s.state[device.ID] = cloneMap(device.State)
 	err := s.saveLocked()
+	if err == nil {
+		delete(s.deletedSceneDevices, device.ID)
+	}
 	s.mu.Unlock()
 	if err != nil {
 		return Device{}, fmt.Errorf("add device: %w", err)
@@ -736,6 +749,10 @@ func (s *Store) DeleteDevice(ctx context.Context, id string) error {
 		return err
 	}
 	s.mu.Lock()
+	if index := indexOfDeviceRecord(s.doc.Devices, id); index >= 0 && s.doc.Devices[index].AppID == NativeSceneAppID {
+		s.mu.Unlock()
+		return fmt.Errorf("scene device %q must be deleted through DeleteScene", id)
+	}
 	before := len(s.doc.Devices)
 	s.doc.Devices = removeWhere(s.doc.Devices, func(record deviceRecord) bool { return record.ID == id })
 	if len(s.doc.Devices) == before {

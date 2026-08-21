@@ -36,10 +36,18 @@ itself remains the most precise description of the plugin contract.
 
 ## Matter, without a radio
 
-Matter is multi-admin, so a device already commissioned in Apple Home can be
-shared with Stulp over the network. The Apple TV keeps acting as the Thread
-border router and Stulp joins as an equal second controller — no Matter or
-Thread radio of its own.
+The experimental native companion under `ios/` is built to let an iPhone scan
+a factory-new Matter accessory and provision its Wi-Fi or Thread network
+directly. iOS supplies the temporary BLE path; Stulp then commissions its own
+fabric over IP, so there is no Homey or Apple Home pairing code to copy. Its
+Swift and HTTP path are tested; factory-new hardware validation is still the
+release gate. See [`ios/README.md`](ios/README.md) for signing and device setup.
+
+Matter is multi-admin too, so an accessory already commissioned in Apple Home
+can still be shared with Stulp over the network. For Thread, an Apple TV,
+HomePod or another border router keeps carrying the same network iOS selected
+after the iPhone's one-time setup — Stulp itself still needs no Matter or Thread
+radio.
 
 That covers TLV, onboarding codes, DNS-SD discovery, SPAKE2+ and CASE, real
 attestation checks, subscriptions, and a mesh view built from what the nodes

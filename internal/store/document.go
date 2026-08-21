@@ -14,7 +14,7 @@ import (
 
 // documentVersion is stamped into the file so a future change can migrate it
 // rather than guess at what it is reading.
-const documentVersion = 1
+const documentVersion = 2
 
 // maxNotifications bounds the only list that would otherwise grow forever. The
 // UI shows the most recent fifty; keeping four times that is generous and keeps
@@ -35,6 +35,7 @@ type document struct {
 	Settings      map[string]map[string]any `json:"appSettings,omitempty"`
 	Devices       []deviceRecord            `json:"devices"`
 	DeviceGroups  []DeviceGroup             `json:"deviceGroups"`
+	Scenes        []Scene                   `json:"scenes"`
 	Flows         []Flow                    `json:"flows"`
 	Notifications []Notification            `json:"notifications,omitempty"`
 	// AppState is per app een ondoorzichtige blob. Zie appstate.go.
@@ -206,6 +207,9 @@ func decodeDocument(name string, raw []byte) (*document, error) {
 	loaded.Version = documentVersion
 	if loaded.Settings == nil {
 		loaded.Settings = make(map[string]map[string]any)
+	}
+	if err := reconcileSceneDevices(&loaded); err != nil {
+		return nil, fmt.Errorf("read %s: %w", name, err)
 	}
 	return &loaded, nil
 }

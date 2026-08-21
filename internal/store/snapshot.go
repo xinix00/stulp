@@ -119,11 +119,29 @@ func (s *Store) RestoreSnapshot(ctx context.Context, snapshot *Snapshot) (string
 	// from the old document is caught by UpdateFlowIfUnchanged; work already
 	// running against the old document (a Flow run, a plugin call) finishes
 	// against the restored one, which is why a restore is followed by a reload.
+	oldDocument := s.doc
 	s.doc = restored
 	// Consumed: callers cannot retain Snapshot and mutate roots behind the
 	// store's lock after it has become the live document.
 	snapshot.doc = nil
 	s.state = make(map[string]map[string]any)
+	deletedSceneDevices := make(map[string]struct{}, len(s.deletedSceneDevices)+len(oldDocument.Scenes))
+	for deviceID := range s.deletedSceneDevices {
+		deletedSceneDevices[deviceID] = struct{}{}
+	}
+	for _, scene := range oldDocument.Scenes {
+		deletedSceneDevices[SceneDeviceID(scene.ID)] = struct{}{}
+	}
+	for _, scene := range restored.Scenes {
+		delete(deletedSceneDevices, SceneDeviceID(scene.ID))
+	}
+	for _, record := range restored.Devices {
+		if record.AppID != NativeSceneAppID {
+			delete(deletedSceneDevices, record.ID)
+		}
+	}
+	s.deletedSceneDevices = deletedSceneDevices
+	s.seedSceneDeviceStates()
 	// Manifesten horen niet bij het document: een gebundelde app heeft het op
 	// schijf, een slot-app herhaalt het bij elke aanmelding. Ze hier weggooien
 	// laat juist die slot-app -- die al verbonden is en zich dus niet opnieuw

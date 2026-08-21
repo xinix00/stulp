@@ -36,6 +36,15 @@ type matterDriver struct{ app *app }
 // dus start-plus-poll, hetzelfde snapshot-patroon als scan/mesh/diagnostiek:
 // élk verzoek is kort, en de pagina kijkt hoe het ervoor staat.
 func (d matterDriver) Pair() map[string]appsdk.PairHandler {
+	running := &scan{}
+	ctx, cancel := context.WithCancel(context.Background())
+	var candidatesMu sync.Mutex
+	var candidates []appsdk.PairedDevice
+	list := func() []appsdk.PairedDevice {
+		candidatesMu.Lock()
+		defer candidatesMu.Unlock()
+		return append([]appsdk.PairedDevice(nil), candidates...)
+	}
 	return map[string]appsdk.PairHandler{
 		"commission": func(data any) (any, error) {
 			request, _ := data.(map[string]any)
@@ -44,25 +53,45 @@ func (d matterDriver) Pair() map[string]appsdk.PairHandler {
 			if strings.TrimSpace(code) == "" {
 				return nil, fmt.Errorf("een koppelcode is nodig")
 			}
-			if !d.app.pairing.begin() {
-				return d.app.pairing.snapshot(), nil
+			if !running.begin() {
+				return running.snapshot(), nil
+			}
+			candidatesMu.Lock()
+			candidates = nil
+			candidatesMu.Unlock()
+			if !d.app.beginCommission() {
+				running.done(fmt.Errorf("er loopt al een andere Matter-koppeling"))
+				return running.snapshot(), nil
 			}
 			go func() {
-				result, err := d.app.commission(code, address)
+				defer d.app.endCommission()
+				result, err := d.app.commission(ctx, code, address)
 				if err == nil {
-					d.app.pairing.put("found", result)
+					candidatesMu.Lock()
+					candidates = append([]appsdk.PairedDevice(nil), result...)
+					candidatesMu.Unlock()
+					running.put("found", map[string]any{"found": len(result)})
 				}
-				d.app.pairing.done(err)
+				running.done(err)
 			}()
-			return d.app.pairing.snapshot(), nil
+			return running.snapshot(), nil
 		},
 		"commission_state": func(any) (any, error) {
-			return d.app.pairing.snapshot(), nil
+			return running.snapshot(), nil
+		},
+		"list_devices": func(any) (any, error) {
+			return list(), nil
+		},
+		"cancel": func(any) (any, error) {
+			cancel()
+			return nil, nil
 		},
 	}
 }
 
-// ListDevices levert wat er zojuist gecommissioneerd is.
+// ListDevices levert voor de oude, sessieloze lijst-API wat er het laatst is
+// gecommissioneerd. Een echte pair-sessie gebruikt zijn eigen list_devices-
+// closure uit Pair, zodat twee schermen nooit elkaars kandidaten zien.
 //
 // Anders dan bij een hub die je kunt afzoeken valt hier niets te ontdekken
 // zonder code: de vorige stap heeft het apparaat al in de fabric gehaald, en dit
@@ -122,15 +151,16 @@ func (m *matterDevice) OnCapability(name string, value any) error {
 type app struct {
 	controller *mattercontroller.Controller
 
-	mu    sync.Mutex
-	found []appsdk.PairedDevice
+	mu            sync.Mutex
+	found         []appsdk.PairedDevice
+	commissionMu  sync.Mutex
+	commissioning bool
 
 	// Wat de config-pagina laat zien. Eén verkenning tegelijk per soort: de
 	// pagina mag zo vaak kijken als hij wil, de nodes worden er niet vaker om
 	// gevraagd. Diagnostiek is per apparaat en staat onder a.mu.
 	discovery scan
 	mesh      scan
-	pairing   scan
 	diagnoses map[string]*scan
 }
 
@@ -143,7 +173,7 @@ const maxDiagnoses = 64
 //
 // De plugin maakt zelf geen apparaten aan: wat hier gevonden wordt gaat als
 // keuze naar de koppelpagina, en Stulp bewaart wat de gebruiker overneemt.
-func (a *app) commission(code, address string) (any, error) {
+func (a *app) commission(parent context.Context, code, address string) ([]appsdk.PairedDevice, error) {
 	if a.controller == nil {
 		return nil, fmt.Errorf("Matter controller is not running")
 	}
@@ -152,7 +182,7 @@ func (a *app) commission(code, address string) (any, error) {
 	// verschijnt, en daarna het gesprek van meerdere rondes met een apparaat dat
 	// net wakker wordt (de controller houdt daar twee minuten voor aan). Op 90
 	// seconden at het wachten het commissioneren op.
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
 	defer cancel()
 
 	prototypes, err := a.controller.Commission(ctx, mattercontroller.CommissionRequest{
@@ -183,13 +213,29 @@ func (a *app) commission(code, address string) (any, error) {
 	a.mu.Lock()
 	a.found = found
 	a.mu.Unlock()
-	return map[string]any{"found": len(found)}, nil
+	return found, nil
 }
 
 func (a *app) candidates() []appsdk.PairedDevice {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.found
+	return append([]appsdk.PairedDevice(nil), a.found...)
+}
+
+func (a *app) beginCommission() bool {
+	a.commissionMu.Lock()
+	defer a.commissionMu.Unlock()
+	if a.commissioning {
+		return false
+	}
+	a.commissioning = true
+	return true
+}
+
+func (a *app) endCommission() {
+	a.commissionMu.Lock()
+	a.commissioning = false
+	a.commissionMu.Unlock()
 }
 
 func main() { start(plugin()) }

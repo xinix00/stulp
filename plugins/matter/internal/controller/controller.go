@@ -78,6 +78,22 @@ type Controller struct {
 	nodeIdx   map[uint64][]string
 	nodeIdxAt time.Time
 
+	// routeMu coordinates the one network probe that is allowed while the
+	// shared IPv6 route is still coming up. Without this gate every device
+	// worker independently performs an expensive CASE attempt against the same
+	// missing controller-wide route.
+	routeMu         sync.Mutex
+	routeKnown      bool
+	routeRecovering bool
+	routeStarted    time.Time
+	routeNextProbe  time.Time
+	routeBackoff    time.Duration
+	routeLastErr    error
+	routeProbe      uint64
+	routeGeneration uint64
+	routeProof      uint64
+	routeChanged    chan struct{}
+
 	ctx           context.Context
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
@@ -438,7 +454,6 @@ func (c *Controller) Commission(ctx context.Context, request CommissionRequest) 
 	// in zijn data, dus een bewaard exemplaar is later terug te vinden.
 	return prototypes, nil
 }
-
 
 // removeOrphanFabric ruimt een achtergebleven fabric-entry van ónze fabric op,
 // vóór AddNOC. Zo'n wees is de vingerafdruk van een half afgemaakt verwijderen:

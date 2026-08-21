@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	mathrand "math/rand/v2"
 	"net"
 	"reflect"
 	"strconv"
@@ -176,10 +177,15 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64, su
 	}()
 	backoff := time.Second
 	goneOnce := false
-	var routeWaitStarted time.Time
 	for {
+		attemptCtx, routeToken, gateErr := c.beginSubscriptionAttempt(ctx)
 		started := time.Now()
-		err := subscribe(ctx, nodeID)
+		err := gateErr
+		var routeWaitStarted time.Time
+		if err == nil {
+			err = subscribe(attemptCtx, nodeID)
+			routeWaitStarted = c.finishSubscriptionAttempt(attemptCtx, routeToken, nodeID, err)
+		}
 		if ctx.Err() != nil {
 			return
 		}
@@ -206,55 +212,51 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64, su
 			}
 		}
 		goneOnce = false
-		// "no IPv6 route" is een toestand van de NODE, geen oordeel over dit
-		// apparaat: bij een (her)start moet de router advertisement nog landen
-		// voordat leannet een v6-route heeft, en tot die tijd faalt élke CASE
+		// "no IPv6 route" is een toestand van de gedeelde IPv6-stack, geen
+		// oordeel over dit apparaat: bij een (her)start moet de router
+		// advertisement nog landen voordat leannet een v6-route heeft, en tot die
+		// tijd faalt élke CASE
 		// onmiddellijk. Zevenentwintig workers die daar elk per poging een warn
 		// van maken en hun tegel grijs zetten, maken van elke boot een
 		// rampenfilm die zichzelf een minuut later oplost (gemeten 20-08).
-		// Dus: binnen routeWaitLoud stil vasthouden, niets overschrijven, en zo
-		// weer kijken — de eerste poging ná de RA slaagt gewoon. Eén debug-regel
-		// per worker per episode houdt het log eerlijk zonder de ringbuffer te
-		// verzuipen. De tegel liegt hier niet bij: bereikbaarheid overleeft
-		// geen start van Stulp — hij is state, geen configuratie (zie
+		// Dus: binnen routeWaitLoud stil vasthouden, niets overschrijven, en met
+		// één gedeelde probe opnieuw kijken — de eerste poging ná de RA slaagt
+		// gewoon. Eén debug-regel per episode houdt het log eerlijk zonder de
+		// ringbuffer te verzuipen. De tegel liegt hier niet bij: bereikbaarheid
+		// overleeft geen start van Stulp — hij is state, geen configuratie (zie
 		// deviceRecord in de store) — dus een boot en een restore beginnen
 		// eerlijk onbereikbaar, en mid-run staat er een toestand die deze run
 		// zelf heeft waargemaakt.
-		if err != nil && strings.Contains(err.Error(), "no IPv6 route") {
+		if isNoIPv6Route(err) {
 			if routeWaitStarted.IsZero() {
-				routeWaitStarted = time.Now()
-				c.logger.Debug("IPv6 route not up yet; holding subscription quietly",
-					"node", fmt.Sprintf("%016X", nodeID))
+				routeWaitStarted = c.routeRecoveryStarted()
+			}
+			// A different in-flight exchange may already have proved the route
+			// after this error was produced. In that case this stale result must
+			// neither reopen the gate nor make a tile flicker unavailable.
+			if routeWaitStarted.IsZero() {
+				continue
 			}
 			// Stil is goed voor een opstartmoment, niet voor een toestand. Na
 			// routeWaitLoud is dit geen boot meer maar een node zonder route, en
 			// dan hoort dit géén eigen wachtlus te zijn: DOORVALLEN naar het
 			// gedeelde pad hieronder, dat de node onbereikbaar markeert (grijs is
 			// hier de waarheid), één keer waarschuwt met de échte fout, en blijft
-			// proberen met backoff tot 30s. Vóór 21-08 bleef deze tak eeuwig
+			// proberen met per-node backoff; de routeprobe zelf blijft gedeeld en
+			// maximaal vijf seconden uit elkaar. Vóór 21-08 bleef deze tak eeuwig
 			// doorlussen: na een restore hielden achtentwintig workers stil een
 			// "subscription" vast die nooit bestond, terwijl elke tegel op
 			// UNDEFINED bleef staan omdat markNodeUnavailable werd overgeslagen --
 			// stilte die eruitzag als een werkende node.
 			if time.Since(routeWaitStarted) <= routeWaitLoud {
-				select {
-				case <-time.After(routeWaitPoll):
-					continue
-				case <-ctx.Done():
-					return
-				}
+				// beginSubscriptionAttempt owns the shared, exponentially backed
+				// off timer. Looping here does not launch another CASE attempt: this
+				// worker joins the same controller-wide wait as every other node.
+				continue
 			}
-		} else {
-			// Het wachten is voorbij (gelukt, of een ándere fout). De stempel
-			// blijft bewust staan zolang de route wég is: zou hij in de tak
-			// hierboven gewist worden, dan begon élke volgende poging een vers
-			// venster van twee minuten en was "één keer stil" een stille lus.
-			if !routeWaitStarted.IsZero() {
-				c.logger.Info("IPv6 route is back; Matter is reconnecting",
-					"node", fmt.Sprintf("%016X", nodeID),
-					"waited", time.Since(routeWaitStarted).Round(time.Second).String())
+			if current := c.routeRecoveryStarted(); current.IsZero() || current != routeWaitStarted {
+				continue
 			}
-			routeWaitStarted = time.Time{}
 		}
 		// Speling: een gemist rapportagevenster ná een lang gezonde sessie is
 		// jitter of een korte stall (de rapporten komen precies óp het
@@ -286,6 +288,237 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64, su
 	}
 }
 
+// subscriptionAttemptKey carries the gate token and route-proof epoch into
+// subscribeOnce. A successful Subscribe does not return (it becomes the
+// long-lived worker), so subscribeOnce must release the startup gate as soon
+// as that response is registered rather than only when the subscription
+// eventually lapses.
+type subscriptionAttemptKey struct{}
+
+type subscriptionAttempt struct {
+	token uint64
+	proof uint64
+}
+
+// beginSubscriptionAttempt makes the first startup exchange a canary. Once a
+// route has worked, workers are free to proceed normally (CASE itself remains
+// serialized by Controller.mu). If that canary sees LEAN's no-route error, only
+// one worker is admitted at each shared retry deadline; all others sleep on the
+// same state change. After routeWaitLoud they may report the shared error to
+// their own device without performing another network exchange.
+func (c *Controller) beginSubscriptionAttempt(ctx context.Context) (context.Context, uint64, error) {
+	for {
+		now := time.Now()
+		c.routeMu.Lock()
+		changed := c.routeChangeLocked()
+
+		if !c.routeRecovering {
+			if c.routeKnown {
+				attempt := subscriptionAttempt{proof: c.routeProof}
+				c.routeMu.Unlock()
+				return context.WithValue(ctx, subscriptionAttemptKey{}, attempt), 0, nil
+			}
+			if c.routeProbe == 0 {
+				token := c.startRouteProbeLocked()
+				attempt := subscriptionAttempt{token: token, proof: c.routeProof}
+				c.routeMu.Unlock()
+				return context.WithValue(ctx, subscriptionAttemptKey{}, attempt), token, nil
+			}
+			c.routeMu.Unlock()
+			if !waitForRouteChange(ctx, changed, time.Time{}) {
+				return ctx, 0, ctx.Err()
+			}
+			continue
+		}
+
+		quietUntil := c.routeStarted.Add(routeWaitLoud)
+		if c.routeProbe == 0 && !now.Before(c.routeNextProbe) {
+			token := c.startRouteProbeLocked()
+			attempt := subscriptionAttempt{token: token, proof: c.routeProof}
+			c.routeMu.Unlock()
+			return context.WithValue(ctx, subscriptionAttemptKey{}, attempt), token, nil
+		}
+		if !now.Before(quietUntil) {
+			err := c.routeLastErr
+			c.routeMu.Unlock()
+			if err == nil {
+				err = errors.New("Matter IPv6 route is not available")
+			}
+			return ctx, 0, err
+		}
+
+		wakeAt := quietUntil
+		if c.routeProbe == 0 && c.routeNextProbe.Before(wakeAt) {
+			wakeAt = c.routeNextProbe
+		}
+		c.routeMu.Unlock()
+		if !waitForRouteChange(ctx, changed, wakeAt) {
+			return ctx, 0, ctx.Err()
+		}
+	}
+}
+
+func (c *Controller) startRouteProbeLocked() uint64 {
+	c.routeGeneration++
+	if c.routeGeneration == 0 { // reserve zero for an unrestricted attempt
+		c.routeGeneration++
+	}
+	c.routeProbe = c.routeGeneration
+	return c.routeProbe
+}
+
+func (c *Controller) routeChangeLocked() chan struct{} {
+	if c.routeChanged == nil {
+		c.routeChanged = make(chan struct{})
+	}
+	return c.routeChanged
+}
+
+func (c *Controller) signalRouteChangeLocked() {
+	changed := c.routeChangeLocked()
+	close(changed)
+	c.routeChanged = make(chan struct{})
+}
+
+func waitForRouteChange(ctx context.Context, changed <-chan struct{}, wakeAt time.Time) bool {
+	if wakeAt.IsZero() {
+		select {
+		case <-changed:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	timer := time.NewTimer(max(time.Until(wakeAt), 0))
+	defer timer.Stop()
+	select {
+	case <-changed:
+		return true
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// finishSubscriptionAttempt records a route failure before another worker can
+// start an expensive retry. Generic failures release the canary too: just as in
+// the old loop, any error other than LEAN's explicit no-route result means the
+// controller-wide route gate must not hold unrelated nodes back.
+func (c *Controller) finishSubscriptionAttempt(ctx context.Context, token uint64, nodeID uint64, err error) time.Time {
+	if isNoIPv6Route(err) {
+		attempt, hasAttempt := ctx.Value(subscriptionAttemptKey{}).(subscriptionAttempt)
+		c.routeMu.Lock()
+		// A selected probe can become stale when another in-flight exchange has
+		// already proved the route. Its later failure must not reopen the gate.
+		if token != 0 && c.routeProbe != token {
+			c.routeMu.Unlock()
+			return time.Time{}
+		}
+		// Unrestricted attempts can overlap after the route was proven. If a
+		// newer success completed after this attempt began, its proof epoch wins:
+		// the older failure must not reopen a recovered controller-wide gate.
+		if token == 0 && hasAttempt && attempt.proof != c.routeProof {
+			c.routeMu.Unlock()
+			return time.Time{}
+		}
+		now := time.Now()
+		newEpisode := !c.routeRecovering
+		if newEpisode {
+			c.routeRecovering = true
+			c.routeKnown = false
+			c.routeStarted = now
+			c.routeBackoff = routeRetryInitial
+		}
+		c.routeLastErr = err
+		if newEpisode || token != 0 && c.routeProbe == token {
+			c.routeProbe = 0
+			c.routeNextProbe = now.Add(routeRecoveryDelay(c.routeBackoff))
+			c.routeBackoff = min(c.routeBackoff*2, routeRetryMaximum)
+		}
+		c.signalRouteChangeLocked()
+		started := c.routeStarted
+		c.routeMu.Unlock()
+		if newEpisode && c.logger != nil {
+			c.logger.Debug("IPv6 route not up yet; holding subscription quietly",
+				"node", fmt.Sprintf("%016X", nodeID))
+		}
+		return started
+	}
+
+	if token == 0 {
+		return time.Time{}
+	}
+	c.routeMu.Lock()
+	if c.routeProbe != token {
+		c.routeMu.Unlock()
+		return time.Time{}
+	}
+	recovering, started := c.routeRecovering, c.routeStarted
+	c.clearRouteRecoveryLocked()
+	c.routeMu.Unlock()
+	if recovering && c.logger != nil {
+		c.logger.Info("IPv6 route is back; Matter is reconnecting",
+			"node", fmt.Sprintf("%016X", nodeID),
+			"waited", time.Since(started).Round(time.Second).String())
+	}
+	return time.Time{}
+}
+
+// subscriptionRouteReady releases both the initial canary and a recovery
+// probe at the first successfully established subscription. It deliberately
+// runs before initial report/store processing and the long report-wait loop.
+func (c *Controller) subscriptionRouteReady(ctx context.Context, nodeID uint64) {
+	attempt, _ := ctx.Value(subscriptionAttemptKey{}).(subscriptionAttempt)
+	token := attempt.token
+	c.routeMu.Lock()
+	if token != 0 && c.routeProbe != token {
+		c.routeMu.Unlock()
+		return
+	}
+	recovering, started := c.routeRecovering, c.routeStarted
+	c.clearRouteRecoveryLocked()
+	c.routeMu.Unlock()
+	if recovering && c.logger != nil {
+		c.logger.Info("IPv6 route is back; Matter is reconnecting",
+			"node", fmt.Sprintf("%016X", nodeID),
+			"waited", time.Since(started).Round(time.Second).String())
+	}
+}
+
+func (c *Controller) clearRouteRecoveryLocked() {
+	c.routeProof++
+	c.routeKnown = true
+	c.routeRecovering = false
+	c.routeStarted = time.Time{}
+	c.routeNextProbe = time.Time{}
+	c.routeBackoff = 0
+	c.routeLastErr = nil
+	c.routeProbe = 0
+	c.signalRouteChangeLocked()
+}
+
+func (c *Controller) routeRecoveryStarted() time.Time {
+	c.routeMu.Lock()
+	defer c.routeMu.Unlock()
+	if !c.routeRecovering {
+		return time.Time{}
+	}
+	return c.routeStarted
+}
+
+func isNoIPv6Route(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no IPv6 route")
+}
+
+func routeRecoveryDelay(backoff time.Duration) time.Duration {
+	if backoff <= 0 {
+		backoff = routeRetryInitial
+	}
+	spread := routeRetryJitter * (2*mathrand.Float64() - 1)
+	return max(time.Duration(float64(backoff)*(1+spread)), time.Millisecond)
+}
+
 func subscriptionRetryDelay(err error, backoff time.Duration) time.Duration {
 	delay := backoff
 	var status pase.StatusReport
@@ -303,31 +536,34 @@ func (c *Controller) subscribeOnce(ctx context.Context, nodeID uint64) error {
 	if err != nil {
 		return err
 	}
-	// Capability support grows without requiring users to remove our fabric and
-	// commission the accessory again. Older builds omitted endpoints for which
-	// they knew no capability at all, so their stored cluster lists alone cannot
-	// upgrade them. Re-read Descriptor once per model version before subscribing.
-	if modelRefreshRequired(devices) {
-		refreshed, refreshErr := c.refreshNodeModel(ctx, nodeID, devices, info)
-		if refreshErr != nil {
-			c.logger.Debug("Matter device-model refresh failed; subscribing to stored model",
-				"node", fmt.Sprintf("%016X", nodeID), "error", refreshErr)
-		} else {
-			devices = refreshed
-			if len(devices) > 0 {
-				if refreshedInfo, parseErr := deviceConnection(devices[0]); parseErr == nil {
-					info = refreshedInfo
-				}
-			}
-		}
-	}
-	attributes, events := subscriptionPaths(devices)
 	c.mu.Lock()
 	session, err := c.session(ctx, info)
 	c.mu.Unlock()
 	if err != nil {
 		return err
 	}
+	// Capability support grows without requiring users to remove our fabric and
+	// commission the accessory again. Older builds omitted endpoints for which
+	// they knew no capability at all, so their stored cluster lists alone cannot
+	// upgrade them. Re-read Descriptor once per model version before subscribing.
+	if modelRefreshRequired(devices) {
+		refreshed, refreshErr := c.refreshNodeModel(ctx, nodeID, devices, info, session)
+		if refreshErr != nil {
+			// A route failure is controller-wide, not evidence that the stored
+			// model is bad. Returning it immediately lets the shared gate back off;
+			// falling through would send a second request over the same missing
+			// route from Subscribe.
+			if isNoIPv6Route(refreshErr) {
+				c.expireSession(nodeID, session)
+				return refreshErr
+			}
+			c.logger.Debug("Matter device-model refresh failed; subscribing to stored model",
+				"node", fmt.Sprintf("%016X", nodeID), "error", refreshErr)
+		} else {
+			devices = refreshed
+		}
+	}
+	attributes, events := subscriptionPaths(devices)
 	client := im.Client{Transport: c.node, Session: session}
 	subscription, err := client.Subscribe(ctx, attributes, events, subscriptionMinInterval, subscriptionMaxInterval)
 	if err != nil {
@@ -338,6 +574,9 @@ func (c *Controller) subscribeOnce(ctx context.Context, nodeID uint64) error {
 	c.subMu.Lock()
 	c.subscriptions[nodeID] = activeSubscription{id: subscription.ID, activity: activity}
 	c.subMu.Unlock()
+	// The Subscribe response already proves that IPv6 works. Wake the other
+	// nodes before bridge report processing and store RPCs add unrelated delay.
+	c.subscriptionRouteReady(ctx, nodeID)
 	c.applyReports(ctx, nodeID, subscription.Reports, subscription.Events)
 	c.markNodeAvailable(nodeID)
 
@@ -383,17 +622,18 @@ func (c *Controller) subscribeOnce(ctx context.Context, nodeID uint64) error {
 // zijn eerste rapport.
 const nodeIndexTTL = time.Minute
 
-// routeWaitLoud: hoe lang "de route komt nog" een stil opstartmoment mag zijn.
-// Twee minuten is ruim boven wat een router-advertisement kost (leannet vraagt
-// er sinds RFC 7559 om met 4s-8s-16s-backoff) en ruim onder de tijd waarin
-// iemand zich afvraagt waarom er niets gebeurt. Een var en geen const, zodat een
-// test de grens kan verkorten: het gedrag eróver -- grijs en retry in plaats van
-// stil vasthouden -- is anders niet te bewijzen zonder twee minuten te wachten.
-var routeWaitLoud = 2 * time.Minute
-
-// routeWaitPoll: hoe vaak we binnen dat venster stil opnieuw kijken. Ook een
-// var, om dezelfde reden als hierboven.
-var routeWaitPoll = 5 * time.Second
+// routeWaitLoud keeps the existing UX contract: a route that is still coming
+// up stays quiet for two minutes, after which devices truthfully become
+// unavailable. The attempts inside that window are now shared by the whole
+// controller and use bounded exponential backoff with jitter.
+var (
+	routeWaitLoud     = 2 * time.Minute
+	routeRetryInitial = time.Second
+	// One shared CASE probe every five seconds is cheap and notices a Router
+	// Advertisement promptly; the old cost came from doing that per node.
+	routeRetryMaximum = 5 * time.Second
+	routeRetryJitter  = 0.20
+)
 
 func (c *Controller) nodeDevices(ctx context.Context, nodeID uint64) ([]Device, connectionInfo, error) {
 	c.nodeIdxMu.Lock()

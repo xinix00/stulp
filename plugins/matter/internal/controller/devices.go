@@ -11,6 +11,7 @@ import (
 
 	"github.com/xinix00/stulp/plugins/matter/internal/im"
 	"github.com/xinix00/stulp/plugins/matter/internal/onboarding"
+	"github.com/xinix00/stulp/plugins/matter/internal/transport"
 )
 
 type deviceReplacement struct {
@@ -312,7 +313,8 @@ func modelRefreshRequired(devices []Device) bool {
 // deliberately non-destructive migration: commissioning and the installed
 // fabric stay untouched, while endpoints skipped by an older Stulp build can
 // become visible when support for their clusters is added.
-func (c *Controller) refreshNodeModel(ctx context.Context, nodeID uint64, existing []Device, info connectionInfo) ([]Device, error) {
+func (c *Controller) refreshNodeModel(ctx context.Context, nodeID uint64, existing []Device,
+	info connectionInfo, session *transport.SecureSession) ([]Device, error) {
 	payload := onboarding.Payload{}
 	for _, device := range existing {
 		if value, ok := number(device.Data["vendorId"]); ok && value >= 0 && value <= math.MaxUint16 {
@@ -326,12 +328,6 @@ func (c *Controller) refreshNodeModel(ctx context.Context, nodeID uint64, existi
 		}
 	}
 
-	c.mu.Lock()
-	session, err := c.session(ctx, info)
-	c.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
 	prototypes, err := inspectNode(ctx, im.Client{Transport: c.node, Session: session}, payload,
 		info.remote, nodeID, info.fabricIndex, info.noc)
 	if err != nil {

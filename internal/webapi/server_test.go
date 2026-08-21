@@ -119,6 +119,28 @@ func TestManageAssetKeepsItsDeviceFeatures(t *testing.T) {
 	}
 }
 
+func TestActiveDeviceQuickActionKeepsItsFillWhenHovered(t *testing.T) {
+	stylesheet, err := uiFiles.ReadFile("ui/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const selector = ".quick-action.active:hover:not(:disabled)"
+	start := strings.Index(string(stylesheet), selector)
+	if start < 0 {
+		t.Fatal("active device quick action has no dedicated hover style")
+	}
+	end := strings.Index(string(stylesheet[start:]), "}")
+	if end < 0 {
+		t.Fatal("active device quick action hover style is incomplete")
+	}
+	rule := string(stylesheet[start : start+end])
+	for _, declaration := range []string{"border-color: var(--primary)", "background: var(--primary)"} {
+		if !strings.Contains(rule, declaration) {
+			t.Errorf("active device quick action hover style misses %q", declaration)
+		}
+	}
+}
+
 func TestAnnouncedAppManifestFeedsManageDriversAndConfiguration(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(filepath.Join(t.TempDir(), "stulp.json"))

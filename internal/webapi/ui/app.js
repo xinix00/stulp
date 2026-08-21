@@ -10,10 +10,14 @@ const state = {
   pair: null, peer: null, settingsAppId: null,
 };
 const $ = id => document.getElementById(id);
+const nativeSceneAppID = 'com.stulp.scene';
 let autocompleteID = 0;
 let flowDrawFrame = 0;
 let realtimeReloadTimer = 0;
 let realtimeAbort = new AbortController();
+let loadPromise = null;
+let loadRequested = false;
+let realtimeDeviceUpdatesDuringLoad = null;
 const flowResizeObserver = new ResizeObserver(() => scheduleFlowConnections());
 const deviceLongPressDelay = 450;
 const devicePressMoveTolerance = 10;
@@ -43,9 +47,40 @@ function localized(value) {
 }
 function encode(value) { return encodeURIComponent(value); }
 
-async function load() {
+// Reloads are snapshots assembled from several endpoints. Keep only one in
+// flight: two snapshots that finish out of order can otherwise put yesterday's
+// device state back after a newer one.
+function load() {
+  loadRequested = true;
+  if (loadPromise) return loadPromise;
+  loadPromise = (async () => {
+    try {
+      while (loadRequested) {
+        loadRequested = false;
+        await loadSnapshot();
+      }
+    } finally {
+      loadPromise = null;
+    }
+  })();
+  return loadPromise;
+}
+
+function deviceWithLocalUIState(device, previous) {
+  return previous
+    ? { ...device, media: previous.media, mediaLoaded: previous.mediaLoaded, mediaLoading: false }
+    : device;
+}
+
+async function loadSnapshot() {
+  // Device updates keep arriving over SSE while the other snapshot requests
+  // (notably Flow registrations) are still pending. Remember their newest
+  // full snapshot per device, so the older GET /devices answer cannot erase a
+  // value or availability bit that was already shown.
+  const liveDeviceUpdates = new Map();
+  realtimeDeviceUpdatesDuringLoad = liveDeviceUpdates;
   try {
-	const previousDevices = new Map(state.devices.map(device => [device.id, device]));
+    const previousDevices = new Map(state.devices.map(device => [device.id, device]));
     const [health, apps, devices, deviceGroups, drivers, scenes, flows, flowCards, system] = await Promise.all([
       api('/api/stulp/health'), api('/api/manager/apps/app'),
       api('/api/manager/devices/device'), api('/api/stulp/device-groups'), api('/api/manager/drivers/driver'),
@@ -53,10 +88,17 @@ async function load() {
     ]);
     state.system = { ...system, version: health.stulpVersion || health.version || '' };
     state.apps = Object.values(apps);
-	state.devices = Object.values(devices).map(device => {
-	  const previous = previousDevices.get(device.id);
-	  return previous ? { ...device, media: previous.media, mediaLoaded: previous.mediaLoaded, mediaLoading: false } : device;
-	});
+    const currentDevices = new Map(state.devices.map(device => [device.id, device]));
+    const loadedDevices = Object.values(devices).map(device => deviceWithLocalUIState(
+      device, currentDevices.get(device.id) || previousDevices.get(device.id),
+    ));
+    for (const updated of liveDeviceUpdates.values()) {
+      const merged = deviceWithLocalUIState(updated, currentDevices.get(updated.id) || previousDevices.get(updated.id));
+      const index = loadedDevices.findIndex(device => device.id === updated.id);
+      if (index < 0) loadedDevices.push(merged);
+      else loadedDevices[index] = merged;
+    }
+    state.devices = loadedDevices;
     state.deviceGroups = Array.isArray(deviceGroups) ? deviceGroups : Object.values(deviceGroups);
     state.drivers = Object.values(drivers);
     state.scenes = Array.isArray(scenes) ? scenes : Object.values(scenes);
@@ -65,11 +107,12 @@ async function load() {
     $('connection').textContent = health.ok ? 'Online' : 'Offline';
     renderDevices();
     renderApps();
-    renderScenes();
     renderFlows();
   } catch (error) {
     $('connection').textContent = 'Offline';
     toast(error.message, true);
+  } finally {
+    if (realtimeDeviceUpdatesDuringLoad === liveDeviceUpdates) realtimeDeviceUpdatesDuringLoad = null;
   }
 }
 
@@ -1160,43 +1203,9 @@ async function openNotifications() {
 function sceneStateKey(deviceID, capabilityID) { return `${deviceID}\u0000${capabilityID}`; }
 
 function sceneWritableCapabilities(device) {
-  if (device.class === 'scene' || device.appId === 'com.stulp.scene') return [];
+  if (device.class === 'scene' || device.appId === nativeSceneAppID) return [];
   return Object.values(device.capabilitiesObj || {}).filter(capability =>
     capability.setable && capability.getable !== false && !statelessCapability(capability.id));
-}
-
-function sceneValueEquals(left, right) {
-  if (typeof left === 'number' || typeof right === 'number') {
-    const a = Number(left); const b = Number(right);
-    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 1e-6;
-  }
-  return left === right;
-}
-
-function sceneDevice(scene) {
-  return state.devices.find(device => device.data?.sceneId === scene.id);
-}
-
-function sceneIsOn(scene) {
-  const value = sceneDevice(scene)?.capabilitiesObj?.onoff?.value;
-  return typeof value === 'boolean' ? value : Boolean(scene.active);
-}
-
-function sceneLiveStatus(scene) {
-  if (!sceneIsOn(scene)) return { label: 'Uit', className: '' };
-  let unknown = false; let mismatch = false;
-  for (const wanted of scene.states || []) {
-    const device = state.devices.find(candidate => candidate.id === wanted.deviceId);
-    const capability = device?.capabilitiesObj?.[wanted.capabilityId];
-    if (!device || !capability || !device.available || unknownCapabilityValue(capability.value)) {
-      unknown = true;
-      continue;
-    }
-    if (!sceneValueEquals(capability.value, wanted.value)) mismatch = true;
-  }
-  if (!unknown && !mismatch) return { label: 'Aan', className: 'active' };
-  if (unknown) return { label: 'Aan · deels bekend', className: 'partial' };
-  return { label: 'Aan · wijkt af', className: 'partial' };
 }
 
 function formatSceneValue(capability, value) {
@@ -1205,55 +1214,22 @@ function formatSceneValue(capability, value) {
   return formatValue(value, capability?.units);
 }
 
-function scenePreview(scene) {
-  return (scene.states || []).slice(0, 5).map(wanted => {
-    const device = state.devices.find(candidate => candidate.id === wanted.deviceId);
-    const capability = device?.capabilitiesObj?.[wanted.capabilityId];
-    const deviceName = device?.name || 'Ontbrekend apparaat';
-    const title = localized(capability?.title) || wanted.capabilityId;
-    return `${deviceName}: ${title} → ${formatSceneValue(capability || {}, wanted.value)}`;
-  }).join(' · ');
-}
-
-function renderScenes() {
-  const list = $('scenes');
-  list.replaceChildren();
-  if (!state.scenes.length) {
-    return list.append(node('p', 'empty', 'Nog geen scenes. Leg één keer vast hoe je huis moet staan.'));
-  }
-  for (const scene of state.scenes) {
-    const card = node('article', 'overview-card scene-card');
-    const head = node('div', 'overview-card-head scene-card-head');
-    const icon = node('span', 'overview-card-icon scene-card-icon'); icon.append(materialIcon('auto_awesome'));
-    const copy = node('div', 'overview-card-copy scene-card-copy');
-    const devices = new Set((scene.states || []).map(wanted => wanted.deviceId)).size;
-    copy.append(node('strong', '', scene.name), node('small', '', `${devices} ${devices === 1 ? 'apparaat' : 'apparaten'} · ${(scene.states || []).length} standen`));
-    const live = sceneLiveStatus(scene);
-    head.append(icon, copy, node('span', `overview-card-status ${live.className}`.trim(), live.label));
-    card.append(head, node('div', 'scene-preview', scenePreview(scene)));
-    const actions = node('div', 'overview-card-actions scene-card-actions');
-    const device = sceneDevice(scene); const on = sceneIsOn(scene);
-    const toggle = actionButton(on ? 'Zet uit' : 'Zet aan', event => setScene(scene, !on, event.currentTarget), 'primary');
-    toggle.disabled = !device;
-    if (!device) toggle.title = 'Het scene-apparaat ontbreekt';
-    const edit = actionButton('Bewerk', () => openScene(scene));
-    const remove = iconButton('delete', 'Scene verwijderen', () => deleteScene(scene), 'danger');
-    edit.disabled = on; remove.disabled = on;
-    if (on) {
-      edit.title = 'Zet de scene eerst uit zodat de vorige standen bewaard blijven';
-      remove.title = edit.title;
-    }
-    actions.append(toggle, edit, remove);
-    card.append(actions); list.append(card);
-  }
+function sceneStateDescription(wanted) {
+  const device = state.devices.find(candidate => candidate.id === wanted.deviceId);
+  const capability = device?.capabilitiesObj?.[wanted.capabilityId];
+  const deviceName = device?.name || 'Ontbrekend apparaat';
+  const title = localized(capability?.title) || wanted.capabilityId;
+  return `${deviceName}: ${title} → ${formatSceneValue(capability || {}, wanted.value)}`;
 }
 
 function openScene(existing = null) {
+  if ($('pair-dialog').open) $('pair-dialog').close();
+  if ($('device-popover').open) $('device-popover').close();
   state.editingScene = existing
     ? JSON.parse(JSON.stringify(existing))
     : { name: '', states: [] };
   state.editingScene.states ||= [];
-  $('scene-title').textContent = existing ? 'Scene bewerken' : 'Nieuwe scene';
+  $('scene-title').textContent = existing ? 'Scene configureren' : 'Scene toevoegen';
   $('scene-name').value = state.editingScene.name || '';
   renderSceneEditor();
   $('scene-dialog').showModal();
@@ -1445,33 +1421,15 @@ async function saveScene(event) {
   if (!$('scene-form').reportValidity()) return;
   try {
     const path = scene.id ? `/api/stulp/scenes/${encode(scene.id)}` : '/api/stulp/scenes';
-    await api(path, { method: scene.id ? 'PUT' : 'POST', body: JSON.stringify(scene) });
-    $('scene-dialog').close(); await load(); toast('Scene opgeslagen');
-  } catch (error) { toast(error.message, true); }
-}
-
-async function setScene(scene, on, button = null) {
-  const device = sceneDevice(scene);
-  if (!device) return toast('Het scene-apparaat ontbreekt.', true);
-  if (button) button.disabled = true;
-  try {
-    await api(`/api/manager/devices/device/${encode(device.id)}/capability/onoff`, {
-      method: 'PUT', body: JSON.stringify({ value: on }),
-    });
+    const saved = await api(path, { method: scene.id ? 'PUT' : 'POST', body: JSON.stringify(scene) });
+    $('scene-dialog').close();
     await load();
-    toast(on ? 'Scene staat aan · vorige standen zijn onthouden' : 'Scene staat uit · vorige standen zijn hersteld');
-  } catch (error) {
-    try { await load(); } catch (_) { /* keep the original write error */ }
-    toast(error.message, true);
-  }
-  finally { if (button) button.disabled = false; }
-}
-
-async function deleteScene(scene) {
-  if (!confirm(`Scene “${scene.name}” verwijderen?`)) return;
-  try {
-    await api(`/api/stulp/scenes/${encode(scene.id)}`, { method: 'DELETE' });
-    await load(); toast('Scene verwijderd');
+    const device = state.devices.find(candidate => candidate.data?.sceneId === saved.id);
+    if (device) {
+      prepareDevicePopover(device);
+      showDeviceTab('configuration');
+    }
+    toast(scene.id ? 'Sceneconfiguratie opgeslagen' : 'Scene-apparaat toegevoegd');
   } catch (error) { toast(error.message, true); }
 }
 
@@ -2411,8 +2369,51 @@ async function deleteFlow(flow) {
   catch (error) { toast(error.message, true); }
 }
 
+function isSceneDevice(device) { return device.appId === nativeSceneAppID; }
+
+function sceneForDevice(device) {
+  if (!isSceneDevice(device)) return null;
+  return state.scenes.find(scene => scene.id === device.data?.sceneId) || null;
+}
+
+function renderSceneConfiguration(form, device) {
+  const scene = sceneForDevice(device);
+  form.append(node('h3', 'device-config-section', 'Scene-instellingen'));
+  if (!scene) {
+    form.append(node('p', 'app-error', 'De configuratie achter dit scene-apparaat ontbreekt.'));
+    return;
+  }
+
+  const deviceCount = new Set((scene.states || []).map(wanted => wanted.deviceId)).size;
+  form.append(node('p', 'settings-hint scene-config-explanation',
+    `Bij aan worden ${scene.states.length} ${scene.states.length === 1 ? 'stand' : 'standen'} op ${deviceCount} ${deviceCount === 1 ? 'apparaat' : 'apparaten'} gezet. Bij uit herstelt Stulp de standen die het vlak voor aan heeft onthouden.`));
+
+  const preview = node('div', 'scene-config-preview');
+  for (const wanted of (scene.states || []).slice(0, 8)) {
+    preview.append(node('div', 'scene-config-state', sceneStateDescription(wanted)));
+  }
+  if (scene.states.length > 8) preview.append(node('div', 'scene-config-more', `en nog ${scene.states.length - 8}…`));
+  form.append(preview);
+
+  const active = Boolean(device.capabilitiesObj?.onoff?.value ?? scene.active);
+  const edit = actionButton('Standen configureren', () => openScene(scene));
+  edit.classList.add('button-with-icon');
+  edit.prepend(materialIcon('tune'));
+  edit.disabled = active;
+  if (active) edit.title = 'Zet het scene-apparaat eerst uit; Stulp bewaart de vorige standen zolang het aan staat.';
+  const actions = node('div', 'scene-config-actions');
+  actions.append(edit);
+  if (active) actions.append(node('span', 'settings-hint', 'Eerst uitzetten om de herstelstanden niet te verliezen.'));
+  form.append(actions);
+}
+
 function renderDeviceConfiguration(device, driver) {
-  $('device-settings-status').textContent = `Hardware: ${device.hardwareName || device.name}`;
+  const isScene = isSceneDevice(device);
+  const scene = sceneForDevice(device);
+  const sceneActive = Boolean(device.capabilitiesObj?.onoff?.value ?? scene?.active);
+  $('device-settings-status').textContent = isScene
+    ? 'Ingebouwd scene-apparaat · aan onthoudt de vorige standen'
+    : `Hardware: ${device.hardwareName || device.name}`;
   const form = $('device-settings');
   form.replaceChildren();
 
@@ -2420,6 +2421,10 @@ function renderDeviceConfiguration(device, driver) {
   nameField.append(node('span', 'settings-label', 'Naam'));
   nameField.append(node('small', 'settings-hint', 'De naam waaronder dit apparaat in Stulp en Flows staat.'));
   const nameInput = node('input'); nameInput.id = 'device-config-name'; nameInput.type = 'text'; nameInput.maxLength = 100; nameInput.required = true; nameInput.value = device.name;
+  if (isScene && sceneActive) {
+    nameInput.disabled = true;
+    nameField.querySelector('.settings-hint').textContent = 'Zet de scene eerst uit om de naam of standen te wijzigen.';
+  }
   nameField.append(nameInput); form.append(nameField);
 
   const groupField = node('label', 'settings-field');
@@ -2454,6 +2459,7 @@ function renderDeviceConfiguration(device, driver) {
     input.dataset.setting = setting.id; input.dataset.type = setting.type;
     label.append(input); form.append(label);
   }
+  if (isScene) renderSceneConfiguration(form, device);
   const actions = node('div', 'actions');
   const save = actionButton('Opslaan', () => {}, 'primary'); save.id = 'device-settings-save'; save.type = 'submit';
   actions.append(save);
@@ -2491,7 +2497,9 @@ async function saveDeviceConfiguration(device) {
 	renderDeviceOverview(updated);
 	renderDeviceConfiguration(updated, state.drivers.find(item => item.id === updated.driverId));
 	showDeviceTab('configuration');
-	$('device-settings-status').textContent = `Opgeslagen · Hardware: ${updated.hardwareName || updated.name}`;
+	$('device-settings-status').textContent = isSceneDevice(updated)
+	  ? 'Opgeslagen · ingebouwd scene-apparaat'
+	  : `Opgeslagen · Hardware: ${updated.hardwareName || updated.name}`;
 	toast('Configuratie opgeslagen');
   } catch (error) {
     $('device-settings-status').textContent = error.message;
@@ -2514,6 +2522,20 @@ function chooseDriver() {
   $('pair-frame').classList.add('hidden');
   content.replaceChildren();
   const groups = node('div', 'plugin-groups');
+
+  // Scenes zijn native omdat ze apparaten van meerdere, onderling geïsoleerde
+  // apps moeten kunnen lezen en bedienen. Voor de gebruiker is dat detail niet
+  // anders dan bij een plugin-driver: het is een apparaattype van Stulp en hoort
+  // daarom hier, op dezelfde plek waar ieder ander apparaat wordt toegevoegd.
+  const builtIn = node('section', 'plugin-group');
+  const builtInTitle = node('div', 'plugin-title');
+  builtInTitle.append(node('strong', '', 'Stulp'), node('small', 'muted', '1 apparaattype'));
+  const builtInChoices = node('div', 'choices');
+  const scene = node('button', 'choice');
+  scene.append(node('strong', '', 'Scene'), node('small', 'muted', 'Virtueel aan/uit-apparaat'));
+  scene.addEventListener('click', () => openScene());
+  builtInChoices.append(scene); builtIn.append(builtInTitle, builtInChoices); groups.append(builtIn);
+
   for (const app of state.apps) {
     const drivers = state.drivers.filter(item => item.ownerUri === `stulp:app:${app.id}` && item.pair && item.ready);
     if (!drivers.length) continue;
@@ -2984,7 +3006,6 @@ function applyRealtimeDevice(updated) {
   };
   if (state.deviceOrder) return;
   renderDevices();
-  renderScenes();
   refreshOpenDevicePopover(state.devices[index]);
 }
 
@@ -3001,6 +3022,9 @@ function handleRealtimeEvent(event) {
     return;
   }
   if (event.manager === 'devices' && event.type === 'device.update') {
+    if (realtimeDeviceUpdatesDuringLoad && event.data?.id && event.data.capabilitiesObj) {
+      realtimeDeviceUpdatesDuringLoad.set(event.data.id, event.data);
+    }
     applyRealtimeDevice(event.data);
     return;
   }
@@ -3065,7 +3089,6 @@ $('add-group').addEventListener('click', () => openGroupEditor());
 $('group-form').addEventListener('submit', saveGroup);
 $('group-delete').addEventListener('click', deleteGroup);
 $('group-dialog').addEventListener('close', () => { state.editingGroup = null; $('group-form').reset(); });
-$('add-scene').addEventListener('click', () => openScene());
 $('scene-form').addEventListener('submit', saveScene);
 $('scene-capture').addEventListener('click', captureWholeScene);
 $('scene-clear').addEventListener('click', () => { state.editingScene.states = []; renderSceneEditor(); });

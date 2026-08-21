@@ -24,27 +24,27 @@
     <a class="brand" href="/" aria-label="Stulp home"><img src="/assets/stulp.svg" alt=""><strong>Stulp</strong></a>
     <nav><button class="tab active" data-page="manage">Manage</button><button class="tab" data-page="scenes">Scenes</button><button class="tab" data-page="flows">Flows</button><button class="tab" data-page="apps">Apps<span class="tab-extra"> &amp; settings</span></button></nav>
     <span id="connection">Verbinden…</span>
-	<button id="notifications-button" class="icon-button" type="button" aria-label="Meldingen" title="Meldingen"><span class="material-symbols-rounded" aria-hidden="true">notifications</span></button>
+    <button id="notifications-button" class="icon-button" type="button" aria-label="Meldingen" title="Meldingen"><span class="material-symbols-rounded" aria-hidden="true">notifications</span></button>
   </header>
 
   <main>
     <section id="manage-page" class="page active">
-      <div class="page-title"><h1>Devices</h1><div class="page-actions"><button id="add-group" class="button-with-icon" type="button" aria-label="Groep toevoegen" title="Groep toevoegen"><span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span><span class="action-label">Groep toevoegen</span></button><button id="add-device" class="primary button-with-icon" type="button" aria-label="Device toevoegen" title="Device toevoegen"><span class="material-symbols-rounded" aria-hidden="true">add</span><span class="action-label">Device toevoegen</span></button></div></div>
+      <div class="page-title"><div class="page-heading"><h1>Devices</h1><p class="page-subtitle">Bedien en organiseer alle apparaten in huis.</p></div><div class="page-actions"><button id="add-group" class="button-with-icon" type="button" aria-label="Groep toevoegen" title="Groep toevoegen"><span class="material-symbols-rounded" aria-hidden="true">create_new_folder</span><span class="action-label">Groep toevoegen</span></button><button id="add-device" class="primary button-with-icon" type="button" aria-label="Device toevoegen" title="Device toevoegen"><span class="material-symbols-rounded" aria-hidden="true">add</span><span class="action-label">Device toevoegen</span></button></div></div>
       <div id="devices" class="list"><p class="empty">Laden…</p></div>
     </section>
 
     <section id="apps-page" class="page">
-	  <div class="page-title"><h1>Apps & settings</h1><div class="page-actions"><button id="restore-backup" class="button-with-icon" type="button" aria-label="Backup herstellen" title="Backup herstellen"><span class="material-symbols-rounded" aria-hidden="true">restore</span><span class="action-label">Backup herstellen</span></button><button id="download-backup" class="button-with-icon" type="button" aria-label="Backup downloaden" title="Backup downloaden"><span class="material-symbols-rounded" aria-hidden="true">download</span><span class="action-label">Backup downloaden</span></button></div></div>
+      <div class="page-title"><div class="page-heading"><h1>Apps & settings</h1><p class="page-subtitle">Beheer integraties, instellingen en backups.</p></div><div class="page-actions"><button id="restore-backup" class="button-with-icon" type="button" aria-label="Backup herstellen" title="Backup herstellen"><span class="material-symbols-rounded" aria-hidden="true">restore</span><span class="action-label">Backup herstellen</span></button><button id="download-backup" class="button-with-icon" type="button" aria-label="Backup downloaden" title="Backup downloaden"><span class="material-symbols-rounded" aria-hidden="true">download</span><span class="action-label">Backup downloaden</span></button></div></div>
       <div id="apps" class="list"><p class="empty">Laden…</p></div>
     </section>
 
     <section id="flows-page" class="page">
-      <div class="page-title"><h1>Flows</h1><div class="page-actions"><button id="add-flow" class="primary button-with-icon" type="button" aria-label="Nieuwe Flow" title="Nieuwe Flow"><span class="material-symbols-rounded" aria-hidden="true">add</span><span class="action-label">Nieuwe Flow</span></button></div></div>
+      <div class="page-title"><div class="page-heading"><h1>Flows</h1><p class="page-subtitle">Automatiseer acties met ALS, EN en DAN.</p></div><div class="page-actions"><button id="add-flow" class="primary button-with-icon" type="button" aria-label="Nieuwe Flow" title="Nieuwe Flow"><span class="material-symbols-rounded" aria-hidden="true">add</span><span class="action-label">Nieuwe Flow</span></button></div></div>
       <div id="flows" class="list"><p class="empty">Laden…</p></div>
     </section>
 
     <section id="scenes-page" class="page">
-      <div class="page-title"><div><h1>Scenes</h1><p class="page-subtitle">Een scène is een gewoon aan/uit-apparaat: aan zet de gekozen standen, uit herstelt wat er daarvoor stond.</p></div><div class="page-actions"><button id="add-scene" class="primary button-with-icon" type="button" aria-label="Nieuwe scene" title="Nieuwe scene"><span class="material-symbols-rounded" aria-hidden="true">add</span><span class="action-label">Nieuwe scene</span></button></div></div>
+      <div class="page-title"><div class="page-heading"><h1>Scenes</h1><p class="page-subtitle">Zet gekozen standen aan en herstel bij uitzetten automatisch de vorige waarden.</p></div><div class="page-actions"><button id="add-scene" class="primary button-with-icon" type="button" aria-label="Nieuwe scene" title="Nieuwe scene"><span class="material-symbols-rounded" aria-hidden="true">add</span><span class="action-label">Nieuwe scene</span></button></div></div>
       <div id="scenes" class="scene-list"><p class="empty">Laden…</p></div>
     </section>
 
@@ -63,16 +63,15 @@
     </form>
   </dialog>
 
-  <dialog id="flow-dialog" class="flow-dialog">
+  <dialog id="flow-dialog" class="flow-dialog settings-shell">
     <form id="flow-form" class="flow-editor">
-      <div class="flow-toolbar">
-        <div class="flow-heading"><span class="material-symbols-rounded flow-mark" aria-hidden="true">account_tree</span><h2 id="flow-title">Flow</h2></div>
-        <label class="flow-name-field"><span>Naam</span><input id="flow-name" type="text" maxlength="160" placeholder="Bijvoorbeeld: Licht aan bij beweging" required></label>
-        <label class="inline-check flow-enabled"><input id="flow-enabled" type="checkbox" checked> Actief</label>
-        <button id="flow-add" class="primary button-with-icon" type="button"><span class="material-symbols-rounded" aria-hidden="true">add</span>Toevoegen</button>
-        <button id="flow-test" type="button">Test</button>
-        <button class="primary" type="submit">Opslaan</button>
-        <button class="icon-button dialog-close" type="button" data-close="flow-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button>
+      <div class="dialog-title settings-title flow-dialog-title"><div><span class="settings-mark flow-mark"><span class="material-symbols-rounded" aria-hidden="true">account_tree</span></span><div><h2 id="flow-title">Flow</h2><p class="settings-status">Verbind ALS, EN en DAN tot één duidelijke automatisering.</p></div></div><button class="icon-button dialog-close" type="button" data-close="flow-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
+      <div class="flow-editor-toolbar">
+        <label class="settings-field flow-name-field"><span>Naam</span><input id="flow-name" type="text" maxlength="160" placeholder="Bijvoorbeeld: Licht aan bij beweging" required></label>
+        <div class="flow-toolbar-actions">
+          <label class="inline-check flow-enabled"><input id="flow-enabled" type="checkbox" checked> Actief</label>
+          <button id="flow-add" class="button-with-icon" type="button"><span class="material-symbols-rounded" aria-hidden="true">add</span>Kaart toevoegen</button>
+        </div>
       </div>
 
       <div id="flow-canvas" class="flow-canvas">
@@ -91,22 +90,27 @@
         <p id="flow-tokens" class="hint"></p>
         <span class="flow-drag-hint">Sleep kaarten · trek vanaf een blauwe uitgang · klik een lijn om te verwijderen</span>
       </div>
+      <div class="actions flow-editor-actions"><button id="flow-test" type="button">Test</button><span class="action-spacer"></span><button type="button" data-close="flow-dialog">Annuleren</button><button class="primary" type="submit">Flow opslaan</button></div>
     </form>
   </dialog>
 
-  <dialog id="flow-type-dialog" class="flow-type-dialog">
-    <div class="dialog-title"><h2>Wat wil je toevoegen?</h2><button class="icon-button dialog-close" data-close="flow-type-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
-    <div class="flow-type-choices">
-      <button type="button" data-flow-kind="trigger"><span class="flow-kind trigger-kind">ALS</span><strong>Startpunt</strong><small>Wanneer iets gebeurt</small></button>
-      <button type="button" data-flow-kind="condition"><span class="flow-kind condition-kind">EN</span><strong>Voorwaarde</strong><small>Alleen verder als dit klopt</small></button>
-      <button type="button" data-flow-kind="action"><span class="flow-kind action-kind">DAN</span><strong>Eindpunt</strong><small>Voer een actie uit</small></button>
+  <dialog id="flow-type-dialog" class="flow-type-dialog settings-shell compact-dialog">
+    <div class="dialog-title settings-title"><div><span class="settings-mark flow-mark"><span class="material-symbols-rounded" aria-hidden="true">add_card</span></span><div><h2>Wat wil je toevoegen?</h2><p class="settings-status">Kies de rol van de nieuwe kaart.</p></div></div><button class="icon-button dialog-close" data-close="flow-type-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
+    <div class="dialog-body flow-type-body">
+      <div class="flow-type-choices">
+        <button type="button" data-flow-kind="trigger"><span class="flow-kind trigger-kind">ALS</span><strong>Startpunt</strong><small>Wanneer iets gebeurt</small></button>
+        <button type="button" data-flow-kind="condition"><span class="flow-kind condition-kind">EN</span><strong>Voorwaarde</strong><small>Alleen verder als dit klopt</small></button>
+        <button type="button" data-flow-kind="action"><span class="flow-kind action-kind">DAN</span><strong>Eindpunt</strong><small>Voer een actie uit</small></button>
+      </div>
     </div>
   </dialog>
 
-  <dialog id="flow-card-dialog" class="flow-card-dialog">
-    <div class="dialog-title"><div><h2 id="flow-card-title">Kaart toevoegen</h2><p class="hint">Kies eerst een apparaat, of zoek direct.</p></div><button class="icon-button dialog-close" data-close="flow-card-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
-    <label class="flow-card-search"><span>Zoeken</span><input id="flow-card-search" type="search" placeholder="Zoek op apparaat of mogelijkheid…" autocomplete="off"></label>
-    <div id="flow-card-choices" class="flow-card-choices"></div>
+  <dialog id="flow-card-dialog" class="flow-card-dialog settings-shell">
+    <div class="dialog-title settings-title"><div><span class="settings-mark flow-mark"><span class="material-symbols-rounded" aria-hidden="true">view_in_ar</span></span><div><h2 id="flow-card-title">Kaart toevoegen</h2><p class="settings-status">Kies eerst een apparaat, of zoek direct.</p></div></div><button class="icon-button dialog-close" data-close="flow-card-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
+    <div class="dialog-body flow-card-dialog-body">
+      <label class="settings-field flow-card-search"><span>Zoeken</span><input id="flow-card-search" type="search" placeholder="Zoek op apparaat of mogelijkheid…" autocomplete="off"></label>
+      <div id="flow-card-choices" class="flow-card-choices"></div>
+    </div>
   </dialog>
 
   <dialog id="group-dialog" class="settings-shell compact-dialog">

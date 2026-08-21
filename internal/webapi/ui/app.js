@@ -174,9 +174,9 @@ function renderDeviceGroup(group) {
     const groupActions = node('div', 'device-group-actions');
     const siblings = childGroups(group.parentId || '');
     const index = siblings.findIndex(candidate => candidate.id === group.id);
-    const up = iconButton('arrow_upward', 'Groep omhoog', () => moveDeviceGroupOrder(group, -1)); up.disabled = index <= 0;
-    const down = iconButton('arrow_downward', 'Groep omlaag', () => moveDeviceGroupOrder(group, 1)); down.disabled = index < 0 || index >= siblings.length - 1;
-    groupActions.append(up, down, iconButton('more_horiz', 'Groep bewerken', () => openGroupEditor(group)));
+    const up = compactIconButton('arrow_upward', 'Groep omhoog', () => moveDeviceGroupOrder(group, -1)); up.disabled = index <= 0;
+    const down = compactIconButton('arrow_downward', 'Groep omlaag', () => moveDeviceGroupOrder(group, 1)); down.disabled = index < 0 || index >= siblings.length - 1;
+    groupActions.append(up, down, compactIconButton('more_horiz', 'Groep bewerken', () => openGroupEditor(group)));
     heading.append(groupActions);
   }
   section.append(heading);
@@ -1222,16 +1222,16 @@ function renderScenes() {
     return list.append(node('p', 'empty', 'Nog geen scenes. Leg één keer vast hoe je huis moet staan.'));
   }
   for (const scene of state.scenes) {
-    const card = node('article', 'scene-card');
-    const head = node('div', 'scene-card-head');
-    const icon = node('span', 'scene-card-icon'); icon.append(materialIcon('auto_awesome'));
-    const copy = node('div', 'scene-card-copy');
+    const card = node('article', 'overview-card scene-card');
+    const head = node('div', 'overview-card-head scene-card-head');
+    const icon = node('span', 'overview-card-icon scene-card-icon'); icon.append(materialIcon('auto_awesome'));
+    const copy = node('div', 'overview-card-copy scene-card-copy');
     const devices = new Set((scene.states || []).map(wanted => wanted.deviceId)).size;
     copy.append(node('strong', '', scene.name), node('small', '', `${devices} ${devices === 1 ? 'apparaat' : 'apparaten'} · ${(scene.states || []).length} standen`));
     const live = sceneLiveStatus(scene);
-    head.append(icon, copy, node('span', `scene-card-status ${live.className}`.trim(), live.label));
+    head.append(icon, copy, node('span', `overview-card-status ${live.className}`.trim(), live.label));
     card.append(head, node('div', 'scene-preview', scenePreview(scene)));
-    const actions = node('div', 'scene-card-actions');
+    const actions = node('div', 'overview-card-actions scene-card-actions');
     const device = sceneDevice(scene); const on = sceneIsOn(scene);
     const toggle = actionButton(on ? 'Zet uit' : 'Zet aan', event => setScene(scene, !on, event.currentTarget), 'primary');
     toggle.disabled = !device;
@@ -1480,16 +1480,17 @@ function renderFlows() {
   list.replaceChildren();
   if (!state.flows.length) return list.append(node('p', 'empty', 'Nog geen Flows. Maak je eerste ALS → EN → DAN-regel.'));
   for (const flow of state.flows) {
-    const row = node('article', 'row');
-    const head = node('div', 'row-head');
-    const name = node('div', 'name');
+    const row = node('article', 'overview-card flow-overview-card');
+    const head = node('div', 'overview-card-head flow-card-head');
+    const icon = node('span', 'overview-card-icon flow-card-icon'); icon.append(materialIcon('account_tree'));
+    const name = node('div', 'overview-card-copy flow-card-copy');
     const counts = flowNodeCounts(flow);
     name.append(node('strong', '', flow.name), node('small', '', `${counts.trigger} ALS · ${counts.condition} EN · ${counts.action} DAN · ${flow.edges?.length || 0} verbindingen`));
-    head.append(name, node('span', `status ${flow.enabled ? '' : 'off'}`, flow.enabled ? 'Actief' : 'Uit'));
+    head.append(icon, name, node('span', `overview-card-status ${flow.enabled ? 'active' : ''}`.trim(), flow.enabled ? 'Actief' : 'Uit'));
     row.append(head);
     if (flow.lastError) row.append(node('p', 'app-error', flow.lastError));
     else if (flow.lastRunAt) row.append(node('p', 'flow-last-run', `Laatst uitgevoerd: ${new Date(flow.lastRunAt).toLocaleString()}`));
-    const actions = node('div', 'row-actions');
+    const actions = node('div', 'overview-card-actions row-actions flow-card-actions');
     actions.append(actionButton('Bewerk', () => openFlow(flow), 'primary'));
     actions.append(actionButton('Test', () => runFlow(flow)));
     actions.append(actionButton(flow.enabled ? 'Uitschakelen' : 'Inschakelen', () => toggleFlow(flow)));
@@ -1584,7 +1585,7 @@ function renderFlowNode(flowNode) {
     top.append(inverted);
   }
   const controls = node('div', 'flow-step-actions');
-  controls.append(iconButton('delete', 'Verwijderen', () => removeFlowNode(flowNode.id), 'danger'));
+  controls.append(compactIconButton('delete', 'Verwijderen', () => removeFlowNode(flowNode.id), 'danger'));
   top.append(controls);
   wrapper.append(top);
   const body = node('div', 'flow-step-body');
@@ -1611,11 +1612,15 @@ function flowDeviceLabel(device) {
 }
 
 function iconButton(icon, title, handler, className = '') {
-  const button = actionButton('', handler, `flow-icon-button icon-button ${className}`.trim());
+  const button = actionButton('', handler, `icon-button ${className}`.trim());
   button.title = title;
   button.setAttribute('aria-label', title);
   button.append(materialIcon(icon));
   return button;
+}
+
+function compactIconButton(icon, title, handler, className = '') {
+  return iconButton(icon, title, handler, `compact-icon-button ${className}`.trim());
 }
 
 function startFlowNodeMove(event, flowNode, wrapper) {
@@ -1703,7 +1708,7 @@ function flowTriggerTokens() {
 // input-event, zodat step.args via de bestaande listener meeloopt.
 function withTokenPicker(label, input) {
   const row = node('div', 'flow-input-row');
-  const button = node('button', 'flow-icon-button icon-button flow-token-button');
+  const button = node('button', 'compact-icon-button icon-button flow-token-button');
   button.type = 'button';
   button.title = 'Triggerwaarde invoegen';
   button.append(materialIcon('data_object'));

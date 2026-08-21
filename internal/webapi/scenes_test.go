@@ -336,15 +336,36 @@ func TestSceneDeletionRefusesToBreakAFlow(t *testing.T) {
 func TestSceneUIAndRealtimeWiringAreServed(t *testing.T) {
 	server, _ := sceneServer(t)
 	page := request(t, server.Handler(), http.MethodGet, "/", nil, "").Body.String()
-	for _, needle := range []string{`data-page="scenes"`, `id="scenes-page"`, `id="scene-dialog"`, `id="scene-capture"`} {
+	for _, needle := range []string{
+		`data-page="scenes"`, `id="scenes-page"`, `id="scene-dialog"`, `id="scene-capture"`,
+		`class="page-heading"`, `id="flow-dialog" class="flow-dialog settings-shell"`,
+		`class="flow-editor-toolbar"`, `class="actions flow-editor-actions"`,
+	} {
 		if !strings.Contains(page, needle) {
-			t.Errorf("scene page misses %q", needle)
+			t.Errorf("management UI page misses %q", needle)
 		}
 	}
 	asset := request(t, server.Handler(), http.MethodGet, "/assets/app.js", nil, "").Body.String()
-	for _, needle := range []string{"renderScenes", "captureWholeScene", "setScene", "event.manager === 'scene'"} {
+	for _, needle := range []string{
+		"renderScenes", "captureWholeScene", "setScene", "event.manager === 'scene'",
+		"overview-card scene-card", "overview-card flow-overview-card", "compactIconButton",
+	} {
 		if !strings.Contains(asset, needle) {
-			t.Errorf("scene UI asset misses %q", needle)
+			t.Errorf("management UI asset misses %q", needle)
+		}
+	}
+	stylesheet := request(t, server.Handler(), http.MethodGet, "/assets/style.css", nil, "").Body.String()
+	for _, needle := range []string{
+		"--control-height: 36px", ".overview-card {", ".overview-card-status {",
+		".flow-editor-toolbar {", ".compact-icon-button {",
+	} {
+		if !strings.Contains(stylesheet, needle) {
+			t.Errorf("management stylesheet misses %q", needle)
+		}
+	}
+	for _, stale := range []string{".scene-card::before", "#7c83ff22", ".flow-icon-button"} {
+		if strings.Contains(stylesheet, stale) || strings.Contains(asset, stale) {
+			t.Errorf("management UI still contains obsolete styling %q", stale)
 		}
 	}
 }

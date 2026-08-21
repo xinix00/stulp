@@ -118,10 +118,18 @@ type deviceRecord struct {
 	Settings     map[string]any `json:"settings,omitempty"`
 	Store        map[string]any `json:"store,omitempty"`
 	Capabilities []string       `json:"capabilities,omitempty"`
-	Available    bool           `json:"available"`
-	Message      string         `json:"unavailableMessage,omitempty"`
-	CreatedAt    string         `json:"createdAt,omitempty"`
-	UpdatedAt    string         `json:"updatedAt,omitempty"`
+	// Bereikbaarheid is een waarneming van nú, geen configuratie: hij hoort bij
+	// de state, net als capability-waarden, en gaat dus nooit het document in
+	// of uit — en daarmee vanzelf ook geen backup of restore. Elke start begint
+	// onbereikbaar tot een app het tegendeel bewijst; vóór deze vlag deed een
+	// teruggezet document zich minutenlang "beschikbaar" voor met de waarneming
+	// van dagen eerder. Een ouder document dat de velden nog draagt wordt
+	// gelezen alsof ze er niet staan. Scene-apparaten zijn synthetisch en
+	// altijd bereikbaar; reconcileSceneDevices zet dat bij het laden weer aan.
+	Available bool   `json:"-"`
+	Message   string `json:"-"`
+	CreatedAt string `json:"createdAt,omitempty"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
 }
 
 func (record deviceRecord) device(state map[string]any) Device {

@@ -961,7 +961,11 @@ func (p *Process) notify(method string, params any) {
 func deviceSnapshot(device store.Device) map[string]any {
 	return map[string]any{
 		"name": device.Name, "class": device.Class, "available": device.Available,
-		"data": device.Data, "settings": device.Settings, "store": device.Store,
+		// De reden hoort bij de vlag: zonder dit veld kan een app zijn eigen
+		// onbereikbaar-melding niet teruglezen, en dus ook niet zien dat een
+		// nieuwe melding een oude moet vervangen.
+		"unavailableMessage": device.Message,
+		"data":               device.Data, "settings": device.Settings, "store": device.Store,
 		"state": device.State, "capabilities": device.Capabilities,
 	}
 }

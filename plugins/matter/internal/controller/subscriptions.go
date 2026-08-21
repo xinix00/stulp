@@ -212,10 +212,14 @@ func (c *Controller) maintainSubscription(ctx context.Context, nodeID uint64, su
 		// onmiddellijk. Zevenentwintig workers die daar elk per poging een warn
 		// van maken en hun tegel grijs zetten, maken van elke boot een
 		// rampenfilm die zichzelf een minuut later oplost (gemeten 20-08).
-		// Dus: binnen routeWaitLoud stil vasthouden, niets grijs zetten, en zo
+		// Dus: binnen routeWaitLoud stil vasthouden, niets overschrijven, en zo
 		// weer kijken — de eerste poging ná de RA slaagt gewoon. Eén debug-regel
 		// per worker per episode houdt het log eerlijk zonder de ringbuffer te
-		// verzuipen.
+		// verzuipen. De tegel liegt hier niet bij: bereikbaarheid overleeft
+		// geen start van Stulp — hij is state, geen configuratie (zie
+		// deviceRecord in de store) — dus een boot en een restore beginnen
+		// eerlijk onbereikbaar, en mid-run staat er een toestand die deze run
+		// zelf heeft waargemaakt.
 		if err != nil && strings.Contains(err.Error(), "no IPv6 route") {
 			if routeWaitStarted.IsZero() {
 				routeWaitStarted = time.Now()

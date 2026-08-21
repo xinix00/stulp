@@ -45,6 +45,7 @@ func TestBackupRestoresDatabaseAndRelocatesAppBundles(t *testing.T) {
 	device, err := source.AddDevice(ctx, store.Device{
 		AppID: appManifest.ID, DriverID: "switch", Name: "Backuplamp", Class: "light",
 		Data: map[string]any{"id": "backup-light"}, Capabilities: []string{"onoff"}, State: map[string]any{"onoff": true},
+		Available: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +83,12 @@ func TestBackupRestoresDatabaseAndRelocatesAppBundles(t *testing.T) {
 	}
 	if len(restoredDevice.State) != 0 {
 		t.Fatalf("capability values were persisted after all: %#v", restoredDevice.State)
+	}
+	// Bereikbaarheid is net zo'n waarneming als een capability-waarde: "was
+	// beschikbaar toen de backup gemaakt werd" is na een restore geen waarheid
+	// meer, dus ook die reist niet mee.
+	if restoredDevice.Available || restoredDevice.Message != "" {
+		t.Fatalf("availability travelled in the backup: %#v", restoredDevice)
 	}
 	restoredApp, err := restored.App(ctx, appManifest.ID)
 	if err != nil {

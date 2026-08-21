@@ -94,12 +94,19 @@ func (b *backing) read(id string) (controller.Device, bool) {
 	if device == nil {
 		return controller.Device{}, false
 	}
+	// De reden betekent alleen iets zolang het apparaat onbereikbaar is. Het
+	// veld blijft in Stulp staan als het apparaat weer bereikbaar wordt, en
+	// meelezen zou dan een oude fout als actueel presenteren.
+	message := ""
+	if !device.Available() {
+		message = stringField(b.stulp, id, "unavailableMessage")
+	}
 	return controller.Device{
 		ID: id, DriverID: device.DriverID(),
 		Name: device.Name(), Class: stringField(b.stulp, id, "class"),
 		Data: device.Data(), Settings: device.Settings(), Store: device.Store(),
 		Capabilities: device.Capabilities(), State: deviceState(device),
-		Available: device.Available(),
+		Available: device.Available(), Message: message,
 	}, true
 }
 
@@ -142,7 +149,10 @@ func (b *backing) UpdateDevice(_ context.Context, updated controller.Device) err
 			return err
 		}
 	}
-	if current.Available != updated.Available {
+	// Ook een nieuwe reden bij een apparaat dat al onbereikbaar wás moet door:
+	// wie de eerste reden laat staan terwijl de echte fout inmiddels bekend
+	// is, laat de gebruiker naar een verouderde melding kijken.
+	if current.Available != updated.Available || current.Message != updated.Message {
 		if updated.Available {
 			return device.SetAvailable()
 		}

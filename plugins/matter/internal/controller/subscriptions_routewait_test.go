@@ -41,9 +41,11 @@ func TestRouteWaitIsQuietThenFallsThrough(t *testing.T) {
 		return routeErr
 	})
 
-	// Binnen het venster: stil. Niets grijs, want de eerste poging ná de router
-	// advertisement slaagt gewoon en een grijze tegel zou liegen over een node
-	// die net opstart.
+	// Binnen het venster: stil. De worker schrijft niets over de tegel heen --
+	// wat er staat is al eerlijk: een start van Stulp begint onbereikbaar
+	// (bereikbaarheid is state en overleeft het document niet), en mid-run
+	// staat er een toestand die deze run zelf heeft waargemaakt. De eerste
+	// poging ná de router advertisement slaagt gewoon.
 	time.Sleep(60 * time.Millisecond)
 	early, err := database.Device(context.Background(), device.ID)
 	if err != nil {

@@ -751,6 +751,99 @@ func TestForeignAppRootDoesNotEraseAKnownManifest(t *testing.T) {
 	}
 }
 
+// Bereikbaarheid is een waarneming van nú, geen configuratie: hij hoort bij de
+// state, net als capability-waarden, en gaat het document nooit in of uit --
+// en daarmee vanzelf ook geen backup of restore. Vóór deze regel deed een
+// teruggezet document zich minutenlang "beschikbaar" voor met de waarneming
+// van dagen eerder, over apparaten waarmee dit huis nog nooit gesproken had.
+// Zolang Stulp draait blijft de waarneming gewoon staan; een ouder document
+// dat de velden nog draagt wordt gelezen alsof ze er niet staan; en het
+// scene-apparaat is de uitzondering die de regel bewijst: synthetisch, dus
+// altijd bereikbaar.
+func TestAvailabilityIsStateAndDoesNotSurviveTheDocument(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "stulp.json")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, appRoot, err := manifest.Load(bundle(t, map[string]any{
+		"id": "com.stulp.thing", "version": "1.0.0", "sdk": float64(3),
+		"name": map[string]any{"en": "Thing"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.InstallApp(ctx, loaded, appRoot, ""); err != nil {
+		t.Fatal(err)
+	}
+	device, err := database.AddDevice(ctx, Device{
+		AppID: "com.stulp.thing", DriverID: "switch", Name: "Lamp", Class: "light",
+		Data: map[string]any{"id": "lamp"}, Capabilities: []string{"onoff"}, Available: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateScene(ctx, Scene{
+		ID: "avond", Name: "Avond",
+		States: []SceneState{{DeviceID: device.ID, CapabilityID: "onoff", Value: true}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Het document -- en dus elke backup, want die is een snapshot ervan --
+	// draagt het woord niet eens.
+	data, err := database.SnapshotBytes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "available") {
+		t.Fatalf("het document draagt bereikbaarheid:\n%s", data)
+	}
+	live, err := database.Device(ctx, device.ID)
+	if err != nil || !live.Available {
+		t.Fatalf("de draaiende store hoort zijn waarneming te houden: %#v, %v", live, err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := reopened.Device(ctx, device.ID)
+	if err != nil || restarted.Available || restarted.Message != "" {
+		t.Fatalf("bereikbaarheid overleefde een herstart: %#v, %v", restarted, err)
+	}
+	sceneDevice, err := reopened.Device(ctx, SceneDeviceID("avond"))
+	if err != nil || !sceneDevice.Available {
+		t.Fatalf("een scene-apparaat hoort altijd bereikbaar te zijn: %#v, %v", sceneDevice, err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Een document van een oudere Stulp -- of uit een oude backup -- draagt de
+	// velden nog wél; ze worden gelezen alsof ze er niet staan.
+	old := `{"version":2,"apps":[],"devices":[{"id":"oud","appId":"com.stulp.thing","driverId":"switch",` +
+		`"name":"Oud","class":"light","available":true,"unavailableMessage":"fout van toen"}],` +
+		`"deviceGroups":[],"scenes":[],"flows":[]}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrated.Close()
+	inherited, err := migrated.Device(ctx, "oud")
+	if err != nil || inherited.Available || inherited.Message != "" {
+		t.Fatalf("bereikbaarheid uit een oud document is ingelezen: %#v, %v", inherited, err)
+	}
+}
+
 // De versie is wat de app zégt, niet wat het document onthoudt: een nieuwe
 // announce met een nieuwe versie is meteen de waarheid, en in het opgeslagen
 // document komt het woord versie niet meer voor bij een app.

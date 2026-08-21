@@ -722,15 +722,26 @@ func (s *Store) UpdateDevice(ctx context.Context, device Device) error {
 	updated.CreatedAt, updated.UpdatedAt = existing.CreatedAt, existing.UpdatedAt
 
 	stateChanged := !reflect.DeepEqual(s.state[device.ID], device.State)
+	runtimeChanged := existing.Available != updated.Available || existing.Message != updated.Message
+	// Availability and its explanation live only for this process. Keep their
+	// current values out of the configuration comparison: otherwise an online
+	// transition rewrites the document and bumps UpdatedAt even though neither
+	// field is serialized. The live record still receives them below, so reads
+	// and the event snapshot immediately see the new observation.
+	updated.Available, updated.Message = existing.Available, existing.Message
 	configurationChanged := !reflect.DeepEqual(existing, updated)
+	updated.Available, updated.Message = device.Available, device.Message
 	s.state[device.ID] = cloneMap(device.State)
 	var err error
 	if configurationChanged {
 		updated.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		s.doc.Devices[index] = updated
 		err = s.saveLocked()
+	} else if runtimeChanged {
+		s.doc.Devices[index].Available = updated.Available
+		s.doc.Devices[index].Message = updated.Message
 	}
-	if err == nil && (stateChanged || configurationChanged) {
+	if err == nil && (stateChanged || runtimeChanged || configurationChanged) {
 		// Publish the store-owned snapshot while the write lock still defines
 		// update order. Consumers never observe a caller mutating this Device
 		// after UpdateDevice returns, and rapid updates cannot swap places.

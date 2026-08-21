@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -841,6 +842,86 @@ func TestAvailabilityIsStateAndDoesNotSurviveTheDocument(t *testing.T) {
 	inherited, err := migrated.Device(ctx, "oud")
 	if err != nil || inherited.Available || inherited.Message != "" {
 		t.Fatalf("bereikbaarheid uit een oud document is ingelezen: %#v, %v", inherited, err)
+	}
+}
+
+func TestAvailabilityUpdateIsMemoryOnlyAndPublishesOneSnapshot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "stulp.json")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	loaded, appRoot, err := manifest.Load(bundle(t, map[string]any{
+		"id": "com.stulp.thing", "version": "1.0.0", "sdk": float64(3),
+		"name": map[string]any{"en": "Thing"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.InstallApp(ctx, loaded, appRoot, ""); err != nil {
+		t.Fatal(err)
+	}
+	device, err := database.AddDevice(ctx, Device{
+		AppID: "com.stulp.thing", DriverID: "switch", Name: "Lamp", Class: "light",
+		Data: map[string]any{"id": "lamp"}, Capabilities: []string{"onoff"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	beforeSnapshot, err := database.SnapshotBytes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeDocument, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, cancel := database.Subscribe(2)
+	defer cancel()
+
+	device.Available = false
+	device.Message = "verbinding wordt opnieuw opgebouwd"
+	if err := database.UpdateDevice(ctx, device); err != nil {
+		t.Fatal(err)
+	}
+
+	afterSnapshot, err := database.SnapshotBytes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterDocument, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(afterSnapshot, beforeSnapshot) {
+		t.Fatalf("een runtime-bereikbaarheidswijziging veranderde de snapshot:\nvoor:\n%s\nna:\n%s", beforeSnapshot, afterSnapshot)
+	}
+	if !bytes.Equal(afterDocument, beforeDocument) {
+		t.Fatalf("een runtime-bereikbaarheidswijziging herschreef het document:\nvoor:\n%s\nna:\n%s", beforeDocument, afterDocument)
+	}
+
+	live, err := database.Device(ctx, device.ID)
+	if err != nil || live.Available || live.Message != device.Message {
+		t.Fatalf("de live bereikbaarheid veranderde niet mee: device=%#v err=%v", live, err)
+	}
+	select {
+	case event := <-events:
+		published, ok := event.Data.(Device)
+		if event.Manager != "devices" || event.Type != "device.update" || event.ID != device.ID ||
+			!ok || published.Available || published.Message != device.Message {
+			t.Fatalf("onverwachte bereikbaarheidsupdate: %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("de runtime-bereikbaarheidswijziging publiceerde geen device.update")
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("de runtime-bereikbaarheidswijziging publiceerde meer dan één event: %#v", event)
+	default:
 	}
 }
 

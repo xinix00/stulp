@@ -14,10 +14,23 @@ const nativeSceneAppID = 'com.stulp.scene';
 let autocompleteID = 0;
 let flowDrawFrame = 0;
 let realtimeReloadTimer = 0;
+let realtimeManageReload = false;
+let realtimeVisibleRefresh = false;
+let initialLoadFallbackTimer = 0;
 let realtimeAbort = new AbortController();
 let loadPromise = null;
 let loadRequested = false;
 let realtimeDeviceUpdatesDuringLoad = null;
+let modalPagePosition = null;
+let activeConfirmation = null;
+const confirmationQueue = [];
+const deviceDetailPromises = new Map();
+const deviceDetailGenerations = new Map();
+const driverDetailPromises = new Map();
+const driverDetailGenerations = new Map();
+const loadedDriverIDs = new Set();
+const sceneDetailPromises = new Map();
+const sceneDetailGenerations = new Map();
 const flowResizeObserver = new ResizeObserver(() => scheduleFlowConnections());
 const deviceLongPressDelay = 450;
 const devicePressMoveTolerance = 10;
@@ -47,7 +60,204 @@ function localized(value) {
 }
 function encode(value) { return encodeURIComponent(value); }
 
-// Reloads are snapshots assembled from several endpoints. Keep only one in
+// Native dialogs maken de rest van de pagina inert. Safari laat de pagina op
+// touchschermen desondanks nog achter het venster bewegen; daarom bevriezen we
+// de body zolang ten minste één dialog open staat. De open-dialog-query maakt
+// dit ook correct voor geneste vensters, zoals een Flow-kaart of bevestiging.
+function syncModalPageLock() {
+  const shouldLock = Boolean(document.querySelector('dialog[open]'));
+  if (shouldLock && !modalPagePosition) {
+    modalPagePosition = { x: window.scrollX, y: window.scrollY };
+    document.body.style.setProperty('--modal-scroll-left', `${-modalPagePosition.x}px`);
+    document.body.style.setProperty('--modal-scroll-top', `${-modalPagePosition.y}px`);
+    document.body.style.setProperty('--modal-scrollbar-width', `${Math.max(0, window.innerWidth - document.documentElement.clientWidth)}px`);
+    document.documentElement.classList.add('modal-open');
+    document.body.classList.add('modal-open');
+    return;
+  }
+  if (shouldLock || !modalPagePosition) return;
+  const position = modalPagePosition;
+  modalPagePosition = null;
+  document.documentElement.classList.remove('modal-open');
+  document.body.classList.remove('modal-open');
+  document.body.style.removeProperty('--modal-scroll-left');
+  document.body.style.removeProperty('--modal-scroll-top');
+  document.body.style.removeProperty('--modal-scrollbar-width');
+  window.scrollTo(position.x, position.y);
+}
+
+function openModal(dialog) {
+  if (!dialog || dialog.open) return;
+  dialog.showModal();
+  syncModalPageLock();
+}
+
+function requestConfirmation(message, { title = 'Bevestigen', confirmLabel = 'Doorgaan', dangerous = false } = {}) {
+  return new Promise(resolve => {
+    confirmationQueue.push({ message: String(message || ''), title, confirmLabel, dangerous, resolve });
+    showNextConfirmation();
+  });
+}
+
+function showNextConfirmation() {
+  const dialog = $('confirm-dialog');
+  if (activeConfirmation || dialog.open || !confirmationQueue.length) return;
+  activeConfirmation = confirmationQueue.shift();
+  $('confirm-title').textContent = activeConfirmation.title;
+  $('confirm-message').textContent = activeConfirmation.message;
+  const accept = $('confirm-accept');
+  accept.textContent = activeConfirmation.confirmLabel;
+  accept.classList.toggle('primary', !activeConfirmation.dangerous);
+  accept.classList.toggle('destructive', activeConfirmation.dangerous);
+  dialog.classList.toggle('destructive', activeConfirmation.dangerous);
+  dialog.returnValue = '';
+  openModal(dialog);
+}
+
+function finishConfirmation() {
+  if (!activeConfirmation) return;
+  const confirmation = activeConfirmation;
+  activeConfirmation = null;
+  confirmation.resolve($('confirm-dialog').returnValue === 'confirm');
+  showNextConfirmation();
+}
+
+function resource(path, normalize, commit) {
+  return { path, normalize, commit, loaded: false, dirty: true, generation: 0, promise: null };
+}
+
+// Alles buiten het actieve scherm heeft een eigen cache. Een lege lijst is een
+// geldige, geladen waarde; `loaded` en `dirty` voorkomen dat leeg per ongeluk
+// "nog niet opgehaald" betekent. De generation-check is belangrijk bij SSE:
+// een antwoord dat vóór een invalidatie begon mag die invalidatie niet wissen.
+const resources = {
+  apps: resource('/api/manager/apps/app', value => Object.values(value || {}), value => { state.apps = value; }),
+  drivers: resource('/api/manager/drivers/driver', value => Object.values(value || {}), value => {
+    state.drivers = value;
+    loadedDriverIDs.clear();
+    value.forEach(driver => loadedDriverIDs.add(driver.id));
+  }),
+  flows: resource('/api/manager/flow/flow', value => Array.isArray(value) ? value : Object.values(value || {}), value => { state.flows = value; }),
+  flowCards: resource('/api/stulp/flow/cards', value => value || { triggers: [], conditions: [], actions: [] }, value => { state.flowCards = value; }),
+  system: resource('/api/stulp/system', value => value || {}, value => { state.system = { ...value, version: state.system.version || '' }; }),
+  deviceCatalog: resource('/api/manager/devices/device?view=automation', value => Object.values(value || {}), mergeDeviceCatalog),
+};
+
+async function ensureResource(name) {
+  const item = resources[name];
+  if (!item) throw new Error(`Onbekende Manage-resource ${name}`);
+  if (item.loaded && !item.dirty) return item.value;
+  if (item.promise) return item.promise;
+  const promise = (async () => {
+    for (;;) {
+      const generation = item.generation;
+      const raw = await api(item.path);
+      // De resource veranderde terwijl deze request onderweg was. Gooi de oude
+      // snapshot weg en lees precies één verse; callers blijven dezelfde
+      // single-flight Promise delen.
+      if (generation !== item.generation) continue;
+      const value = item.normalize(raw);
+      item.commit(value);
+      item.value = value;
+      item.loaded = true;
+      item.dirty = false;
+      return value;
+    }
+  })();
+  item.promise = promise;
+  try {
+    return await promise;
+  } finally {
+    if (item.promise === promise) item.promise = null;
+  }
+}
+
+function invalidateResources(...names) {
+  for (const name of names) {
+    const item = resources[name];
+    if (!item) continue;
+    item.generation++;
+    item.dirty = true;
+    if (name === 'drivers') {
+      for (const id of new Set([...loadedDriverIDs, ...driverDetailPromises.keys()])) {
+        driverDetailGenerations.set(id, (driverDetailGenerations.get(id) || 0) + 1);
+      }
+      loadedDriverIDs.clear();
+    }
+  }
+}
+
+function invalidateAllResources() { invalidateResources(...Object.keys(resources)); }
+
+function mergeCapabilities(previous, incoming) {
+  const incomingCapabilities = incoming.capabilitiesObj || {};
+  const keepPrevious = previous && (previous.capabilitiesComplete === true || previous.detailComplete === true) && incoming.capabilitiesComplete === false;
+  const capabilities = keepPrevious
+    ? { ...(previous.capabilitiesObj || {}), ...incomingCapabilities }
+    : Object.keys(incomingCapabilities).length ? { ...incomingCapabilities } : { ...(previous?.capabilitiesObj || {}) };
+  for (const [id, value] of Object.entries(incoming.capabilityValues || {})) {
+    if (capabilities[id]) capabilities[id] = { ...capabilities[id], value };
+  }
+  return capabilities;
+}
+
+function mergeDevice(device, previous = null) {
+  const merged = { ...(previous || {}), ...device };
+  merged.capabilitiesObj = mergeCapabilities(previous, device);
+  if (previous?.detailComplete === true && device.detailComplete === false) merged.detailComplete = true;
+  if ((previous?.capabilitiesComplete === true || previous?.detailComplete === true) && device.capabilitiesComplete === false) {
+    merged.capabilitiesComplete = true;
+    if (previous.capabilities) merged.capabilities = previous.capabilities;
+  }
+  if (previous) {
+    merged.media = previous.media;
+    merged.mediaLoaded = previous.mediaLoaded;
+    merged.mediaLoading = previous.mediaLoading;
+  }
+  delete merged.capabilityValues;
+  return merged;
+}
+
+function mergeDeviceCatalog(catalog) {
+  const current = new Map(state.devices.map(device => [device.id, device]));
+  for (const item of catalog) {
+    const index = state.devices.findIndex(device => device.id === item.id);
+    const merged = mergeDevice(item, current.get(item.id));
+    if (index < 0) state.devices.push(merged);
+    else state.devices[index] = merged;
+  }
+}
+
+function activePage() { return document.querySelector('.tab.active')?.dataset.page || 'devices'; }
+
+async function refreshActivePage() {
+  const page = activePage();
+  try {
+    if (page === 'apps') {
+      await Promise.all([ensureResource('apps'), ensureResource('system')]);
+      if (activePage() === page) renderApps();
+    } else if (page === 'flows') {
+      await ensureResource('flows');
+      if (activePage() === page) renderFlows();
+    }
+  } catch (error) {
+    const target = $(page);
+    if (target && activePage() === page) target.replaceChildren(node('p', 'app-error', error.message));
+    else toast(error.message, true);
+  }
+}
+
+async function activatePage(page) {
+  document.querySelectorAll('.tab').forEach(item => item.classList.toggle('active', item.dataset.page === page));
+  document.querySelectorAll('.page').forEach(item => item.classList.toggle('active', item.id === `${page}-page`));
+  const target = $(page);
+  if (target && ((page === 'apps' && !resources.apps.loaded) || (page === 'flows' && !resources.flows.loaded))) {
+    target.replaceChildren(node('p', 'empty', 'Laden…'));
+  }
+  await refreshActivePage();
+}
+
+// Het eerste scherm is één compacte controller-snapshot. Keep only one in
 // flight: two snapshots that finish out of order can otherwise put yesterday's
 // device state back after a newer one.
 function load() {
@@ -66,48 +276,31 @@ function load() {
   return loadPromise;
 }
 
-function deviceWithLocalUIState(device, previous) {
-  return previous
-    ? { ...device, media: previous.media, mediaLoaded: previous.mediaLoaded, mediaLoading: false }
-    : device;
-}
-
 async function loadSnapshot() {
-  // Device updates keep arriving over SSE while the other snapshot requests
-  // (notably Flow registrations) are still pending. Remember their newest
-  // full snapshot per device, so the older GET /devices answer cannot erase a
-  // value or availability bit that was already shown.
+  // Device updates keep arriving over SSE while the snapshot request is in
+  // flight. Remember their newest projection per device, so an older GET can
+  // never erase a value or availability bit that was already shown.
   const liveDeviceUpdates = new Map();
   realtimeDeviceUpdatesDuringLoad = liveDeviceUpdates;
   try {
     const previousDevices = new Map(state.devices.map(device => [device.id, device]));
-    const [health, apps, devices, deviceGroups, drivers, scenes, flows, flowCards, system] = await Promise.all([
-      api('/api/stulp/health'), api('/api/manager/apps/app'),
-      api('/api/manager/devices/device'), api('/api/stulp/device-groups'), api('/api/manager/drivers/driver'),
-      api('/api/stulp/scenes'), api('/api/manager/flow/flow'), api('/api/stulp/flow/cards'), api('/api/stulp/system'),
-    ]);
-    state.system = { ...system, version: health.stulpVersion || health.version || '' };
-    state.apps = Object.values(apps);
+    const snapshot = await api('/api/stulp/manage/bootstrap');
+    state.system = { ...state.system, version: snapshot.stulpVersion || snapshot.version || '' };
     const currentDevices = new Map(state.devices.map(device => [device.id, device]));
-    const loadedDevices = Object.values(devices).map(device => deviceWithLocalUIState(
+    const loadedDevices = Object.values(snapshot.devices || {}).map(device => mergeDevice(
       device, currentDevices.get(device.id) || previousDevices.get(device.id),
     ));
     for (const updated of liveDeviceUpdates.values()) {
-      const merged = deviceWithLocalUIState(updated, currentDevices.get(updated.id) || previousDevices.get(updated.id));
+      const existing = loadedDevices.find(device => device.id === updated.id) || currentDevices.get(updated.id) || previousDevices.get(updated.id);
+      const merged = mergeDevice(updated, existing);
       const index = loadedDevices.findIndex(device => device.id === updated.id);
       if (index < 0) loadedDevices.push(merged);
       else loadedDevices[index] = merged;
     }
     state.devices = loadedDevices;
-    state.deviceGroups = Array.isArray(deviceGroups) ? deviceGroups : Object.values(deviceGroups);
-    state.drivers = Object.values(drivers);
-    state.scenes = Array.isArray(scenes) ? scenes : Object.values(scenes);
-    state.flows = Array.isArray(flows) ? flows : Object.values(flows);
-    state.flowCards = flowCards;
-    $('connection').textContent = health.ok ? 'Online' : 'Offline';
+    state.deviceGroups = Array.isArray(snapshot.deviceGroups) ? snapshot.deviceGroups : Object.values(snapshot.deviceGroups || {});
+    $('connection').textContent = snapshot.ok ? 'Online' : 'Offline';
     renderDevices();
-    renderApps();
-    renderFlows();
   } catch (error) {
     $('connection').textContent = 'Offline';
     toast(error.message, true);
@@ -417,6 +610,10 @@ const quickCapabilityByClass = {
 };
 
 function quickCapability(device) {
+  const projected = typeof device.quickCapability === 'string'
+    ? device.capabilitiesObj?.[device.quickCapability]
+    : device.quickCapability;
+  if (projected?.id) return device.capabilitiesObj?.[projected.id] || projected;
   const capabilities = Object.values(device.capabilitiesObj || {});
   for (const wanted of [...(quickCapabilityByClass[device.class] || []), ...quickCapabilityPriority]) {
     const capability = capabilities.find(candidate => baseCapabilityID(candidate.id) === wanted);
@@ -575,14 +772,115 @@ function deviceClassSymbol(deviceClass) {
   }[deviceClass] || 'devices_other';
 }
 
-function prepareDevicePopover(device) {
+function invalidateDeviceDetail(id) {
+  deviceDetailGenerations.set(id, (deviceDetailGenerations.get(id) || 0) + 1);
+  const device = state.devices.find(candidate => candidate.id === id);
+  if (device) device.detailComplete = false;
+}
+
+function invalidateAllDeviceDetails() {
+  state.devices.forEach(device => invalidateDeviceDetail(device.id));
+}
+
+async function ensureDeviceDetail(id) {
+  const current = state.devices.find(device => device.id === id);
+  if (current?.detailComplete === true) return current;
+  if (deviceDetailPromises.has(id)) return deviceDetailPromises.get(id);
+  const promise = (async () => {
+    for (;;) {
+      const generation = deviceDetailGenerations.get(id) || 0;
+      const detail = await api(`/api/manager/devices/device/${encode(id)}`);
+      if (generation !== (deviceDetailGenerations.get(id) || 0)) continue;
+      const previous = state.devices.find(device => device.id === id);
+      const merged = mergeDevice({ ...detail, detailComplete: true, capabilitiesComplete: true }, previous);
+      const index = state.devices.findIndex(device => device.id === id);
+      if (index < 0) state.devices.push(merged);
+      else state.devices[index] = merged;
+      return merged;
+    }
+  })();
+  deviceDetailPromises.set(id, promise);
+  try {
+    return await promise;
+  } finally {
+    if (deviceDetailPromises.get(id) === promise) deviceDetailPromises.delete(id);
+  }
+}
+
+async function ensureDriver(driverID) {
+  if (!driverID) return null;
+  const cached = state.drivers.find(driver => driver.id === driverID);
+  if (cached && loadedDriverIDs.has(driverID)) return cached;
+  if (driverDetailPromises.has(driverID)) return driverDetailPromises.get(driverID);
+  const promise = (async () => {
+    for (;;) {
+      const generation = driverDetailGenerations.get(driverID) || 0;
+      const driver = await api(`/api/manager/drivers/driver/${encode(driverID)}`);
+      if (generation !== (driverDetailGenerations.get(driverID) || 0)) continue;
+      const index = state.drivers.findIndex(item => item.id === driver.id);
+      if (index < 0) state.drivers.push(driver);
+      else state.drivers[index] = driver;
+      loadedDriverIDs.add(driver.id);
+      return driver;
+    }
+  })();
+  driverDetailPromises.set(driverID, promise);
+  try {
+    return await promise;
+  } finally {
+    if (driverDetailPromises.get(driverID) === promise) driverDetailPromises.delete(driverID);
+  }
+}
+
+function sceneIDForDevice(device) { return device.sceneId || device.data?.sceneId || ''; }
+
+function invalidateScenes(sceneID = '') {
+  const ids = sceneID
+    ? [sceneID]
+    : [...new Set([...state.scenes.map(scene => scene.id), ...sceneDetailPromises.keys()])];
+  for (const id of ids) sceneDetailGenerations.set(id, (sceneDetailGenerations.get(id) || 0) + 1);
+  state.scenes = sceneID ? state.scenes.filter(scene => scene.id !== sceneID) : [];
+}
+
+async function ensureScene(sceneID) {
+  if (!sceneID) return null;
+  const cached = state.scenes.find(scene => scene.id === sceneID);
+  if (cached) return cached;
+  if (sceneDetailPromises.has(sceneID)) return sceneDetailPromises.get(sceneID);
+  const promise = (async () => {
+    for (;;) {
+      const generation = sceneDetailGenerations.get(sceneID) || 0;
+      const scene = await api(`/api/stulp/scenes/${encode(sceneID)}`);
+      if (generation !== (sceneDetailGenerations.get(sceneID) || 0)) continue;
+      const index = state.scenes.findIndex(item => item.id === scene.id);
+      if (index < 0) state.scenes.push(scene);
+      else state.scenes[index] = scene;
+      return scene;
+    }
+  })();
+  sceneDetailPromises.set(sceneID, promise);
+  try {
+    return await promise;
+  } finally {
+    if (sceneDetailPromises.get(sceneID) === promise) sceneDetailPromises.delete(sceneID);
+  }
+}
+
+async function prepareDevicePopover(device) {
   state.openDeviceID = device.id;
   updateDevicePopoverHeader(device);
-  renderDeviceOverview(device);
-  renderDeviceConfiguration(device, state.drivers.find(item => item.id === device.driverId));
   showDeviceTab('overview');
-  if (!device.mediaLoaded && !device.mediaLoading) void loadDeviceMedia(device.id);
-  if (!$('device-popover').open) $('device-popover').showModal();
+  $('device-overview').replaceChildren(node('p', 'empty', 'Apparaat laden…'));
+  openModal($('device-popover'));
+  try {
+    const detail = await ensureDeviceDetail(device.id);
+    if (state.openDeviceID !== device.id || !$('device-popover').open) return;
+    updateDevicePopoverHeader(detail);
+    renderDeviceOverview(detail);
+    if (!detail.mediaLoaded && !detail.mediaLoading) void loadDeviceMedia(detail.id);
+  } catch (error) {
+    if (state.openDeviceID === device.id) $('device-overview').replaceChildren(node('p', 'app-error', error.message));
+  }
 }
 
 function updateDevicePopoverHeader(device) {
@@ -591,7 +889,7 @@ function updateDevicePopoverHeader(device) {
   $('device-popover-status').textContent = device.available ? 'Beschikbaar' : device.unavailableMessage || 'Niet beschikbaar';
 }
 
-function showDeviceTab(tab) {
+async function showDeviceTab(tab) {
   state.deviceTab = tab === 'configuration' ? 'configuration' : 'overview';
   document.querySelectorAll('[data-device-tab]').forEach(button => {
     const active = button.dataset.deviceTab === state.deviceTab;
@@ -601,7 +899,26 @@ function showDeviceTab(tab) {
   });
   $('device-overview-panel').classList.toggle('hidden', state.deviceTab !== 'overview');
   $('device-configuration-panel').classList.toggle('hidden', state.deviceTab !== 'configuration');
-  if (state.deviceTab === 'configuration') $('device-config-name')?.focus();
+  if (state.deviceTab !== 'configuration') return;
+  const deviceID = state.openDeviceID;
+  if (!deviceID) return;
+  $('device-settings').replaceChildren(node('p', 'empty', 'Configuratie laden…'));
+  try {
+    const device = await ensureDeviceDetail(deviceID);
+    let driver = null;
+    if (isSceneDevice(device)) {
+      await Promise.all([ensureScene(sceneIDForDevice(device)), ensureResource('deviceCatalog')]);
+    } else {
+      driver = await ensureDriver(device.driverId);
+    }
+    if (state.openDeviceID !== deviceID || state.deviceTab !== 'configuration') return;
+    renderDeviceConfiguration(state.devices.find(item => item.id === deviceID) || device, driver);
+    $('device-config-name')?.focus();
+  } catch (error) {
+    if (state.openDeviceID === deviceID && state.deviceTab === 'configuration') {
+      $('device-settings').replaceChildren(node('p', 'app-error', error.message));
+    }
+  }
 }
 
 function renderDeviceOverview(device) {
@@ -694,7 +1011,7 @@ function openGroupEditor(group = null) {
   appendGroupOptions(parent, group?.parentId || '', group?.id || '');
   parent.value = group?.parentId || '';
   $('group-delete').classList.toggle('hidden', !group);
-  $('group-dialog').showModal();
+  openModal($('group-dialog'));
   $('group-name').focus();
 }
 
@@ -716,7 +1033,10 @@ async function saveGroup(event) {
 
 async function deleteGroup() {
   const group = state.editingGroup;
-  if (!group || !confirm(`Groep “${group.name}” verwijderen? Apparaten en subgroepen schuiven één niveau omhoog.`)) return;
+  if (!group || !await requestConfirmation(
+    `Groep “${group.name}” verwijderen? Apparaten en subgroepen schuiven één niveau omhoog.`,
+    { title: 'Groep verwijderen', confirmLabel: 'Verwijderen', dangerous: true },
+  )) return;
   try {
     await api(`/api/stulp/device-groups/${encode(group.id)}`, { method: 'DELETE' });
     $('group-dialog').close();
@@ -952,10 +1272,18 @@ async function setSystem(patch) {
   try {
     const answer = await api('/api/stulp/system', { method: 'PUT', body: JSON.stringify(patch) });
     state.system = { ...answer, version: state.system.version };
+    resources.system.value = answer;
+    resources.system.loaded = true;
+    resources.system.dirty = false;
     // Een andere eenheid raakt elke tegel, elke kaart en elke Flow-drempel, en
     // die komen allemaal van de server. Dus opnieuw ophalen in plaats van hier
     // gaan rekenen: dan is er één plek waar de omrekening staat.
-    if (patch.units) await load(); else renderApps();
+    if (patch.units) {
+      invalidateResources('deviceCatalog', 'flows', 'flowCards');
+      invalidateAllDeviceDetails();
+      await load();
+    }
+    renderApps();
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1028,19 +1356,35 @@ function openAppSettings(app) {
   $('settings-title').textContent = app.name || app.id;
   $('settings-status').textContent = 'Settings laden…';
   $('settings-frame').src = `/app-ui/${encode(app.id)}/settings/`;
-  $('settings-dialog').showModal();
+  openModal($('settings-dialog'));
 }
+
+async function refreshAppsAfterMutation() {
+  invalidateResources('apps', 'drivers', 'flows', 'flowCards');
+  invalidateAllDeviceDetails();
+  await Promise.all([load(), ensureResource('apps')]);
+  if (activePage() === 'apps') renderApps();
+}
+
 async function toggleApp(app) {
   try {
     await api(`/api/manager/apps/app/${encode(app.id)}/${app.enabled ? 'disable' : 'enable'}`, { method: 'PUT' });
-    await load();
+    await refreshAppsAfterMutation();
   } catch (error) { toast(error.message, true); }
 }
 async function restartApp(app) {
-  try { await api(`/api/manager/apps/app/${encode(app.id)}/restart`, { method: 'POST' }); await load(); }
+  try { await api(`/api/manager/apps/app/${encode(app.id)}/restart`, { method: 'POST' }); await refreshAppsAfterMutation(); }
   catch (error) { toast(error.message, true); }
 }
 async function uninstallApp(app) {
+  try {
+    // De gevolgen moeten kloppen, ook wanneer de Flows-tab in deze sessie nog
+    // nooit open is geweest. Een lege cold cache als "geen gevolgen" tonen zou
+    // een gevaarlijke bevestiging opleveren.
+    await ensureResource('flows');
+  } catch (error) {
+    return toast(`Gevolgen konden niet worden opgehaald: ${error.message}`, true);
+  }
   const impact = appImpact(app);
   const consequences = [];
   if (impact.devices.length) {
@@ -1050,10 +1394,10 @@ async function uninstallApp(app) {
     consequences.push(`${impact.flows.length} Flow${impact.flows.length === 1 ? '' : 's'} wordt uitgeschakeld: ${impact.flows.map(flow => flow.name).join(', ')}`);
   }
   const question = [`${app.name || app.id} verwijderen?`, ...consequences, 'Dit kan niet ongedaan worden gemaakt.'].join('\n\n');
-  if (!confirm(question)) return;
+  if (!await requestConfirmation(question, { title: 'App verwijderen', confirmLabel: 'Verwijderen', dangerous: true })) return;
   try {
     const removed = await api(`/api/manager/apps/app/${encode(app.id)}`, { method: 'DELETE' });
-    await load();
+    await refreshAppsAfterMutation();
     toast(removed.warning || `${removed.name || removed.id} is verwijderd`, Boolean(removed.warning));
   } catch (error) { toast(error.message, true); }
 }
@@ -1061,7 +1405,7 @@ async function uninstallApp(app) {
 async function installApp(app) {
   try {
     const installed = await api(`/api/stulp/apps/${encode(app.id)}/install`, { method: 'POST' });
-    await load();
+    await refreshAppsAfterMutation();
     toast(`${installed.name || installed.id} is geïnstalleerd en mag nu draaien`);
   } catch (error) { toast(error.message, true); }
 }
@@ -1087,7 +1431,7 @@ async function downloadBackup() {
 function openRestore() {
 	$('restore-form').reset();
 	$('restore-file-detail').textContent = 'Kies het .zip-bestand dat door Stulp is gemaakt.';
-	$('restore-dialog').showModal();
+	openModal($('restore-dialog'));
 }
 
 function describeRestoreFile() {
@@ -1111,7 +1455,11 @@ async function restoreBackup(event) {
 		const result = await response.json().catch(() => null);
 		if (!response.ok) throw new Error(result?.error_description || result?.error || `HTTP ${response.status}`);
 		$('restore-dialog').close();
+		invalidateAllResources();
+		invalidateAllDeviceDetails();
+		invalidateScenes();
 		await load();
+		await refreshActivePage();
 		toast(result?.warning || 'Backup hersteld; apps worden opnieuw verbonden', Boolean(result?.warning));
 	} catch (error) {
 		toast(error.message, true);
@@ -1181,7 +1529,7 @@ function suggestedPhoneName() {
 async function openNotifications() {
 	const list = $('notifications');
 	list.replaceChildren(node('p', 'empty', 'Laden…'));
-	$('notifications-dialog').showModal();
+	openModal($('notifications-dialog'));
 	try {
 		const notifications = Object.values(await api('/api/manager/notifications/notification'));
 		list.replaceChildren();
@@ -1222,17 +1570,27 @@ function sceneStateDescription(wanted) {
   return `${deviceName}: ${title} → ${formatSceneValue(capability || {}, wanted.value)}`;
 }
 
-function openScene(existing = null) {
+async function openScene(existing = null) {
   if ($('pair-dialog').open) $('pair-dialog').close();
   if ($('device-popover').open) $('device-popover').close();
   state.editingScene = existing
     ? JSON.parse(JSON.stringify(existing))
     : { name: '', states: [] };
   state.editingScene.states ||= [];
+  $('scene-name').value = state.editingScene.name || '';
+  $('scene-title').textContent = existing ? 'Scene laden…' : 'Scene toevoegen';
+  $('scene-devices').replaceChildren(node('p', 'empty', 'Apparaten laden…'));
+  openModal($('scene-dialog'));
+  try {
+    await ensureResource('deviceCatalog');
+  } catch (error) {
+    $('scene-dialog').close();
+    return toast(error.message, true);
+  }
+  if (!$('scene-dialog').open) return;
   $('scene-title').textContent = existing ? 'Scene configureren' : 'Scene toevoegen';
   $('scene-name').value = state.editingScene.name || '';
   renderSceneEditor();
-  $('scene-dialog').showModal();
   $('scene-name').focus();
 }
 
@@ -1423,11 +1781,14 @@ async function saveScene(event) {
     const path = scene.id ? `/api/stulp/scenes/${encode(scene.id)}` : '/api/stulp/scenes';
     const saved = await api(path, { method: scene.id ? 'PUT' : 'POST', body: JSON.stringify(scene) });
     $('scene-dialog').close();
+    const sceneIndex = state.scenes.findIndex(item => item.id === saved.id);
+    if (sceneIndex < 0) state.scenes.push(saved); else state.scenes[sceneIndex] = saved;
+    invalidateResources('deviceCatalog', 'flows', 'flowCards');
     await load();
-    const device = state.devices.find(candidate => candidate.data?.sceneId === saved.id);
+    const device = state.devices.find(candidate => sceneIDForDevice(candidate) === saved.id);
     if (device) {
-      prepareDevicePopover(device);
-      showDeviceTab('configuration');
+      await prepareDevicePopover(device);
+      await showDeviceTab('configuration');
     }
     toast(scene.id ? 'Sceneconfiguratie opgeslagen' : 'Scene-apparaat toegevoegd');
   } catch (error) { toast(error.message, true); }
@@ -1457,21 +1818,31 @@ function renderFlows() {
   }
 }
 
-function openFlow(existing = null) {
-  if (existing) {
-    state.editingFlow = JSON.parse(JSON.stringify(existing));
-  } else {
-    state.editingFlow = { name: '', enabled: true, nodes: [], edges: [] };
-  }
+async function openFlow(existing = null) {
+  state.editingFlow = existing
+    ? JSON.parse(JSON.stringify(existing))
+    : { name: '', enabled: true, nodes: [], edges: [] };
   state.editingFlow.nodes ||= [];
   state.editingFlow.edges ||= [];
+  $('flow-name').value = state.editingFlow.name || '';
+  $('flow-enabled').checked = state.editingFlow.enabled !== false;
+  $('flow-test').disabled = true;
+  $('flow-title').textContent = existing ? 'Flow laden…' : 'Nieuwe Flow';
+  $('flow-nodes').replaceChildren(node('p', 'empty', 'Flow-onderdelen laden…'));
+  openModal($('flow-dialog'));
+  try {
+    await Promise.all([ensureResource('flowCards'), ensureResource('deviceCatalog'), ensureResource('apps')]);
+  } catch (error) {
+    $('flow-dialog').close();
+    return toast(error.message, true);
+  }
+  if (!$('flow-dialog').open) return;
   $('flow-title').textContent = existing ? 'Flow bewerken' : 'Nieuwe Flow';
   $('flow-name').value = state.editingFlow.name || '';
   $('flow-enabled').checked = state.editingFlow.enabled !== false;
   $('flow-test').disabled = !state.editingFlow.id;
   $('flow-test').title = state.editingFlow.id ? 'Sla wijzigingen op en voer deze Flow direct uit' : 'Sla de Flow eerst op';
   renderFlowEditor();
-  $('flow-dialog').showModal();
   scheduleFlowConnections();
   $('flow-name').focus();
 }
@@ -2064,9 +2435,12 @@ function removeFlowNode(id) {
   renderFlowEditor();
 }
 
-function openFlowTypePicker(point = null) {
+async function openFlowTypePicker(point = null) {
+  if (!state.editingFlow) return;
+  try { await ensureResource('flowCards'); }
+  catch (error) { return toast(error.message, true); }
   state.flowAddPoint = point;
-  $('flow-type-dialog').showModal();
+  openModal($('flow-type-dialog'));
 }
 
 function openFlowCardPicker(kind) {
@@ -2077,7 +2451,7 @@ function openFlowCardPicker(kind) {
   $('flow-card-title').textContent = kind === 'trigger' ? 'ALS toevoegen' : kind === 'condition' ? 'EN toevoegen' : 'DAN toevoegen';
   $('flow-card-search').value = '';
   renderFlowCardChoices();
-  $('flow-card-dialog').showModal();
+  openModal($('flow-card-dialog'));
   $('flow-card-search').focus();
 }
 
@@ -2332,9 +2706,16 @@ async function saveFlow(event) {
   try {
     const path = flow.id ? `/api/manager/flow/flow/${encode(flow.id)}` : '/api/manager/flow/flow';
     await api(path, { method: flow.id ? 'PUT' : 'POST', body: JSON.stringify(flow) });
-    $('flow-dialog').close(); await load(); toast('Flow opgeslagen');
+    $('flow-dialog').close(); await refreshFlows(); toast('Flow opgeslagen');
   } catch (error) { toast(error.message, true); }
 }
+
+async function refreshFlows() {
+  invalidateResources('flows');
+  await ensureResource('flows');
+  if (activePage() === 'flows') renderFlows();
+}
+
 async function testEditedFlow() {
   const flow = state.editingFlow;
   if (!flow?.id) return toast('Sla deze Flow eerst op.', true);
@@ -2345,27 +2726,29 @@ async function testEditedFlow() {
     const updated = await api(`/api/manager/flow/flow/${encode(flow.id)}`, { method: 'PUT', body: JSON.stringify(flow) });
     state.editingFlow = JSON.parse(JSON.stringify(updated));
     const result = await api(`/api/stulp/flows/${encode(flow.id)}/run`, { method: 'POST' });
-    await load();
+    await refreshFlows();
     renderFlowEditor();
     toast(result.stopped ? 'Test gestopt: een voorwaarde was niet waar' : 'Flow succesvol uitgevoerd');
-  } catch (error) { await load(); toast(error.message, true); }
+  } catch (error) { await refreshFlows().catch(() => {}); toast(error.message, true); }
   finally { button.disabled = false; }
 }
 async function toggleFlow(flow) {
   try {
     await api(`/api/manager/flow/flow/${encode(flow.id)}/enabled`, { method: 'PUT', body: JSON.stringify({ enabled: !flow.enabled }) });
-    await load();
+    await refreshFlows();
   } catch (error) { toast(error.message, true); }
 }
 async function runFlow(flow) {
   try {
     const result = await api(`/api/stulp/flows/${encode(flow.id)}/run`, { method: 'POST' });
-    await load(); toast(result.stopped ? 'Flow getest: voorwaarde was niet waar' : 'Flow succesvol uitgevoerd');
-  } catch (error) { await load(); toast(error.message, true); }
+    await refreshFlows(); toast(result.stopped ? 'Flow getest: voorwaarde was niet waar' : 'Flow succesvol uitgevoerd');
+  } catch (error) { await refreshFlows().catch(() => {}); toast(error.message, true); }
 }
 async function deleteFlow(flow) {
-  if (!confirm(`Flow “${flow.name}” verwijderen?`)) return;
-  try { await api(`/api/manager/flow/flow/${encode(flow.id)}`, { method: 'DELETE' }); await load(); }
+  if (!await requestConfirmation(`Flow “${flow.name}” verwijderen?`, {
+    title: 'Flow verwijderen', confirmLabel: 'Verwijderen', dangerous: true,
+  })) return;
+  try { await api(`/api/manager/flow/flow/${encode(flow.id)}`, { method: 'DELETE' }); await refreshFlows(); }
   catch (error) { toast(error.message, true); }
 }
 
@@ -2373,7 +2756,7 @@ function isSceneDevice(device) { return device.appId === nativeSceneAppID; }
 
 function sceneForDevice(device) {
   if (!isSceneDevice(device)) return null;
-  return state.scenes.find(scene => scene.id === device.data?.sceneId) || null;
+  return state.scenes.find(scene => scene.id === sceneIDForDevice(device)) || null;
 }
 
 function renderSceneConfiguration(form, device) {
@@ -2488,15 +2871,16 @@ async function saveDeviceConfiguration(device) {
   try {
 	await renameDevice(device, name);
 	await setDeviceGroup(device, groupID);
-	if (settingInputs.length) {
+    if (settingInputs.length) {
 	  await api(`/api/manager/devices/device/${encode(device.id)}/settings`, { method: 'PUT', body: JSON.stringify(patch) });
 	}
+    invalidateDeviceDetail(device.id);
+    invalidateResources('deviceCatalog', 'flowCards');
     await load();
-	const updated = state.devices.find(candidate => candidate.id === device.id) || device;
+    const updated = await ensureDeviceDetail(device.id);
 	updateDevicePopoverHeader(updated);
 	renderDeviceOverview(updated);
-	renderDeviceConfiguration(updated, state.drivers.find(item => item.id === updated.driverId));
-	showDeviceTab('configuration');
+	await showDeviceTab('configuration');
 	$('device-settings-status').textContent = isSceneDevice(updated)
 	  ? 'Opgeslagen · ingebouwd scene-apparaat'
 	  : `Opgeslagen · Hardware: ${updated.hardwareName || updated.name}`;
@@ -2507,19 +2891,31 @@ async function saveDeviceConfiguration(device) {
   } finally { button.disabled = false; }
 }
 async function deleteDevice(device) {
-  if (!confirm(`${device.name} verwijderen?`)) return;
+  if (!await requestConfirmation(`${device.name} verwijderen?`, {
+    title: 'Apparaat verwijderen', confirmLabel: 'Verwijderen', dangerous: true,
+  })) return;
   try {
 	await api(`/api/manager/devices/device/${encode(device.id)}`, { method: 'DELETE' });
 	if (state.openDeviceID === device.id) $('device-popover').close();
+	invalidateResources('deviceCatalog', 'flowCards');
 	await load();
   }
   catch (error) { toast(error.message, true); }
 }
 
-function chooseDriver() {
+async function chooseDriver() {
   const content = $('pair-content');
   $('pair-title').textContent = 'Device toevoegen';
   $('pair-frame').classList.add('hidden');
+  content.replaceChildren(node('p', 'empty', 'Apparaattypen laden…'));
+  openModal($('pair-dialog'));
+  try {
+    await Promise.all([ensureResource('apps'), ensureResource('drivers')]);
+  } catch (error) {
+    content.replaceChildren(node('p', 'app-error', error.message));
+    return;
+  }
+  if (!$('pair-dialog').open) return;
   content.replaceChildren();
   const groups = node('div', 'plugin-groups');
 
@@ -2554,7 +2950,6 @@ function chooseDriver() {
   }
   if (!groups.childElementCount) groups.append(node('p', 'empty', 'Geen pairbare apps of drivers beschikbaar.'));
   content.append(groups);
-  $('pair-dialog').showModal();
 }
 
 async function startPair(driver) {
@@ -2704,6 +3099,7 @@ async function pairEmit(event, data) {
 async function addCandidate(candidate) {
   try {
     await api(`/api/stulp/apps/${encode(state.pair.appId)}/drivers/${encode(state.pair.driverId)}/pair/devices`, { method: 'POST', body: JSON.stringify(candidate) });
+    invalidateResources('deviceCatalog', 'flowCards');
     $('pair-dialog').close(); await load();
   } catch (error) { toast(error.message, true); }
 }
@@ -2754,7 +3150,7 @@ async function handlePluginAction(action, args, context) {
     return true;
   }
   if (action === 'alert') { toast(args.message, args.type === 'error'); return true; }
-  if (action === 'confirm') return confirm(args.message);
+  if (action === 'confirm') return requestConfirmation(args.message);
   return true;
 }
 async function getAppSetting(appId, name) {
@@ -2773,7 +3169,7 @@ function startVideo(device, media) {
   stopVideo();
   $('video-title').textContent = media.title || device.name;
   $('video-status').textContent = 'Verbinden…';
-  $('video-dialog').showModal();
+  openModal($('video-dialog'));
   const url = `/api/stulp/devices/${encode(device.id)}/media/${encode(media.slot)}/stream?kind=video`;
   playStream(url).catch(error => {
     $('video-status').textContent = error.message || String(error);
@@ -2816,6 +3212,7 @@ async function playStream(url) {
   const source = new MediaSource();
   const reader = response.body.getReader();
   let stopped = false;
+  let gapListener = null;
 
   // Wat er binnenkwam en wat de speler ervan aannam. Alleen met die twee is een
   // stilstaand venster te verklaren: geen bytes is een camera die niets stuurt,
@@ -2853,6 +3250,7 @@ async function playStream(url) {
   videoStop = () => {
     stopped = true;
     settled();
+    if (gapListener) video.removeEventListener('waiting', gapListener);
     reader.cancel().catch(() => {});
     video.removeAttribute('src');
     video.load();
@@ -2868,6 +3266,7 @@ async function playStream(url) {
 
   source.addEventListener('sourceopen', async () => {
     URL.revokeObjectURL(video.src);
+    if (stopped) return;
     let buffer;
     try {
       buffer = source.addSourceBuffer(type);
@@ -2875,6 +3274,38 @@ async function playStream(url) {
       fail(`Deze browser kan ${type} niet inlezen: ${error.message}`);
       return;
     }
+    // Een trage kijker hervat na een gemist fragment pas op het volgende
+    // keyframe. De behouden mediatijd maakt daarvan twee buffered ranges. Een
+    // browser hoeft een gat van enkele seconden niet zelf over te slaan, dus
+    // zoek de eerstvolgende range zodra de afspeelkop nergens beeld heeft.
+    const jumpToAvailableImage = () => {
+      const ranges = buffer.buffered;
+      if (!ranges.length) return false;
+      const now = video.currentTime;
+      for (let i = 0; i < ranges.length; i++) {
+        const start = ranges.start(i);
+        const end = ranges.end(i);
+        if (now < start) {
+          video.currentTime = start;
+          return true;
+        }
+        if (now <= end) {
+          // Vlak voor het eind is er praktisch geen frame meer. Als achter dit
+          // bereik al een herstel-keyframe ligt, spring daar dan meteen heen.
+          if (i + 1 < ranges.length && end - now < 0.05) {
+            video.currentTime = ranges.start(i + 1);
+            return true;
+          }
+          return false;
+        }
+      }
+      // Voorbij de live-rand is nog geen nieuwer beeld beschikbaar. Niet naar
+      // oud beeld terugspoelen; een volgende append of waiting-ronde probeert
+      // het opnieuw zodra er wél iets achter de afspeelkop ligt.
+      return false;
+    };
+    gapListener = jumpToAvailableImage;
+    video.addEventListener('waiting', gapListener);
     // Live: wat voorbij is hoeft niet bewaard te blijven, anders groeit de
     // buffer een uur lang door tot de browser hem weggooit en het beeld hapert.
     buffer.mode = 'segments';
@@ -2917,11 +3348,9 @@ async function playStream(url) {
       // doorgeeft -- dan wacht hij eeuwig zonder een fout te geven. Eén sprong
       // naar het begin van wat er is maakt dat onschadelijk, ongeacht wat de
       // plugin stuurt.
-      if (video.currentTime < buffered.start(0) || video.currentTime > buffered.end(buffered.length - 1)) {
-        video.currentTime = buffered.start(0);
-      }
+      const jumped = jumpToAvailableImage();
       // Alles ouder dan een halve minuut weggooien, maar nooit waar we kijken.
-      else if (video.currentTime - buffered.start(0) > 30 && !buffer.updating) {
+      if (!jumped && video.currentTime - buffered.start(0) > 30 && !buffer.updating) {
         try { buffer.remove(buffered.start(0), video.currentTime - 10); } catch { /* niet erg */ }
       }
       pump();
@@ -2991,19 +3420,26 @@ function stopVideo() {
 let toastTimer;
 function toast(message, error = false) { const target = $('toast'); target.textContent = message; target.className = `show${error ? ' error' : ''}`; clearTimeout(toastTimer); toastTimer = setTimeout(() => { target.className = ''; }, 3000); }
 
-function scheduleRealtimeReload() {
+function scheduleRealtimeReload(manage = false, visible = true) {
+  realtimeManageReload ||= manage;
+  realtimeVisibleRefresh ||= visible;
   clearTimeout(realtimeReloadTimer);
-  realtimeReloadTimer = setTimeout(load, 120);
+  realtimeReloadTimer = setTimeout(async () => {
+    const reloadManage = realtimeManageReload;
+    const refreshVisible = realtimeVisibleRefresh;
+    realtimeManageReload = false;
+    realtimeVisibleRefresh = false;
+    if (reloadManage) await load();
+    if (refreshVisible) await refreshActivePage();
+  }, 120);
 }
 
 function applyRealtimeDevice(updated) {
-  if (!updated?.id || !updated.capabilitiesObj) return scheduleRealtimeReload();
+  if (!updated?.id) return scheduleRealtimeReload(true, false);
   const index = state.devices.findIndex(device => device.id === updated.id);
-  if (index < 0) return scheduleRealtimeReload();
+  if (index < 0) return scheduleRealtimeReload(true, false);
   const previous = state.devices[index];
-  state.devices[index] = {
-    ...updated, media: previous.media, mediaLoaded: previous.mediaLoaded, mediaLoading: previous.mediaLoading,
-  };
+  state.devices[index] = mergeDevice(updated, previous);
   if (state.deviceOrder) return;
   renderDevices();
   refreshOpenDevicePopover(state.devices[index]);
@@ -3016,20 +3452,54 @@ function handleRealtimeEvent(event) {
     return;
   }
   // The stream fell behind and was emptied: what was missed cannot be derived,
-  // so the only honest answer is to ask for everything again.
+  // so loaded resources become stale. Alleen Manage en de zichtbare pagina
+  // worden meteen gelezen; een verborgen Flow-editor blijft dus van startup af.
   if (event.manager === 'store') {
-    scheduleRealtimeReload();
+    invalidateAllResources();
+    invalidateAllDeviceDetails();
+    invalidateScenes();
+    scheduleRealtimeReload(true, true);
     return;
   }
   if (event.manager === 'devices' && event.type === 'device.update') {
-    if (realtimeDeviceUpdatesDuringLoad && event.data?.id && event.data.capabilitiesObj) {
+    // Metingen verversen de catalogus niet meteen, maar een volgende editor
+    // krijgt wel een verse capabilitiestructuur als deze update ook een
+    // dynamische capability toevoegde of verwijderde.
+    invalidateResources('deviceCatalog');
+    if (realtimeDeviceUpdatesDuringLoad && event.data?.id) {
       realtimeDeviceUpdatesDuringLoad.set(event.data.id, event.data);
     }
     applyRealtimeDevice(event.data);
     return;
   }
-  if (event.manager === 'devices' || event.manager === 'apps' || event.manager === 'scene' || event.manager === 'flow') {
-    scheduleRealtimeReload();
+  if (event.manager === 'devices') {
+    invalidateResources('deviceCatalog', 'flowCards');
+    if (event.id) invalidateDeviceDetail(event.id);
+    scheduleRealtimeReload(true, false);
+    return;
+  }
+  if (event.manager === 'apps') {
+    invalidateResources('apps', 'drivers', 'flows', 'flowCards');
+    invalidateAllDeviceDetails();
+    scheduleRealtimeReload(false, true);
+    return;
+  }
+  if (event.manager === 'scene') {
+    invalidateScenes(event.id || '');
+    invalidateResources('deviceCatalog', 'flows', 'flowCards');
+    scheduleRealtimeReload(false, true);
+    return;
+  }
+  if (event.manager === 'flow') {
+    if (event.type === 'card.trigger') return;
+    invalidateResources('flows');
+    scheduleRealtimeReload(false, true);
+    return;
+  }
+  if (event.manager === 'system') {
+    invalidateResources('system', 'deviceCatalog', 'flows', 'flowCards');
+    invalidateAllDeviceDetails();
+    scheduleRealtimeReload(true, true);
   }
 }
 
@@ -3037,8 +3507,9 @@ async function connectRealtime() {
   let retry = 500;
   while (!realtimeAbort.signal.aborted) {
     try {
-      const response = await fetch('/api/stulp/events', { signal: realtimeAbort.signal });
+      const response = await fetch('/api/stulp/events?view=overview', { signal: realtimeAbort.signal });
       if (!response.ok || !response.body) throw new Error(`events HTTP ${response.status}`);
+      clearTimeout(initialLoadFallbackTimer);
       // The stream is open before this snapshot is read. Events produced
       // during the read wait in the response and are applied afterwards, so
       // reconnecting cannot leave an unnoticed gap.
@@ -3070,13 +3541,10 @@ async function connectRealtime() {
   }
 }
 
-document.querySelectorAll('.tab').forEach(button => button.addEventListener('click', () => {
-  document.querySelectorAll('.tab').forEach(item => item.classList.toggle('active', item === button));
-  document.querySelectorAll('.page').forEach(page => page.classList.toggle('active', page.id === `${button.dataset.page}-page`));
-  // The map costs a request, so it is fetched when the page is first opened
-  // rather than on every reload of everything else.
-}));
+document.querySelectorAll('.tab').forEach(button => button.addEventListener('click', () => { void activatePage(button.dataset.page); }));
 document.querySelectorAll('[data-device-tab]').forEach(button => button.addEventListener('click', () => showDeviceTab(button.dataset.deviceTab)));
+$('confirm-dialog').addEventListener('close', finishConfirmation);
+document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('close', syncModalPageLock));
 $('device-popover').addEventListener('close', () => {
   state.openDeviceID = null;
   state.deviceTab = 'overview';
@@ -3140,4 +3608,8 @@ window.addEventListener('resize', scheduleFlowConnections);
 window.addEventListener('pointermove', event => { moveDeviceOrder(event); moveFlowNode(event); updateFlowConnectionPreview(event); });
 window.addEventListener('pointerup', event => { finishDeviceOrder(event); finishFlowNodeMove(event); finishFlowConnection(event); });
 window.addEventListener('pointercancel', event => { finishDeviceOrder(event, false); finishFlowNodeMove(event); finishFlowConnection(event); });
+// Normaal opent de eventstream eerst en volgt daarna de gap-free snapshot. Als
+// een proxy SSE stukmaakt, mag dat het eerste scherm niet gijzelen: na een korte
+// grens start dezelfde compacte bootstrap zelfstandig.
+initialLoadFallbackTimer = setTimeout(() => { void load(); }, 120);
 connectRealtime();

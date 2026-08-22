@@ -160,6 +160,53 @@ func TestSetOnSnapshotsCurrentStateAndActivatesDesiredState(t *testing.T) {
 	}
 }
 
+func TestSetOrdersPowerAroundOtherCapabilitiesPerDevice(t *testing.T) {
+	database := sceneStore(t, store.InMemoryPath)
+	addSceneDevice(t, database, "lamp", []string{"onoff", "dim"}, map[string]any{"onoff": false, "dim": 0.8})
+	// Intentionally persist dim first, as can happen when the user selects the
+	// values in this order in the Scene editor.
+	definition := createScene(t, database,
+		store.SceneState{DeviceID: "lamp", CapabilityID: "dim", Value: 0.6},
+		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true},
+	)
+	type invocation struct {
+		capability string
+		value      any
+	}
+	var invoked []invocation
+	activator := New(database, func(_ context.Context, _ string, capability string, value any, _ map[string]any) error {
+		invoked = append(invoked, invocation{capability: capability, value: value})
+		return nil
+	})
+
+	on, err := activator.Set(context.Background(), definition.ID, true)
+	if err != nil || !on.Success {
+		t.Fatalf("ON = %#v, error %v", on, err)
+	}
+	wantOn := []invocation{{capability: "onoff", value: true}, {capability: "dim", value: 0.6}}
+	if !reflect.DeepEqual(invoked, wantOn) {
+		t.Fatalf("ON invocation order = %#v, want %#v", invoked, wantOn)
+	}
+	// Execution ordering must not rewrite the persisted/user-facing order.
+	wantResults := []StateResult{
+		{DeviceID: "lamp", CapabilityID: "dim", Value: 0.6, Success: true},
+		{DeviceID: "lamp", CapabilityID: "onoff", Value: true, Success: true},
+	}
+	if !reflect.DeepEqual(on.States, wantResults) {
+		t.Fatalf("ON result order = %#v, want %#v", on.States, wantResults)
+	}
+
+	invoked = nil
+	off, err := activator.Set(context.Background(), definition.ID, false)
+	if err != nil || !off.Success {
+		t.Fatalf("OFF = %#v, error %v", off, err)
+	}
+	wantOff := []invocation{{capability: "dim", value: 0.8}, {capability: "onoff", value: false}}
+	if !reflect.DeepEqual(invoked, wantOff) {
+		t.Fatalf("OFF invocation order = %#v, want %#v", invoked, wantOff)
+	}
+}
+
 func TestRepeatedOnPreservesTheOriginalBaseline(t *testing.T) {
 	database := sceneStore(t, store.InMemoryPath)
 	device := addSceneDevice(t, database, "lamp", []string{"onoff"}, map[string]any{"onoff": false})
@@ -214,7 +261,7 @@ func TestSetOffRestoresBaselineAndMakesSceneInactive(t *testing.T) {
 	if err != nil || !result.Success || result.RequestedOn || result.Active || result.Attempted != 2 || result.Succeeded != 2 {
 		t.Fatalf("OFF = %#v, error %v", result, err)
 	}
-	if want := []any{false, 0.9}; !reflect.DeepEqual(restored, want) {
+	if want := []any{0.9, false}; !reflect.DeepEqual(restored, want) {
 		t.Fatalf("restored values = %#v, want %#v", restored, want)
 	}
 	stored := storedScene(t, database, definition.ID)
@@ -397,7 +444,7 @@ func TestCancelledOffRetainsUnattemptedStatesForRetry(t *testing.T) {
 		t.Fatalf("cancelled OFF = %#v, error %v, invocations %d", result, err, invoked.Load())
 	}
 	stored := storedScene(t, database, definition.ID)
-	if !stored.Active || len(stored.Previous) != 1 || stored.Previous[0].CapabilityID != "dim" {
+	if !stored.Active || len(stored.Previous) != 1 || stored.Previous[0].CapabilityID != "onoff" {
 		t.Fatalf("unattempted restore state was not retained: %#v", stored.Previous)
 	}
 	if retry, retryErr := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xinix00/stulp/plugins/unifi/internal/rtsp"
@@ -33,7 +34,7 @@ type streamHost struct {
 // session is één camera die bekeken wordt.
 type session struct {
 	mu      sync.Mutex
-	viewers map[chan []byte]struct{}
+	viewers map[*viewer]struct{}
 	header  []byte
 	// mime is het volledige mediatype, inclusief codec: video/mp4; codecs="av01…".
 	// Een browser heeft dat nodig vóór hij de eerste byte ziet -- Media Source
@@ -54,6 +55,22 @@ type session struct {
 	// blijft sturen voor niemand kost bandbreedte in huis en rekentijd op de
 	// console, dus na een tijdje zonder kijkers gaat de verbinding dicht.
 	idleSince time.Time
+}
+
+// viewer is one HTTP response that follows this camera.
+//
+// A fragmented video may only resume at a keyframe after a fragment was lost.
+// needsKeyframe is therefore part of the viewer rather than the camera: one
+// slow connection must not disturb viewers that are keeping up.
+type viewer struct {
+	frames        chan viewerFrame
+	generation    atomic.Uint64
+	needsKeyframe bool
+}
+
+type viewerFrame struct {
+	fragment   []byte
+	generation uint64
 }
 
 // idleGrace is hoe lang een sessie zonder kijkers blijft staan.
@@ -113,8 +130,8 @@ func (s *streamHost) serve(response http.ResponseWriter, request *http.Request) 
 		http.Error(response, "deze camera wordt niet bekeken", http.StatusNotFound)
 		return
 	}
-	frames, header, gop := current.join()
-	defer current.leave(frames)
+	viewer, header, gop := current.join()
+	defer current.leave(viewer)
 	if len(header) == 0 {
 		// Zonder het kopdeel kan een speler niets met de fragmenten die volgen.
 		// Dat kan alleen als iemand dit adres rechtstreeks opvraagt voordat de
@@ -145,11 +162,17 @@ func (s *streamHost) serve(response http.ResponseWriter, request *http.Request) 
 	}
 	for {
 		select {
-		case fragment, open := <-frames:
+		case frame, open := <-viewer.frames:
 			if !open {
 				return
 			}
-			if _, err := response.Write(fragment); err != nil {
+			// Recovery may drain the queue concurrently with this receive. A
+			// generation check keeps a stale dependent frame off the wire even
+			// when the receiver won that race.
+			if frame.generation != viewer.generation.Load() {
+				continue
+			}
+			if _, err := response.Write(frame.fragment); err != nil {
 				return
 			}
 			if flusher != nil {
@@ -230,7 +253,7 @@ func (s *streamHost) serveSnapshot(response http.ResponseWriter, request *http.R
 
 func (s *streamHost) begin(camera, rtspURL string) (*session, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	current := &session{viewers: map[chan []byte]struct{}{}, stop: cancel}
+	current := &session{viewers: map[*viewer]struct{}{}, stop: cancel}
 	s.mu.Lock()
 	s.sessions[camera] = current
 	s.mu.Unlock()
@@ -383,24 +406,28 @@ func (s *session) waitForHeader(timeout time.Duration) error {
 	return fmt.Errorf("de camera stuurde geen beeld binnen %s", timeout)
 }
 
-func (s *session) join() (chan []byte, []byte, [][]byte) {
+func (s *session) join() (*viewer, []byte, [][]byte) {
 	// Kort gebufferd: schedulerjitter houdt de camera niet op, maar een trage
 	// kijker kan geen seconden oud beeld in de heap vasthouden.
-	frames := make(chan []byte, viewerQueueFrames)
+	viewer := &viewer{frames: make(chan viewerFrame, viewerQueueFrames)}
 	s.mu.Lock()
-	s.viewers[frames] = struct{}{}
-	s.idleSince = time.Time{}
 	header := s.header
 	// Onder dezelfde lock als broadcast, dus wat hierna uitgezonden wordt komt
 	// via het kanaal en niet nog een tweede keer uit deze lijst.
 	gop := append([][]byte(nil), s.gop...)
+	// Een kopdeel kan er al vóór het eerste camerakeyframe zijn, en een te grote
+	// GOP wordt bewust niet bewaard. In beide gevallen mag de nieuwe kijker niet
+	// op een afhankelijk beeld instappen.
+	viewer.needsKeyframe = len(gop) == 0
+	s.viewers[viewer] = struct{}{}
+	s.idleSince = time.Time{}
 	s.mu.Unlock()
-	return frames, header, gop
+	return viewer, header, gop
 }
 
-func (s *session) leave(frames chan []byte) {
+func (s *session) leave(viewer *viewer) {
 	s.mu.Lock()
-	delete(s.viewers, frames)
+	delete(s.viewers, viewer)
 	if len(s.viewers) == 0 {
 		s.idleSince = time.Now()
 	}
@@ -441,9 +468,52 @@ func (s *session) broadcast(fragment []byte, keyframe bool) {
 	}
 
 	for viewer := range s.viewers {
+		viewer.push(fragment, keyframe)
+	}
+}
+
+// push adds one encoded frame without ever blocking the camera.
+//
+// Once the queue overflows, later dependent frames are useless: there is a gap
+// before them. Keep the still-contiguous tail already queued, discard everything
+// after the gap, and resume on the first keyframe. At that point the old tail is
+// drained so the viewer catches up immediately and never receives a P-frame
+// whose reference frame was dropped.
+func (v *viewer) push(fragment []byte, keyframe bool) {
+	if v.needsKeyframe {
+		if !keyframe {
+			return
+		}
+		v.restartAt(fragment, v.generation.Load())
+		v.needsKeyframe = false
+		return
+	}
+	frame := viewerFrame{fragment: fragment, generation: v.generation.Load()}
+	select {
+	case v.frames <- frame:
+		return
+	default:
+	}
+	if keyframe {
+		// This keyframe is already a safe restart point. Prefer it over a queue
+		// full of older frames instead of waiting for another complete GOP.
+		v.restartAt(fragment, v.generation.Add(1))
+		return
+	}
+	// Frames that were still queued are now from the generation before the
+	// gap. The HTTP writer checks this tag after receiving, so it cannot race
+	// the drain at the next keyframe and put a stale P-frame on the wire.
+	v.generation.Add(1)
+	v.needsKeyframe = true
+}
+
+func (v *viewer) restartAt(keyframe []byte, generation uint64) {
+	for {
 		select {
-		case viewer <- fragment:
+		case <-v.frames:
 		default:
+			v.frames <- viewerFrame{fragment: keyframe, generation: generation}
+			return
 		}
 	}
 }
@@ -452,7 +522,7 @@ func (s *session) close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for viewer := range s.viewers {
-		close(viewer)
+		close(viewer.frames)
 		delete(s.viewers, viewer)
 	}
 }

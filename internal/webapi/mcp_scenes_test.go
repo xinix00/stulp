@@ -100,7 +100,8 @@ func TestMCPDiscoversAndControlsSceneAsNormalOnOffDevice(t *testing.T) {
 		restored["attempted"] != float64(2) || restored["succeeded"] != float64(2) || restored["failed"] != float64(0) {
 		t.Fatalf("MCP scene restore detail = %#v", restored)
 	}
-	if len(calls) != 4 || calls[2].Value != false || calls[3].Value != "day" {
+	if len(calls) != 4 || calls[2].CapabilityID != "mode" || calls[2].Value != "day" ||
+		calls[3].CapabilityID != "onoff" || calls[3].Value != false {
 		t.Fatalf("MCP scene restore calls = %#v", calls)
 	}
 	assertMCPSceneActive(t, server, created.ID, false)

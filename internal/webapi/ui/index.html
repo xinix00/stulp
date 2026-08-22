@@ -45,7 +45,7 @@
 
   </main>
 
-  <dialog id="scene-dialog" class="scene-dialog settings-shell">
+  <dialog id="scene-dialog" class="scene-dialog settings-shell" aria-labelledby="scene-title">
     <form id="scene-form" class="scene-editor">
       <div class="dialog-title settings-title scene-dialog-title"><div><span class="settings-mark scene-mark"><span class="material-symbols-rounded" aria-hidden="true">auto_awesome</span></span><div><h2 id="scene-title">Scene toevoegen</h2><p class="settings-status">Dit apparaat zet gekozen standen aan en herstelt ze bij uitzetten.</p></div></div><button class="icon-button dialog-close" type="button" data-close="scene-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
       <div class="scene-editor-toolbar">
@@ -58,7 +58,7 @@
     </form>
   </dialog>
 
-  <dialog id="flow-dialog" class="flow-dialog settings-shell">
+  <dialog id="flow-dialog" class="flow-dialog settings-shell" aria-labelledby="flow-title">
     <form id="flow-form" class="flow-editor">
       <div class="dialog-title settings-title flow-dialog-title"><div><span class="settings-mark flow-mark"><span class="material-symbols-rounded" aria-hidden="true">account_tree</span></span><div><h2 id="flow-title">Flow</h2><p class="settings-status">Verbind ALS, EN en DAN tot één duidelijke automatisering.</p></div></div><button class="icon-button dialog-close" type="button" data-close="flow-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
       <div class="flow-editor-toolbar">
@@ -89,8 +89,8 @@
     </form>
   </dialog>
 
-  <dialog id="flow-type-dialog" class="flow-type-dialog settings-shell compact-dialog">
-    <div class="dialog-title settings-title"><div><span class="settings-mark flow-mark"><span class="material-symbols-rounded" aria-hidden="true">add_card</span></span><div><h2>Wat wil je toevoegen?</h2><p class="settings-status">Kies de rol van de nieuwe kaart.</p></div></div><button class="icon-button dialog-close" data-close="flow-type-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
+  <dialog id="flow-type-dialog" class="flow-type-dialog settings-shell compact-dialog" aria-labelledby="flow-type-title">
+    <div class="dialog-title settings-title"><div><span class="settings-mark flow-mark"><span class="material-symbols-rounded" aria-hidden="true">add_card</span></span><div><h2 id="flow-type-title">Wat wil je toevoegen?</h2><p class="settings-status">Kies de rol van de nieuwe kaart.</p></div></div><button class="icon-button dialog-close" data-close="flow-type-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
     <div class="dialog-body flow-type-body">
       <div class="flow-type-choices">
         <button type="button" data-flow-kind="trigger"><span class="flow-kind trigger-kind">ALS</span><strong>Startpunt</strong><small>Wanneer iets gebeurt</small></button>
@@ -100,7 +100,7 @@
     </div>
   </dialog>
 
-  <dialog id="flow-card-dialog" class="flow-card-dialog settings-shell">
+  <dialog id="flow-card-dialog" class="flow-card-dialog settings-shell" aria-labelledby="flow-card-title">
     <div class="dialog-title settings-title"><div><span class="settings-mark flow-mark"><span class="material-symbols-rounded" aria-hidden="true">view_in_ar</span></span><div><h2 id="flow-card-title">Kaart toevoegen</h2><p class="settings-status">Kies eerst een apparaat, of zoek direct.</p></div></div><button class="icon-button dialog-close" data-close="flow-card-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
     <div class="dialog-body flow-card-dialog-body">
       <label class="settings-field flow-card-search"><span>Zoeken</span><input id="flow-card-search" type="search" placeholder="Zoek op apparaat of mogelijkheid…" autocomplete="off"></label>
@@ -108,7 +108,7 @@
     </div>
   </dialog>
 
-  <dialog id="group-dialog" class="settings-shell compact-dialog">
+  <dialog id="group-dialog" class="settings-shell compact-dialog" aria-labelledby="group-title">
     <form id="group-form">
       <div class="dialog-title settings-title"><div><span class="settings-mark"><span class="material-symbols-rounded" aria-hidden="true">home</span></span><div><h2 id="group-title">Groep toevoegen</h2><p id="group-status" class="settings-status">Eén eenvoudige laag voor je apparaten.</p></div></div><button class="icon-button dialog-close" type="button" data-close="group-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
       <label class="settings-field"><span>Naam</span><input id="group-name" type="text" maxlength="80" placeholder="Bijvoorbeeld Woonkamer" required></label>
@@ -117,18 +117,18 @@
     </form>
   </dialog>
 
-  <dialog id="settings-dialog" class="frame-dialog settings-shell">
+  <dialog id="settings-dialog" class="frame-dialog settings-shell" aria-labelledby="settings-title">
     <div class="dialog-title settings-title"><div><span class="settings-mark"><span class="material-symbols-rounded" aria-hidden="true">settings</span></span><div><h2 id="settings-title">Settings</h2><p id="settings-status" class="settings-status">Laden…</p></div></div><button class="icon-button dialog-close" data-close="settings-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
     <div class="settings-frame-wrap"><iframe id="settings-frame" sandbox="allow-scripts allow-forms allow-modals" title="App settings"></iframe></div>
   </dialog>
 
-  <dialog id="pair-dialog">
+  <dialog id="pair-dialog" aria-labelledby="pair-title">
     <div class="dialog-title"><h2 id="pair-title">Device toevoegen</h2><button class="icon-button dialog-close" data-close="pair-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
     <div id="pair-content"></div>
     <iframe id="pair-frame" class="hidden" sandbox="allow-scripts allow-forms allow-modals" title="Device koppelen"></iframe>
   </dialog>
 
-  <dialog id="device-popover" class="device-popover settings-shell">
+  <dialog id="device-popover" class="device-popover settings-shell" aria-labelledby="device-popover-title">
     <div class="dialog-title settings-title"><div><span id="device-popover-icon" class="settings-mark"></span><div><h2 id="device-popover-title">Apparaat</h2><p id="device-popover-status" class="settings-status"></p></div></div><button class="icon-button dialog-close" type="button" data-close="device-popover" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
     <div class="device-tabs" role="tablist" aria-label="Apparaat">
       <button class="active" type="button" role="tab" aria-selected="true" data-device-tab="overview">Overzicht</button>
@@ -138,23 +138,31 @@
     <section id="device-configuration-panel" class="device-popover-panel hidden" role="tabpanel"><p id="device-settings-status" class="settings-status device-settings-status"></p><form id="device-settings"></form></section>
   </dialog>
 
-  <dialog id="video-dialog">
+  <dialog id="video-dialog" aria-labelledby="video-title">
     <div class="dialog-title"><h2 id="video-title">Camera</h2><div class="dialog-title-actions"><button id="video-fullscreen" class="icon-button" type="button" aria-label="Volledig scherm"><span class="material-symbols-rounded" aria-hidden="true">fullscreen</span></button><button class="icon-button dialog-close" data-close="video-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div></div>
     <div class="video"><video id="camera-video" autoplay playsinline muted></video><p id="video-status">Verbinden…</p></div>
   </dialog>
 
-  <dialog id="notifications-dialog" class="compact-dialog">
-	<div class="dialog-title"><h2>Meldingen</h2><button class="icon-button dialog-close" data-close="notifications-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
+  <dialog id="notifications-dialog" class="compact-dialog" aria-labelledby="notifications-title">
+	<div class="dialog-title"><h2 id="notifications-title">Meldingen</h2><button class="icon-button dialog-close" data-close="notifications-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
 	<div id="notifications" class="notification-list"><p class="empty">Laden…</p></div>
   </dialog>
 
-  <dialog id="restore-dialog" class="settings-shell compact-dialog">
+  <dialog id="restore-dialog" class="settings-shell compact-dialog" aria-labelledby="restore-title">
     <form id="restore-form">
-      <div class="dialog-title settings-title"><div><span class="settings-mark restore-mark"><span class="material-symbols-rounded" aria-hidden="true">restore</span></span><div><h2>Backup herstellen</h2><p class="settings-status">Devices, Flows, apps en configuratie worden teruggezet.</p></div></div><button class="icon-button dialog-close" type="button" data-close="restore-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
+      <div class="dialog-title settings-title"><div><span class="settings-mark restore-mark"><span class="material-symbols-rounded" aria-hidden="true">restore</span></span><div><h2 id="restore-title">Backup herstellen</h2><p class="settings-status">Devices, Flows, apps en configuratie worden teruggezet.</p></div></div><button class="icon-button dialog-close" type="button" data-close="restore-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
       <p class="restore-warning"><strong>Dit vervangt de huidige inrichting.</strong><span>Stulp controleert eerst de volledige backup en bewaart het huidige document als herstelkopie. Apps worden kort gestopt en daarna opnieuw verbonden.</span></p>
       <label class="settings-field"><span>Stulp-backup</span><input id="restore-file" type="file" accept=".zip,application/zip" required><small id="restore-file-detail" class="settings-hint">Kies het .zip-bestand dat door Stulp is gemaakt.</small></label>
       <label class="inline-check restore-confirm"><input id="restore-confirm" type="checkbox" required> Ik begrijp dat de huidige inrichting wordt vervangen.</label>
       <div class="actions"><button type="button" data-close="restore-dialog">Annuleren</button><button id="restore-submit" class="restore-submit" type="submit">Backup herstellen</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog" class="settings-shell compact-dialog confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+    <form method="dialog">
+      <div class="dialog-title settings-title"><div><span class="settings-mark confirm-mark"><span class="material-symbols-rounded" aria-hidden="true">help</span></span><div><h2 id="confirm-title">Bevestigen</h2><p class="settings-status">Controleer deze actie voordat je doorgaat.</p></div></div><button class="icon-button dialog-close" type="submit" value="cancel" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
+      <p id="confirm-message" class="confirm-message"></p>
+      <div class="actions"><button type="submit" value="cancel">Annuleren</button><button id="confirm-accept" class="primary" type="submit" value="confirm">Doorgaan</button></div>
     </form>
   </dialog>
 

@@ -53,8 +53,6 @@ import (
 	"github.com/xinix00/stulp/internal/webapi"
 )
 
-var version = "dev" // -ldflags "-X main.version=vX.Y.Z"
-
 // defaults for what the jobspec did not set. The HTTP fallback is 8080 and not
 // 80 so an image that runs without a published port (someone testing by hand)
 // still comes up instead of failing on a privileged bind it cannot explain.

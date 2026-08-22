@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -265,6 +266,17 @@ func (a *Activator) apply(ctx context.Context, plans []statePlan) []stateOutcome
 		}
 		byDevice[plan.state.DeviceID] = append(byDevice[plan.state.DeviceID], index)
 	}
+	for _, indices := range byDevice {
+		// A Scene's persisted order reflects how its states were selected, not
+		// necessarily the safe command order for a powered device. Turn a device
+		// on before changing values such as dim, and turn it off only after those
+		// values have been restored. Stable sorting preserves the user's order for
+		// every other capability and the outcomes remain indexed in Scene order.
+		sort.SliceStable(indices, func(left, right int) bool {
+			return sceneStateApplyPriority(plans[indices[left]].state) <
+				sceneStateApplyPriority(plans[indices[right]].state)
+		})
+	}
 
 	var workers sync.WaitGroup
 	for _, indices := range byDevice {
@@ -293,6 +305,21 @@ func (a *Activator) apply(ctx context.Context, plans []statePlan) []stateOutcome
 	}
 	workers.Wait()
 	return outcomes
+}
+
+func sceneStateApplyPriority(state store.SceneState) int {
+	base, _, _ := strings.Cut(state.CapabilityID, ".")
+	if base != "onoff" {
+		return 1
+	}
+	on, boolean := state.Value.(bool)
+	if !boolean {
+		return 1
+	}
+	if on {
+		return 0
+	}
+	return 2
 }
 
 func collectResults(result ActivationResult, outcomes []stateOutcome) (ActivationResult, []error) {

@@ -233,7 +233,7 @@ func run(arguments []string, stdout, stderr io.Writer) error {
 		logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}))
 		runtimeOptions := plugin.Options{
 			Language: *language, Timezone: *timezone, StulpID: "stulp-local",
-			StulpVersion: "12.0.0-stulp", Logger: logger,
+			StulpVersion: version, Logger: logger,
 		}
 		appsSupervisor := supervisor.New(database, runtimeOptions)
 		defer appsSupervisor.Close()

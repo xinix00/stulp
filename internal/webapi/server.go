@@ -843,7 +843,32 @@ func (s *Server) handleDrivers() {
 }
 
 func (s *Server) handleDevices() {
+	s.mux.HandleFunc("GET /api/stulp/manage/bootstrap", func(response stulphttp.ResponseWriter, request *stulphttp.Request) {
+		devices, err := s.store.Devices(stulphttp.Context(request), "")
+		if err != nil {
+			writeError(response, stulphttp.StatusInternalServerError, err)
+			return
+		}
+		groups, err := s.store.DeviceGroups(stulphttp.Context(request))
+		if err != nil {
+			writeError(response, stulphttp.StatusInternalServerError, err)
+			return
+		}
+		result := make(map[string]any, len(devices))
+		for _, device := range devices {
+			result[device.ID] = s.deviceOverviewObject(device)
+		}
+		writeJSON(response, stulphttp.StatusOK, map[string]any{
+			"ok": true, "stulpVersion": s.options.StulpVersion,
+			"devices": result, "deviceGroups": groups,
+		})
+	})
 	s.mux.HandleFunc("GET /api/manager/devices/device", func(response stulphttp.ResponseWriter, request *stulphttp.Request) {
+		view := stulphttp.Query(request).Get("view")
+		if view != "" && view != "overview" && view != "automation" {
+			writeError(response, stulphttp.StatusBadRequest, fmt.Errorf("unknown device view %q", view))
+			return
+		}
 		devices, err := s.store.Devices(stulphttp.Context(request), "")
 		if err != nil {
 			writeError(response, stulphttp.StatusInternalServerError, err)
@@ -851,7 +876,14 @@ func (s *Server) handleDevices() {
 		}
 		result := make(map[string]any, len(devices))
 		for _, device := range devices {
-			result[device.ID] = s.deviceObject(device)
+			switch view {
+			case "overview":
+				result[device.ID] = s.deviceOverviewObject(device)
+			case "automation":
+				result[device.ID] = s.deviceAutomationObject(device)
+			default:
+				result[device.ID] = s.deviceObject(device)
+			}
 		}
 		writeJSON(response, stulphttp.StatusOK, result)
 	})
@@ -1019,6 +1051,11 @@ func (s *Server) health(response stulphttp.ResponseWriter, request *stulphttp.Re
 }
 
 func (s *Server) events(response stulphttp.ResponseWriter, request *stulphttp.Request) {
+	view := stulphttp.Query(request).Get("view")
+	if view != "" && view != "overview" {
+		writeError(response, stulphttp.StatusBadRequest, fmt.Errorf("unknown event view %q", view))
+		return
+	}
 	response.Header().Set("Content-Type", "text/event-stream")
 	response.Header().Set("Cache-Control", "no-cache")
 	response.Header().Set("Connection", "keep-alive")
@@ -1047,7 +1084,11 @@ func (s *Server) events(response stulphttp.ResponseWriter, request *stulphttp.Re
 			if !deliverToStream(event, stulphttp.Query(request).Get("manager")) {
 				continue
 			}
-			event = s.realtimeEvent(event)
+			if view == "overview" {
+				event = s.realtimeOverviewEvent(event)
+			} else {
+				event = s.realtimeEvent(event)
+			}
 			data, err := json.Marshal(event)
 			if err != nil {
 				continue
@@ -1084,6 +1125,21 @@ func (s *Server) realtimeEvent(event store.Event) store.Event {
 	}
 	if device, ok := event.Data.(store.Device); ok {
 		event.Data = s.deviceObject(device)
+	}
+	return event
+}
+
+// realtimeOverviewEvent is the opt-in compact stream shape used by Manage.
+// capabilityValues lets a client that has already fetched automation or detail
+// metadata update every cached value without receiving that metadata again.
+func (s *Server) realtimeOverviewEvent(event store.Event) store.Event {
+	if event.Manager != "devices" || event.Type != "device.update" {
+		return event
+	}
+	if device, ok := event.Data.(store.Device); ok {
+		result := s.deviceOverviewObject(device)
+		result["capabilityValues"] = device.State
+		event.Data = result
 	}
 	return event
 }
@@ -1157,6 +1213,136 @@ func (s *Server) deviceObject(device store.Device) map[string]any {
 		"ready": true, "repair": false, "unpair": true, "flags": []string{}, "ui": map[string]any{},
 	}
 	return result
+}
+
+var quickCapabilityPriority = []string{
+	"alarm_smoke", "alarm_fire", "alarm_co", "alarm_co2", "alarm_vape", "alarm_water", "alarm_heat",
+	"onoff", "locked", "garagedoor_closed", "windowcoverings_state", "homealarm_state",
+	"alarm_motion", "alarm_contact", "alarm_glassbreak", "alarm_vibration", "alarm_generic", "alarm_pressure", "alarm_night",
+	"speaker_playing", "volume_mute", "vacuumcleaner_state", "dim",
+	"target_temperature", "measure_temperature", "thermostat_mode",
+	"measure_humidity", "measure_co2", "measure_co", "measure_pm25", "measure_luminance", "measure_pressure", "measure_noise",
+	"measure_rain", "measure_water", "measure_wind_strength", "measure_gust_strength", "measure_wind_angle", "measure_ultraviolet",
+	"measure_battery", "alarm_battery", "alarm_tamper",
+	"measure_power", "meter_power", "measure_current", "measure_voltage", "meter_water", "meter_gas",
+	"volume_set", "speaker_track", "speaker_artist", "light_temperature", "light_mode", "light_hue", "light_saturation",
+	"windowcoverings_set", "lock_mode", "button",
+}
+
+var quickCapabilityByClass = map[string][]string{
+	"battery": {"measure_power", "measure_battery", "battery_charging_state"},
+}
+
+// deviceOverviewObject is deliberately usable by the existing tile renderer:
+// it keeps the capabilities/capabilitiesObj shape, but only carries the one
+// capability the tile displays. A window covering gets its position as a
+// second capability because that value decides whether the quick action is up
+// or down.
+func (s *Server) deviceOverviewObject(device store.Device) map[string]any {
+	result := compactDeviceIdentity(device)
+	capabilities := make([]string, 0, 2)
+	objects := make(map[string]any, 2)
+	primaryID, primary := s.primaryCapability(device)
+	if primaryID != "" {
+		capabilities = append(capabilities, primaryID)
+		objects[primaryID] = primary
+		result["quickCapability"] = primaryID
+		if capabilityBaseID(primaryID) == "windowcoverings_state" {
+			if positionID := capabilityWithBase(device.Capabilities, "windowcoverings_set"); positionID != "" && positionID != primaryID {
+				capabilities = append(capabilities, positionID)
+				objects[positionID] = s.capabilityObject(device, positionID, device.State[positionID])
+			}
+		}
+	} else {
+		result["quickCapability"] = ""
+	}
+	result["capabilities"] = capabilities
+	result["capabilitiesObj"] = objects
+	result["capabilitiesComplete"] = false
+	result["detailComplete"] = false
+	return result
+}
+
+// deviceAutomationObject is the intentional second-stage catalog for flow and
+// scene editors. It contains every capability definition and current value,
+// but none of a device's private driver data, settings or store metadata.
+func (s *Server) deviceAutomationObject(device store.Device) map[string]any {
+	result := compactDeviceIdentity(device)
+	capabilities := make(map[string]any, len(device.Capabilities))
+	for _, id := range device.Capabilities {
+		capabilities[id] = s.capabilityObject(device, id, device.State[id])
+	}
+	result["manufacturer"] = s.deviceManufacturer(device)
+	result["capabilities"] = append([]string{}, device.Capabilities...)
+	result["capabilitiesObj"] = capabilities
+	result["capabilitiesComplete"] = true
+	result["detailComplete"] = false
+	return result
+}
+
+func compactDeviceIdentity(device store.Device) map[string]any {
+	result := map[string]any{
+		"id": device.ID, "appId": device.AppID, "driverId": driverID(device.AppID, device.DriverID),
+		"groupId": device.GroupID, "sortOrder": device.SortOrder,
+		"ownerUri": "stulp:app:" + device.AppID, "name": device.Name, "class": device.Class,
+		"available": device.Available, "unavailableMessage": device.Message,
+	}
+	if device.AppID == store.NativeSceneAppID {
+		if sceneID, _ := device.Data["sceneId"].(string); sceneID != "" {
+			result["sceneId"] = sceneID
+		}
+	}
+	return result
+}
+
+func (s *Server) primaryCapability(device store.Device) (string, map[string]any) {
+	priority := make([]string, 0, len(quickCapabilityPriority)+3)
+	priority = append(priority, quickCapabilityByClass[device.Class]...)
+	priority = append(priority, quickCapabilityPriority...)
+	for _, wanted := range priority {
+		if id := capabilityWithBase(device.Capabilities, wanted); id != "" {
+			return id, s.capabilityObject(device, id, device.State[id])
+		}
+	}
+	for _, id := range device.Capabilities {
+		if strings.HasPrefix(capabilityBaseID(id), "alarm_") {
+			return id, s.capabilityObject(device, id, device.State[id])
+		}
+	}
+	// The uncommon fallback depends on manifest metadata (an app can override
+	// both type and setable), so inspect the real object rather than guessing.
+	for _, id := range device.Capabilities {
+		object := s.capabilityObject(device, id, device.State[id])
+		if object["setable"] == true && object["type"] == "boolean" {
+			return id, object
+		}
+	}
+	for _, prefix := range []string{"measure_", "meter_"} {
+		for _, id := range device.Capabilities {
+			if strings.HasPrefix(capabilityBaseID(id), prefix) {
+				return id, s.capabilityObject(device, id, device.State[id])
+			}
+		}
+	}
+	if len(device.Capabilities) == 0 {
+		return "", nil
+	}
+	id := device.Capabilities[0]
+	return id, s.capabilityObject(device, id, device.State[id])
+}
+
+func capabilityWithBase(capabilities []string, wanted string) string {
+	for _, id := range capabilities {
+		if capabilityBaseID(id) == wanted {
+			return id
+		}
+	}
+	return ""
+}
+
+func capabilityBaseID(id string) string {
+	base, _, _ := strings.Cut(id, ".")
+	return base
 }
 
 func (s *Server) deviceManufacturer(device store.Device) string {

@@ -178,7 +178,8 @@ func TestSceneAPICreatesListsUpdatesAndActsAsAnOnOffDevice(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("turn scene off returned %d: %s", response.Code, response.Body.String())
 	}
-	if len(calls) != 4 || calls[2].Value != false || calls[3].Value != "day" {
+	if len(calls) != 4 || calls[2].CapabilityID != "mode" || calls[2].Value != "day" ||
+		calls[3].CapabilityID != "onoff" || calls[3].Value != false {
 		t.Fatalf("restore calls = %#v", calls)
 	}
 	definition, err = server.store.Scene(context.Background(), created.ID)

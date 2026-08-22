@@ -15,6 +15,10 @@ set -e
 
 cd "$(dirname "$0")"
 
+# Eén stempel voor controller en apps. CI/releasebouw kan hem blijven
+# overschrijven met STULP_VERSION; een gewone build hoort bij deze bronversie.
+stulp_version=${STULP_VERSION:-v0.8.1}
+
 # ---- HopOS ------------------------------------------------------------------
 #
 # Op een HopOS-node is er geen besturingssysteem onder de binary: geen fork, geen
@@ -58,7 +62,7 @@ build_hopos() {
 			GOWORK=off GOTOOLCHAIN=local GOFLAGS=-mod=mod \
 				GOOS=tamago GOOSPKG=github.com/usbarmory/tamago GOARCH="$arch" \
 				"$tamago" build -tags "$tags" -trimpath \
-				-ldflags "$ld -X main.version=${STULP_VERSION:-hopos-dev} -X github.com/xinix00/stulp/internal/appsdk.BuildVersion=${STULP_VERSION:-hopos-dev}" \
+				-ldflags "$ld -X main.version=$stulp_version -X github.com/xinix00/stulp/internal/appsdk.BuildVersion=$stulp_version" \
 				-o "$elf" "./$dir"
 			echo "$elf ($(( $(wc -c < "$elf") / 1024 )) kB)"
 		done
@@ -94,7 +98,7 @@ wants() {
 built=0
 
 if wants stulp "$@"; then
-	go build -ldflags="$ldflags" -o stulp ./cmd/stulp
+	go build -ldflags="$ldflags -X main.version=$stulp_version" -o stulp ./cmd/stulp
 	echo "stulp"
 	built=$((built + 1))
 fi
@@ -110,7 +114,7 @@ for dir in plugins/*/; do
 		exit 1
 	fi
 
-	go build -ldflags="$ldflags" -o "$dir$id" "./$dir"
+	go build -ldflags="$ldflags -X github.com/xinix00/stulp/internal/appsdk.BuildVersion=$stulp_version" -o "$dir$id" "./$dir"
 	echo "$name -> $dir$id"
 	built=$((built + 1))
 done

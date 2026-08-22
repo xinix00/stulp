@@ -39,10 +39,10 @@ func TestManageAssetKeepsItsDeviceFeatures(t *testing.T) {
 	asset := request(t, server.Handler(), http.MethodGet, "/assets/app.js", nil, "")
 	if asset.Code != http.StatusOK || !strings.Contains(asset.Body.String(), "connectRealtime") ||
 		!strings.Contains(asset.Body.String(), "percentage-control") || !strings.Contains(asset.Body.String(), "applyRealtimeDevice") ||
-		!strings.Contains(asset.Body.String(), "loadDeviceMedia(device.id)") || !strings.Contains(asset.Body.String(), "renameDevice") ||
+		!strings.Contains(asset.Body.String(), "loadDeviceMedia(detail.id)") || !strings.Contains(asset.Body.String(), "renameDevice") ||
 		!strings.Contains(asset.Body.String(), "hardwareName") || !strings.Contains(asset.Body.String(), "renderDeviceConfiguration") ||
 		!strings.Contains(asset.Body.String(), "quickCapabilityPriority") || !strings.Contains(asset.Body.String(), "device-config-group") ||
-		!strings.Contains(asset.Body.String(), "$('device-popover').showModal()") {
+		!strings.Contains(asset.Body.String(), "openModal($('device-popover'))") {
 		t.Fatalf("Manage asset lost a device-management feature: status=%d", asset.Code)
 	}
 	if strings.Contains(asset.Body.String(), "reorderDeviceGroup") || strings.Contains(asset.Body.String(), "dragGroupId") {
@@ -116,6 +116,64 @@ func TestManageAssetKeepsItsDeviceFeatures(t *testing.T) {
 	decodeResponse(t, notificationResponse, &notifications)
 	if notifications[created.ID].Excerpt != "Live melding" {
 		t.Fatalf("notification API did not expose history: %#v", notifications)
+	}
+}
+
+func TestManageUsesNativeDialogsAndLocksBackgroundScroll(t *testing.T) {
+	pageBytes, err := uiFiles.ReadFile("ui/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assetBytes, err := uiFiles.ReadFile("ui/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stylesheetBytes, err := uiFiles.ReadFile("ui/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, asset, stylesheet := string(pageBytes), string(assetBytes), string(stylesheetBytes)
+
+	if dialogs, labels := strings.Count(page, "<dialog "), strings.Count(page, "aria-labelledby="); dialogs == 0 || labels != dialogs {
+		t.Fatalf("native dialogs are not all labelled: dialogs=%d labels=%d", dialogs, labels)
+	}
+	for _, needle := range []string{
+		`<dialog id="confirm-dialog"`, `<form method="dialog">`, `id="confirm-accept"`,
+	} {
+		if !strings.Contains(page, needle) {
+			t.Errorf("native confirmation dialog misses %q", needle)
+		}
+	}
+	if strings.Contains(asset, "window.confirm(") || strings.Contains(asset, "return confirm(") {
+		t.Fatal("Manage still falls back to a browser confirmation popup")
+	}
+	if strings.Count(asset, ".showModal()") != 1 || !strings.Contains(asset, "function openModal(dialog)") ||
+		!strings.Contains(asset, "document.querySelector('dialog[open]')") ||
+		!strings.Contains(asset, "requestConfirmation(args.message)") {
+		t.Fatal("Manage dialogs do not all use the central native modal path")
+	}
+	for _, needle := range []string{
+		"html.modal-open { overflow: hidden", "body.modal-open { position: fixed", "overscroll-behavior: contain",
+	} {
+		if !strings.Contains(stylesheet, needle) {
+			t.Errorf("modal background scroll lock misses %q", needle)
+		}
+	}
+}
+
+func TestMobileManageUsesThreeSelfScalingDeviceTiles(t *testing.T) {
+	stylesheet, err := uiFiles.ReadFile("ui/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(stylesheet)
+	for _, needle := range []string{
+		"container-type: inline-size", "grid-template-columns: repeat(3, minmax(0, 1fr))",
+		"font-size: clamp(9px, 10.5cqw, 12px)", "width: clamp(28px, 34cqw, 48px)",
+	} {
+		if !strings.Contains(css, needle) {
+			t.Errorf("mobile device tiles miss %q", needle)
+		}
 	}
 }
 

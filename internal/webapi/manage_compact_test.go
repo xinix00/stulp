@@ -77,7 +77,7 @@ func TestManageBootstrapKeepsFiftyDeviceStartupCompact(t *testing.T) {
 
 	apps := supervisor.New(database, plugin.Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	defer apps.Close()
-	server := New(database, apps, Options{StulpVersion: "0.8.1", Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	server := New(database, apps, Options{StulpVersion: "0.8.2", Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	defer server.Close()
 
 	fullResponse := request(t, server.Handler(), http.MethodGet, "/api/manager/devices/device", nil, "")
@@ -97,7 +97,7 @@ func TestManageBootstrapKeepsFiftyDeviceStartupCompact(t *testing.T) {
 
 	var bootstrap map[string]any
 	decodeResponse(t, bootstrapResponse, &bootstrap)
-	if bootstrap["ok"] != true || bootstrap["stulpVersion"] != "0.8.1" {
+	if bootstrap["ok"] != true || bootstrap["stulpVersion"] != "0.8.2" {
 		t.Fatalf("bootstrap health/version are missing: %#v", bootstrap)
 	}
 	groups, _ := bootstrap["deviceGroups"].([]any)

@@ -439,7 +439,9 @@ function renderDevice(device) {
   summary.type = 'button';
   summary.setAttribute('aria-label', `${device.name} openen`);
   summary.title = `${device.name} openen · houd ingedrukt om te ordenen`;
-  summary.append(deviceClassIcon(device.class), node('strong', 'device-name', device.name));
+  const content = node('span', 'device-summary-content');
+  content.append(deviceClassIcon(device.class), node('strong', 'device-name', device.name));
+  summary.append(content);
   summary.addEventListener('pointerdown', event => armDeviceOrder(event, device, card, summary));
   summary.addEventListener('contextmenu', event => {
     if (state.devicePress || state.deviceOrder) event.preventDefault();

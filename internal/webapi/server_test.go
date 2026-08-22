@@ -169,10 +169,25 @@ func TestMobileManageUsesThreeSelfScalingDeviceTiles(t *testing.T) {
 	css := string(stylesheet)
 	for _, needle := range []string{
 		"container-type: inline-size", "grid-template-columns: repeat(3, minmax(0, 1fr))",
-		"font-size: clamp(9px, 10.5cqw, 12px)", "width: clamp(28px, 34cqw, 48px)",
+		".device-summary-content {", "padding: 5cqw 6cqw", "gap: 3cqw",
+		"font-size: 10.5cqw", "width: 30cqw", ".quick-action { display: grid; place-items: center; width: 24px; height: 24px",
 	} {
 		if !strings.Contains(css, needle) {
 			t.Errorf("mobile device tiles miss %q", needle)
+		}
+	}
+	asset, err := uiFiles.ReadFile("ui/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, needle := range []string{"node('span', 'device-summary-content')", "summary.append(content)", "card.append(quick)"} {
+		if !strings.Contains(string(asset), needle) {
+			t.Errorf("device tile markup misses %q", needle)
+		}
+	}
+	for _, stale := range []string{"font-size: clamp(9px, 10.5cqw, 12px)", "width: clamp(28px, 34cqw, 48px)"} {
+		if strings.Contains(css, stale) {
+			t.Errorf("device tile content still uses independently clamped sizing %q", stale)
 		}
 	}
 }

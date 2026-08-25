@@ -301,8 +301,9 @@ type subscriptionAttempt struct {
 }
 
 // beginSubscriptionAttempt makes the first startup exchange a canary. Once a
-// route has worked, workers are free to proceed normally (CASE itself remains
-// serialized by Controller.mu). If that canary sees LEAN's no-route error, only
+// route has worked, workers are free to proceed normally (CASE setup is
+// coalesced only with another setup to the same node). If that canary sees
+// LEAN's no-route error, only
 // one worker is admitted at each shared retry deadline; all others sleep on the
 // same state change. After routeWaitLoud they may report the shared error to
 // their own device without performing another network exchange.
@@ -537,9 +538,7 @@ func (c *Controller) subscribeOnce(ctx context.Context, nodeID uint64) error {
 	if err != nil {
 		return err
 	}
-	c.mu.Lock()
 	session, err := c.session(ctx, info)
-	c.mu.Unlock()
 	if err != nil {
 		return err
 	}
@@ -852,12 +851,6 @@ func (c *Controller) rejectSubscriptionReport(exchange *transport.Exchange) {
 	status, err := im.EncodeStatusResponse(im.StatusInvalidSubscription)
 	if err == nil {
 		_ = exchange.SendOnce(im.OpcodeStatusResponse, status)
-	}
-}
-
-func (c *Controller) expireSession(nodeID uint64, session *transport.SecureSession) {
-	if c.dropSessionIf(nodeID, session) {
-		c.node.RemoveSession(session.LocalID)
 	}
 }
 

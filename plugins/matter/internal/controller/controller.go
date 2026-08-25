@@ -61,17 +61,21 @@ type Controller struct {
 	fabric *credentials.Fabric
 	logger *slog.Logger
 
-	// mu zorgt dat er één Matter-uitwisseling tegelijk loopt: commissioneren,
-	// een sessie opzetten, een fabric verwijderen. sessionMu bewaakt alleen de
-	// map. Dat is bewust apart. Een CASE-handshake duurt seconden en bij het
-	// starten gaan er drieëntwintig achter elkaar; wie alleen wil weten óf er
-	// een sessie is hoort daar niet achter te wachten. Volgorde als beide nodig
-	// zijn: mu eerst, sessionMu daarbinnen, en sessionMu nooit vasthouden over
-	// iets dat het netwerk op gaat.
-	mu        sync.Mutex
-	sessionMu sync.RWMutex
-	sessions  map[uint64]*transport.SecureSession
-	reportMu  sync.Mutex
+	// fabricMu serialiseert uitsluitend operaties die de fabric veranderen:
+	// commissioneren en het laatste endpoint van een node verwijderen. Gewone
+	// Invoke-, Write-, Subscribe- en CASE-uitwisselingen mogen elkaar niet
+	// controller-breed blokkeren; transport.Node multiplexet die zelf.
+	fabricMu sync.Mutex
+
+	// sessionMu bewaakt de actieve sessies. caseMu coalescet alleen gelijktijdige
+	// CASE-opbouw naar dezelfde node. Een dode node mag zijn eigen timeout
+	// uitzitten, maar nooit meer een gezonde node achter zich in de rij zetten.
+	sessionMu     sync.RWMutex
+	sessions      map[uint64]*transport.SecureSession
+	caseMu        sync.Mutex
+	caseAttempts  map[uint64]*caseAttempt
+	establishCASE func(context.Context, connectionInfo) (*transport.SecureSession, error)
+	reportMu      sync.Mutex
 
 	// De node→device-id-index van nodeDevices (subscriptions.go), TTL-vers.
 	nodeIdxMu sync.Mutex
@@ -136,7 +140,8 @@ func New(ctx context.Context, database Backing, logger *slog.Logger) (*Controlle
 	}
 	controllerContext, cancel := context.WithCancel(context.Background())
 	controller := &Controller{
-		store: database, node: node, fabric: fabric, logger: logger, sessions: make(map[uint64]*transport.SecureSession),
+		store: database, node: node, fabric: fabric, logger: logger,
+		sessions: make(map[uint64]*transport.SecureSession), caseAttempts: make(map[uint64]*caseAttempt),
 		ctx: controllerContext, cancel: cancel, workers: make(map[uint64]context.CancelFunc),
 		subscriptions: make(map[uint64]activeSubscription),
 	}
@@ -310,8 +315,8 @@ func noMatchError(payload onboarding.Payload, open []discovery.Node) error {
 // Matter fail-safe commissioning is stateful and fabric node IDs are issued in
 // order.
 func (c *Controller) Commission(ctx context.Context, request CommissionRequest) ([]Device, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.fabricMu.Lock()
+	defer c.fabricMu.Unlock()
 	payload, err := onboarding.Parse(request.Code)
 	if err != nil {
 		return nil, err
@@ -533,8 +538,6 @@ func (c *Controller) SetCapability(ctx context.Context, deviceID, capability str
 	if err != nil {
 		return err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	for attempt := 0; attempt < 2; attempt++ {
 		session, sessionErr := c.session(ctx, info)
 		if sessionErr != nil {
@@ -557,8 +560,7 @@ func (c *Controller) SetCapability(ctx context.Context, deviceID, capability str
 			c.reportMu.Unlock()
 			return readErr
 		}
-		c.node.RemoveSession(session.LocalID)
-		c.dropSession(info.nodeID)
+		c.expireSession(info.nodeID, session)
 	}
 	c.reportMu.Lock()
 	if latest, readErr := c.store.Device(c.ctx, device.ID); readErr == nil {
@@ -578,8 +580,8 @@ func (c *Controller) DeleteDevice(ctx context.Context, deviceID string) error {
 	if infoErr != nil {
 		return c.store.DeleteDevice(ctx, deviceID)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.fabricMu.Lock()
+	defer c.fabricMu.Unlock()
 	devices, err := c.store.Devices(ctx)
 	if err != nil {
 		return err
@@ -685,29 +687,62 @@ func deviceConnection(device Device) (connectionInfo, error) {
 
 // caseEstablishTimeout begrenst één CASE-opzet. Zonder grens mag MRP Sigma1
 // vijf keer versturen met backoff op het opgeslagen idle-interval van de peer
-// (tot 60s per stap), en tegen een node die er niet is loopt één poging dan
-// tot ver boven de twee minuten — terwijl hij vasthoudt wat de hele vloot
-// nodig heeft: c.mu, en bij de start ook de route-canary. Gemeten 21-08: elke
-// boot bleef ~2 minuten stil en "daarna verbond alles ineens" — dat was één
-// onbereikbare node wiens opgave de rij losliet, niet de route. Veertig
-// seconden dekt een trage maar levende slaper ruim; wie dan nog niet antwoordt
-// is voor bediening toch onbereikbaar, en de backoff blijft het proberen.
+// (tot 60s per stap), en tegen een node die er niet is loopt één poging anders
+// tot ver boven de twee minuten. Veertig seconden geeft een slaper met een SII
+// van 15,8 seconden nog een retransmissie; wie dan nog niet antwoordt is voor
+// bediening toch onbereikbaar, en de per-node backoff blijft het proberen.
 // Een var, zodat de test de grens kan verkorten zonder veertig seconden te
 // wachten.
 var caseEstablishTimeout = 40 * time.Second
+
+type caseAttempt struct {
+	done    chan struct{}
+	session *transport.SecureSession
+	err     error
+}
 
 func (c *Controller) session(ctx context.Context, info connectionInfo) (*transport.SecureSession, error) {
 	if existing := c.lookupSession(info.nodeID); existing != nil {
 		return existing, nil
 	}
-	establishCtx, cancel := context.WithTimeout(ctx, caseEstablishTimeout)
-	defer cancel()
-	session, err := casesession.EstablishWithRetry(establishCtx, c.node, info.remote, c.fabric, info.nodeID, info.noc, info.timing)
-	if err != nil {
-		return nil, err
+
+	// CASE is single-flight per node, not per controller. Besides removing
+	// head-of-line blocking this prevents two workers from registering competing
+	// sessions when a command and a subscription wake the same node together.
+	c.caseMu.Lock()
+	if c.caseAttempts == nil {
+		c.caseAttempts = make(map[uint64]*caseAttempt)
 	}
-	c.storeSession(info.nodeID, session)
-	return session, nil
+	if running := c.caseAttempts[info.nodeID]; running != nil {
+		c.caseMu.Unlock()
+		select {
+		case <-running.done:
+			return running.session, running.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	running := &caseAttempt{done: make(chan struct{})}
+	c.caseAttempts[info.nodeID] = running
+	c.caseMu.Unlock()
+
+	establishCtx, cancel := context.WithTimeout(ctx, caseEstablishTimeout)
+	if c.establishCASE != nil {
+		running.session, running.err = c.establishCASE(establishCtx, info)
+	} else {
+		running.session, running.err = casesession.EstablishWithRetry(
+			establishCtx, c.node, info.remote, c.fabric, info.nodeID, info.noc, info.timing,
+		)
+	}
+	cancel()
+	if running.err == nil {
+		c.storeSession(info.nodeID, running.session)
+	}
+	c.caseMu.Lock()
+	close(running.done)
+	delete(c.caseAttempts, info.nodeID)
+	c.caseMu.Unlock()
+	return running.session, running.err
 }
 
 func (c *Controller) lookupSession(nodeID uint64) *transport.SecureSession {
@@ -719,6 +754,9 @@ func (c *Controller) lookupSession(nodeID uint64) *transport.SecureSession {
 func (c *Controller) storeSession(nodeID uint64, session *transport.SecureSession) {
 	c.sessionMu.Lock()
 	defer c.sessionMu.Unlock()
+	if c.sessions == nil {
+		c.sessions = make(map[uint64]*transport.SecureSession)
+	}
 	c.sessions[nodeID] = session
 }
 
@@ -739,6 +777,12 @@ func (c *Controller) dropSessionIf(nodeID uint64, session *transport.SecureSessi
 	}
 	delete(c.sessions, nodeID)
 	return true
+}
+
+func (c *Controller) expireSession(nodeID uint64, session *transport.SecureSession) {
+	if c.dropSessionIf(nodeID, session) {
+		c.node.RemoveSession(session.LocalID)
+	}
 }
 
 // storedMRPTiming reads what commissioning learned about this peer. It is the

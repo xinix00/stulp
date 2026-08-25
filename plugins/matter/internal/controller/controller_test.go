@@ -126,6 +126,43 @@ func TestSessionEstablishmentIsBounded(t *testing.T) {
 	}
 }
 
+func TestDeadNodeDoesNotBlockCASEForAnotherNode(t *testing.T) {
+	deadStarted := make(chan struct{})
+	controller := &Controller{
+		sessions: make(map[uint64]*transport.SecureSession),
+		establishCASE: func(ctx context.Context, info connectionInfo) (*transport.SecureSession, error) {
+			if info.nodeID == 7 {
+				close(deadStarted)
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+			return &transport.SecureSession{LocalID: uint16(info.nodeID)}, nil
+		},
+	}
+	deadCtx, cancelDead := context.WithCancel(context.Background())
+	deadResult := make(chan error, 1)
+	go func() {
+		_, err := controller.session(deadCtx, connectionInfo{nodeID: 7})
+		deadResult <- err
+	}()
+	<-deadStarted
+
+	healthyCtx, cancelHealthy := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancelHealthy()
+	session, err := controller.session(healthyCtx, connectionInfo{nodeID: 8})
+	if err != nil {
+		t.Fatalf("CASE voor gezonde node wachtte achter dode node: %v", err)
+	}
+	if session == nil || session.LocalID != 8 {
+		t.Fatalf("verkeerde sessie voor gezonde node: %#v", session)
+	}
+
+	cancelDead()
+	if err := <-deadResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("dode CASE eindigde met %v, wilde context.Canceled", err)
+	}
+}
+
 func TestMatterDeviceConnectionRoundTrip(t *testing.T) {
 	wantNOC := []byte{1, 2, 3, 4}
 	device := Device{Store: map[string]any{

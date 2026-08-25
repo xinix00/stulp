@@ -161,8 +161,6 @@ func (c *Controller) UpdateDeviceSettings(ctx context.Context, deviceID string, 
 	if err != nil {
 		return Device{}, err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	for attempt := 0; attempt < 2; attempt++ {
 		session, sessionErr := c.session(ctx, info)
 		if sessionErr != nil {
@@ -191,8 +189,7 @@ func (c *Controller) UpdateDeviceSettings(ctx context.Context, deviceID string, 
 			c.reportMu.Unlock()
 			return latest, readErr
 		}
-		c.node.RemoveSession(session.LocalID)
-		c.dropSession(info.nodeID)
+		c.expireSession(info.nodeID, session)
 	}
 	return Device{}, err
 }

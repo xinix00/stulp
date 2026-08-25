@@ -21,19 +21,32 @@ type fake struct {
 }
 
 type read struct {
-	unit  uint8
-	start uint16
-	count uint16
+	unit    uint8
+	start   uint16
+	count   uint16
+	holding bool
+}
+
+func (f *fake) ReadInput(unit uint8, start, count uint16) ([]uint16, error) {
+	return f.read(unit, start, count, false)
 }
 
 func (f *fake) ReadHolding(unit uint8, start, count uint16) ([]uint16, error) {
-	f.reads = append(f.reads, read{unit, start, count})
+	return f.read(unit, start, count, true)
+}
+
+func (f *fake) read(unit uint8, start, count uint16, holding bool) ([]uint16, error) {
+	f.reads = append(f.reads, read{unit: unit, start: start, count: count, holding: holding})
 	if f.broken != nil {
 		return nil, f.broken
 	}
 	for addr := start; addr < start+count; addr++ {
 		if f.refuse[addr] {
-			return nil, modbus.Exception{Function: 0x03, Code: 2}
+			function := byte(0x04)
+			if holding {
+				function = 0x03
+			}
+			return nil, modbus.Exception{Function: function, Code: 2}
 		}
 	}
 	out := make([]uint16, count)
@@ -174,6 +187,42 @@ func TestPollerReadsAWholeSet(t *testing.T) {
 	}
 }
 
+func TestReadOnlyRegistersUseInputAndRWRegistersUseHolding(t *testing.T) {
+	charger := newFake(map[uint16]uint16{})
+	if _, err := NewPoller(2, ReadingSet(EvACCharger)).Read(charger); err != nil {
+		t.Fatal(err)
+	}
+	if len(charger.reads) == 0 {
+		t.Fatal("de laadpaal leverde geen leesvragen op")
+	}
+	for _, call := range charger.reads {
+		if call.holding {
+			t.Fatalf("read-only laadpaalregister %d ging als holding-register de deur uit", call.start)
+		}
+	}
+
+	energy := newFake(map[uint16]uint16{})
+	if _, err := NewPoller(SystemUnit, ReadingSet(Energy)).Read(energy); err != nil {
+		t.Fatal(err)
+	}
+	foundPhaseControl := false
+	for _, call := range energy.reads {
+		coversPhaseControl := call.start <= Energy.PhaseControl.Addr &&
+			call.start+call.count > Energy.PhaseControl.Addr
+		if coversPhaseControl {
+			foundPhaseControl = true
+			if !call.holding {
+				t.Fatal("RW-register 40030 ging als input-register de deur uit")
+			}
+		} else if call.holding {
+			t.Fatalf("read-only registerbereik %d+%d ging als holding-register de deur uit", call.start, call.count)
+		}
+	}
+	if !foundPhaseControl {
+		t.Fatal("RW-register 40030 werd niet gelezen")
+	}
+}
+
 // Sigenergy laat gaten in zijn kaart. Wie een bereik leest dat over zo'n gat
 // loopt krijgt soms een weigering voor het hele bereik -- en dan zou één
 // onbekend adres zes tegels leeg houden.
@@ -310,5 +359,14 @@ func TestChargerPowerReachesTheCapabilityInWatts(t *testing.T) {
 	}
 	if watt := WattFromKilowatt(kilowatt); watt != 7000 {
 		t.Fatalf("op measure_power = %v W, wil 7000", watt)
+	}
+}
+
+func TestChargerControlUsesTheProtocolPolarity(t *testing.T) {
+	if EvACChargerStart != 0 {
+		t.Fatalf("startopdracht = %d, wil 0", EvACChargerStart)
+	}
+	if EvACChargerStop != 1 {
+		t.Fatalf("stopopdracht = %d, wil 1", EvACChargerStop)
 	}
 }

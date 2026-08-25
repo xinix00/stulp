@@ -142,7 +142,7 @@ func TestMCPIsAKeyedStatelessStreamableHTTPEndpoint(t *testing.T) {
 		tool, _ := raw.(map[string]any)
 		names[tool["name"].(string)] = true
 	}
-	for _, name := range []string{"system_context", "devices_list", "devices_write", "flow_cards_list", "flow_card_autocomplete", "flow_action_run", "flows_create", "flows_add_cards", "flows_configure_card", "flows_connect_cards"} {
+	for _, name := range []string{"system_context", "devices_list", "devices_create", "devices_write", "flow_cards_list", "flow_card_autocomplete", "flow_action_run", "flows_create", "flows_add_cards", "flows_configure_card", "flows_connect_cards"} {
 		if !names[name] {
 			t.Errorf("tools/list misses %s", name)
 		}
@@ -180,7 +180,8 @@ func TestMCPListsAnnotatedToolsAndRejectsUnknownMethods(t *testing.T) {
 		}
 	}
 	if annotations["devices_write"]["destructiveHint"] != true || annotations["flow_action_run"]["openWorldHint"] != true ||
-		annotations["flows_create"]["destructiveHint"] != false || annotations["devices_list"]["readOnlyHint"] != true {
+		annotations["flows_create"]["destructiveHint"] != false || annotations["devices_list"]["readOnlyHint"] != true ||
+		annotations["devices_create"]["destructiveHint"] != false || annotations["devices_create"]["idempotentHint"] != false {
 		t.Fatalf("unsafe tool annotations: %#v", annotations)
 	}
 

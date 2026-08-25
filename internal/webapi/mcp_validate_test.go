@@ -26,6 +26,7 @@ func TestValidateMCPToolArgumentsAcceptsAdvertisedShapes(t *testing.T) {
 	}{
 		{"system_context", nil},
 		{"devices_list", map[string]any{"search": "lamp", "availableOnly": true, "offset": 0.0, "limit": 25.0}},
+		{"devices_create", map[string]any{"type": "virtual_switch", "name": "Alarm ingeschakeld"}},
 		{"devices_write", map[string]any{"deviceId": "lamp", "capabilityId": "onoff", "value": true}},
 		{"flow_cards_list", map[string]any{"kind": "condition", "availableOnly": false}},
 		{"flow_card_autocomplete", map[string]any{"appId": "app", "cardId": "card", "cardType": "action", "argument": "device", "args": map[string]any{}}},
@@ -80,6 +81,11 @@ func TestValidateMCPToolArgumentsRejectsSchemaAndBudgetViolations(t *testing.T) 
 		contains  string
 	}{
 		{"system_context", map[string]any{"extra": true}, "unknown field"},
+		{"devices_create", map[string]any{"type": "virtual_switch"}, "name is required"},
+		{"devices_create", map[string]any{"type": "physical_switch", "name": "Lamp"}, "advertised enum"},
+		{"devices_create", map[string]any{"type": "virtual_switch", "name": ""}, "at least 1"},
+		{"devices_create", map[string]any{"type": "virtual_switch", "name": strings.Repeat("x", 161)}, "at most 160"},
+		{"devices_create", map[string]any{"type": "virtual_switch", "name": "Lamp", "appId": "com.example.unsafe"}, "unknown field"},
 		{"devices_write", map[string]any{"deviceId": "lamp", "value": true}, "capabilityId is required"},
 		{"devices_list", map[string]any{"deviceId": 12.0}, "deviceId must be a string"},
 		{"devices_list", map[string]any{"offset": 1.5}, "whole number"},

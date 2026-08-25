@@ -683,17 +683,31 @@ func (p *Process) AddPairedDevice(ctx context.Context, driverID string, candidat
 	// bij de app in de leesgoroutine binnen en een verzoek gaat in de wachtrij,
 	// dus wat eerst geschreven is, is eerst toegepast.
 	if err := p.pushDevice(created); err != nil {
-		p.store.DeleteDevice(ctx, created.ID)
+		if rollbackErr := p.rollbackPairedDevice(ctx, created.ID); rollbackErr != nil {
+			return store.Device{}, errors.Join(err, fmt.Errorf("rollback paired device: %w", rollbackErr))
+		}
 		return store.Device{}, err
 	}
 
 	if err := p.startDevice(ctx, created); err != nil {
 		// Een device dat niet wil starten hoort niet als gekoppeld te blijven
 		// staan; anders zit er een dode tegel in de interface.
-		p.store.DeleteDevice(ctx, created.ID)
+		if rollbackErr := p.rollbackPairedDevice(ctx, created.ID); rollbackErr != nil {
+			return store.Device{}, errors.Join(err, fmt.Errorf("rollback paired device: %w", rollbackErr))
+		}
 		return store.Device{}, err
 	}
 	return created, nil
+}
+
+// rollbackPairedDevice gebruikt bewust niet de request-context waarmee het
+// koppelen binnenkwam. Die kan precies verlopen nadat AddDevice duurzaam heeft
+// geschreven maar voordat pushDevice/device.init klaar is. Met diezelfde
+// geannuleerde context zou DeleteDevice onmiddellijk weigeren en meldt de
+// aanroeper een fout terwijl er toch een dood apparaat achterblijft. De store-
+// rollback is lokaal en begrensd; contextwaarden blijven voor diagnostiek mee.
+func (p *Process) rollbackPairedDevice(ctx context.Context, deviceID string) error {
+	return p.store.DeleteDevice(context.WithoutCancel(ctx), deviceID)
 }
 
 func (p *Process) existingPairedDevice(ctx context.Context, candidate store.Device) (store.Device, bool) {

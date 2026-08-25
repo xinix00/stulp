@@ -211,7 +211,7 @@ var Energy = EnergyMap{
 	PowerL3:      i32(reading, 30056, 1, "vermogen L3 (W)"),
 	TotalImport:  u64(reading, 30260, 100, "afgenomen energie (kWh)"),
 	TotalExport:  u64(reading, 30264, 100, "teruggeleverde energie (kWh)"),
-	PhaseControl: u16(reading, 40030, 1, "individuele fasesturing"),
+	PhaseControl: holdingU16(reading, 40030, 1, "individuele fasesturing"),
 }
 
 // Probe: hetzelfde register als het systeem, want de netmeter staat in dezelfde
@@ -249,13 +249,13 @@ func (m EvACChargerMap) Probe() Reg { return m.Status }
 
 func (m EvACChargerMap) All() Set { return Set{m.Status, m.TotalCharged, m.Power} }
 
-// EvACChargerControl is het register waarmee een laadbeurt begint en eindigt:
-// 1 start, 0 stopt. Uit lib/devices/evACCharger.js.
+// EvACChargerControl is het write-only register waarmee een laadbeurt begint en
+// eindigt. Sigenergy schrijft voor dit ene register functiecode 0x06 voor.
 const EvACChargerControl uint16 = 42000
 
 const (
-	EvACChargerStart uint16 = 1
-	EvACChargerStop  uint16 = 0
+	EvACChargerStart uint16 = 0
+	EvACChargerStop  uint16 = 1
 )
 
 // WattFromKilowatt rekent een vermogen in kW om naar watt.

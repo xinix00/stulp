@@ -51,11 +51,22 @@ const (
 	kindString
 )
 
+// space is in welke Modbus-registerruimte een veld staat. Het getal van het
+// adres bepaalt dat niet voor de client: functiecode 0x04 en 0x03 kunnen allebei
+// adres 0 vragen. Sigenergy zet metingen en andere read-only velden in input
+// registers en zijn instelbare velden in holding registers.
+type space uint8
+
+const (
+	inputRegisters space = iota
+	holdingRegisters
+)
+
 // Reg is één register uit de kaart.
 type Reg struct {
-	// Addr is het adres zoals het de deur uit gaat. Sigenergy nummert zijn
-	// holding registers vanaf 30000 en 40000; die getallen worden onveranderd
-	// verstuurd, precies zoals de bron dat doet.
+	// Addr is het adres zoals het de deur uit gaat. Sigenergy gebruikt de
+	// 30000-reeks voor input-registers en de 40000-reeks voor holding-registers;
+	// die getallen worden onveranderd verstuurd.
 	Addr uint16
 	// Count is hoeveel registers van 16 bits dit veld beslaat.
 	Count uint16
@@ -65,6 +76,7 @@ type Reg struct {
 
 	kind  kind
 	class class
+	space space
 	// gain is waar de ruwe waarde door gedeeld wordt. Sigenergy noemt dat zo in
 	// zijn eigen protocolbeschrijving, en de bron neemt die naam over.
 	gain float64
@@ -74,27 +86,34 @@ type Reg struct {
 // klasse, adres, gain, betekenis.
 
 func u16(c class, addr uint16, gain float64, what string) Reg {
-	return Reg{Addr: addr, Count: 1, What: what, kind: kindUint16, class: c, gain: gain}
+	return Reg{Addr: addr, Count: 1, What: what, kind: kindUint16, class: c, space: inputRegisters, gain: gain}
 }
 
 func i16(c class, addr uint16, gain float64, what string) Reg {
-	return Reg{Addr: addr, Count: 1, What: what, kind: kindInt16, class: c, gain: gain}
+	return Reg{Addr: addr, Count: 1, What: what, kind: kindInt16, class: c, space: inputRegisters, gain: gain}
 }
 
 func u32(c class, addr uint16, gain float64, what string) Reg {
-	return Reg{Addr: addr, Count: 2, What: what, kind: kindUint32, class: c, gain: gain}
+	return Reg{Addr: addr, Count: 2, What: what, kind: kindUint32, class: c, space: inputRegisters, gain: gain}
 }
 
 func i32(c class, addr uint16, gain float64, what string) Reg {
-	return Reg{Addr: addr, Count: 2, What: what, kind: kindInt32, class: c, gain: gain}
+	return Reg{Addr: addr, Count: 2, What: what, kind: kindInt32, class: c, space: inputRegisters, gain: gain}
 }
 
 func u64(c class, addr uint16, gain float64, what string) Reg {
-	return Reg{Addr: addr, Count: 4, What: what, kind: kindUint64, class: c, gain: gain}
+	return Reg{Addr: addr, Count: 4, What: what, kind: kindUint64, class: c, space: inputRegisters, gain: gain}
 }
 
 func text(c class, addr, count uint16, what string) Reg {
-	return Reg{Addr: addr, Count: count, What: what, kind: kindString, class: c, gain: 1}
+	return Reg{Addr: addr, Count: count, What: what, kind: kindString, class: c, space: inputRegisters, gain: 1}
+}
+
+// holdingU16 beschrijft een leesbaar holding register. De gewone bouwers
+// hierboven zijn bewust input-registers: het overgrote deel van de kaart is
+// read-only en hoort volgens het Sigenergy-protocol met 0x04 gelezen te worden.
+func holdingU16(c class, addr uint16, gain float64, what string) Reg {
+	return Reg{Addr: addr, Count: 1, What: what, kind: kindUint16, class: c, space: holdingRegisters, gain: gain}
 }
 
 // Number vertaalt de ruwe registers naar de waarde in de eenheid van What.
@@ -163,7 +182,22 @@ func pick(all Set, want class) Set {
 
 // Reader is wat dit pakket van een Modbus-verbinding nodig heeft.
 type Reader interface {
+	ReadInput(unit uint8, start, count uint16) ([]uint16, error)
 	ReadHolding(unit uint8, start, count uint16) ([]uint16, error)
+}
+
+// Read haalt precies dit register uit zijn eigen registerruimte. Ook probes
+// lopen hierdoor, zodat pairing niet per ongeluk een read-only register met
+// functiecode 0x03 probeert te herkennen.
+func (r Reg) Read(reader Reader, unit uint8) ([]uint16, error) {
+	return readRegisters(reader, r.space, unit, r.Addr, r.Count)
+}
+
+func readRegisters(reader Reader, space space, unit uint8, start, count uint16) ([]uint16, error) {
+	if space == holdingRegisters {
+		return reader.ReadHolding(unit, start, count)
+	}
+	return reader.ReadInput(unit, start, count)
 }
 
 // refused zegt of het apparaat de vraag weigerde in plaats van dat de lijn het
@@ -252,7 +286,7 @@ func (p *Poller) Read(reader Reader) (Reading, error) {
 			}
 			continue
 		}
-		words, err := reader.ReadHolding(p.unit, run.Start, run.Count)
+		words, err := readRegisters(reader, run.space, p.unit, run.Start, run.Count)
 		if err != nil {
 			if !refused(err) {
 				return Reading{}, err
@@ -276,7 +310,7 @@ func (p *Poller) Read(reader Reader) (Reading, error) {
 
 func (p *Poller) readOneByOne(reader Reader, run Run, into *Reading) error {
 	for _, reg := range run.Regs {
-		words, err := reader.ReadHolding(p.unit, reg.Addr, reg.Count)
+		words, err := reg.Read(reader, p.unit)
 		if err != nil {
 			if !refused(err) {
 				return err
@@ -294,6 +328,7 @@ type Run struct {
 	Start uint16
 	Count uint16
 	Regs  Set
+	space space
 }
 
 const (
@@ -318,7 +353,7 @@ func group(set Set) []Run {
 		if len(runs) > 0 {
 			current := &runs[len(runs)-1]
 			currentEnd := current.Start + current.Count
-			if reg.Addr >= currentEnd && reg.Addr-currentEnd <= maxGap && end-current.Start <= maxRun {
+			if current.space == reg.space && reg.Addr >= currentEnd && reg.Addr-currentEnd <= maxGap && end-current.Start <= maxRun {
 				current.Regs = append(current.Regs, reg)
 				if end > currentEnd {
 					current.Count = end - current.Start
@@ -326,7 +361,7 @@ func group(set Set) []Run {
 				continue
 			}
 		}
-		runs = append(runs, Run{Start: reg.Addr, Count: reg.Count, Regs: Set{reg}})
+		runs = append(runs, Run{Start: reg.Addr, Count: reg.Count, Regs: Set{reg}, space: reg.space})
 	}
 	return runs
 }

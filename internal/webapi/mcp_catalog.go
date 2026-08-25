@@ -66,6 +66,15 @@ func buildMCPToolCatalog() []map[string]any {
 				"writableOnly", mcpFlag("Only devices with a setable capability", false),
 			))),
 
+		mcpTool("devices_create", "Create a virtual device", mcpAdd,
+			"Create one persistent virtual on/off switch. Use it as durable boolean memory (a variable) in Flows and Scenes. "+
+				"It starts off; the returned device id can immediately be used as {\"$device\":\"DEVICE_ID\"} in Flow cards or with devices_write. "+
+				"This only supports the installed Virtual devices app and cannot pair physical hardware. Each successful call creates a new independent switch, even when names match.",
+			mcpRequired(mcpObject(map[string]any{
+				"type": map[string]any{"type": "string", "enum": []any{mcpVirtualDeviceType}},
+				"name": mcpText("Name shown on the device and in Flow card selectors", 160),
+			}), "type", "name")),
+
 		mcpTool("devices_write", "Set a device capability", mcpAct,
 			"Request one writable capability change. Read devices_list first and use only setable=true. "+
 				"Values use household units; accepted does not mean the device has already reported the new state. "+

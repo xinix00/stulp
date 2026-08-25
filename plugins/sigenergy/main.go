@@ -27,11 +27,10 @@ const (
 	defaultPort     = 502
 	defaultInterval = 10
 	defaultTimeout  = 5
-	// scanTimeout geldt alleen tijdens het aftasten. Zie scan().
-	scanTimeout = 1500 * time.Millisecond
-	// systemUnit draagt de registers van het systeem als geheel.
-	systemUnit = 247
-
+	// scanTimeout geldt alleen tijdens het aftasten. Zie scan(). Een bestaande
+	// unit antwoordt op het lokale netwerk binnen milliseconden; een halve
+	// seconde per stille unit houdt een volledige, ook sparse scan hanteerbaar.
+	scanTimeout = 500 * time.Millisecond
 	// minInterval houdt het pollen bij een omvormer vandaan die er niet tegen
 	// kan. De bron staat vijf seconden als ondergrens toe en dat is hier
 	// overgenomen.
@@ -52,6 +51,14 @@ type app struct {
 	order   []string          // vaste volgorde, zodat een ronde voorspelbaar loopt
 	halt    chan struct{}
 	lastErr string
+
+	// De Gateway loopt via de optionele mySigen-koppeling, los van de lokale
+	// Modbus-verbinding. Een wijziging aan het lokale IP-adres mag deze
+	// apparaten daarom niet stoppen of opnieuw aanmelden.
+	cloud           cloudClient
+	cloudIdentity   storedCloud
+	cloudGeneration uint64
+	gateways        map[string]*gatewayDevice
 }
 
 // device is wat de app van een gekoppeld apparaat nodig heeft.
@@ -64,7 +71,7 @@ type device interface {
 	forgetConnection()
 }
 
-var instance = &app{devices: map[string]device{}}
+var instance = &app{devices: map[string]device{}, gateways: map[string]*gatewayDevice{}}
 
 func main() { start(plugin()) }
 
@@ -81,6 +88,7 @@ func plugin() appsdk.Plugin {
 			"battery":     batteryDriver{},
 			"energy":      energyDriver{},
 			"evaccharger": chargerDriver{},
+			"gateway":     gatewayDriver{},
 		},
 	}
 }
@@ -91,12 +99,24 @@ func (a *app) start(stulp *appsdk.Stulp) error {
 	a.mu.Unlock()
 
 	a.registerAPI(stulp)
+	a.registerCloudAPI(stulp)
 	stulp.OnSettingsChanged(func(map[string]any) { a.connect() })
+	if err := a.restoreCloud(stulp.State()); err != nil {
+		stulp.Error(err.Error())
+	}
 	a.connect()
 	return nil
 }
 
 func (a *app) stop() {
+	a.stopModbus()
+	a.stopCloudRuntime()
+}
+
+// stopModbus sluit alleen de lokale meetverbinding. connect gebruikt hem ook;
+// de cloud-Gateway is een onafhankelijke verbinding en moet daarbij blijven
+// draaien.
+func (a *app) stopModbus() {
 	a.mu.Lock()
 	halt, client := a.halt, a.client
 	a.halt, a.client = nil, nil
@@ -116,7 +136,7 @@ func (a *app) stop() {
 // die uit staat zou daarmee elk apparaat van deze app ophouden. Wat er misgaat
 // komt terug op de configuratiepagina en op de tegel van elk apparaat.
 func (a *app) connect() {
-	a.stop()
+	a.stopModbus()
 
 	stulp := a.settings()
 	host := stulp.SettingText("host")
@@ -270,7 +290,6 @@ func (a *app) chargerPower() float64 {
 // genoeg om de koppelpagina te vullen zonder iemand een unit-id te laten
 // opzoeken.
 func (a *app) scan(card sigen.Card) ([]uint8, error) {
-	probe := card.Probe()
 	units, err := parseUnits(a.settings().SettingText("units"))
 	if err != nil {
 		return nil, err
@@ -281,7 +300,7 @@ func (a *app) scan(card sigen.Card) ([]uint8, error) {
 	// enkele milliseconden, en een unit die er niet is zwíjgt -- hij weigert
 	// niet. Met de gewone wachttijd van vijf seconden kost het aftasten van
 	// 1-32 dus bijna drie minuten per soort apparaat, en dan lijkt de
-	// koppelpagina te hangen. Op een LAN is anderhalve seconde ruim.
+	// koppelpagina te hangen.
 	host := a.settings().SettingText("host")
 	if host == "" {
 		return nil, fmt.Errorf("er is nog geen adres ingesteld")
@@ -289,42 +308,38 @@ func (a *app) scan(card sigen.Card) ([]uint8, error) {
 	client := modbus.New(host, a.settings().SettingNumber("port", defaultPort), scanTimeout)
 	defer client.Close()
 
-	// Een weigering betekent: op deze unit staat dit apparaat niet. Dat is het
-	// normale antwoord voor bijna elk afgetast unit-id en dus geen fout.
-	//
-	// Iets anders -- de lijn ligt eruit, of het systeem antwoordt helemaal niet --
-	// laat de zoektocht wél doorlopen, want een systeem dat onbekende units
-	// negeert in plaats van weigert zou anders bij de eerste misser afbreken. Het
-	// wordt onthouden: als er niets gevonden wordt is dít de reden.
+	return scanUnits(client, card, units)
+}
+
+// scanUnits tast iedere opgegeven unit af. De lijst kan bewust gaten bevatten:
+// een laadpaal op unit 8 mag niet verdwijnen omdat units 4 tot en met 7 stil
+// waren. Daarom wordt niets op grond van aaneengesloten nummering overgeslagen.
+//
+// Een Modbus-uitzondering bewijst bovendien dat het adres bereikbaar is. Als
+// ten minste één unit netjes antwoordde maar deze apparaatsoort nergens stond,
+// is dat een lege vondst en niet de eerste timeout op een niet-bestaande unit.
+func scanUnits(reader sigen.Reader, card sigen.Card, units []uint8) ([]uint8, error) {
+	probe := card.Probe()
 	var found []uint8
 	var firstFailure error
-	silent := 0
-	// Sigenergy nummert zijn apparaten aaneengesloten vanaf 1. Zwijgen er drie
-	// achter elkaar, dan zijn we voorbij het laatste en kost verder zoeken
-	// alleen wachttijd -- op een echt systeem drie minuten voor niets. Het
-	// systeem-id (247) staat los van die reeks en wordt daarom altijd gevraagd.
-	const enoughSilence = 3
+	answered := false
 	for _, unit := range units {
-		if silent >= enoughSilence && unit < systemUnit {
-			continue
-		}
-		_, err := client.ReadHolding(unit, probe.Addr, probe.Count)
+		_, err := probe.Read(reader, unit)
 		switch {
 		case err == nil:
 			found = append(found, unit)
-			silent = 0
+			answered = true
 		case isRefusal(err):
 			// Een weigering is een antwoord: dit apparaat staat niet op deze
-			// unit, maar er luistert wel iets. Dat is geen stilte.
-			silent = 0
+			// unit, maar er luistert wel iets.
+			answered = true
 		default:
 			if firstFailure == nil {
 				firstFailure = err
 			}
-			silent++
 		}
 	}
-	if len(found) == 0 && firstFailure != nil {
+	if len(found) == 0 && !answered && firstFailure != nil {
 		return nil, firstFailure
 	}
 	return found, nil

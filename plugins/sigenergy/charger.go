@@ -10,12 +10,19 @@ import (
 
 // De AC-laadpaal: laadstand, vermogen, meterstand, en starten en stoppen.
 //
-// Dit is het enige apparaat in deze app dat ook schrijft. Dat gaat naar één
-// register: 1 start de laadbeurt, 0 stopt hem.
+// Dit is het enige apparaat in deze app dat ook lokaal schrijft. Dat gaat met
+// een single-registerwrite naar 42000: 0 start de laadbeurt, 1 stopt hem.
 type chargerDriver struct{}
+
+type singleRegisterWriter interface {
+	WriteSingle(unit uint8, start, value uint16) error
+}
 
 type chargerDevice struct {
 	*meter
+	// writer is normaal nil en gebruikt dan de gedeelde Modbus-client. De naad
+	// maakt de opdracht zelf toetsbaar zonder een laadpaal te schakelen.
+	writer singleRegisterWriter
 
 	// guard hoort bij het laatst gemeten vermogen. Het systeem meldt geen
 	// laadpaalvermogen als eigen register, dus telt de systeemtegel op wat de
@@ -82,16 +89,23 @@ func (c *chargerDevice) OnCapability(name string, value any) error {
 	if name != "evcharger_charging" {
 		return fmt.Errorf("deze laadpaal kent %q niet", name)
 	}
-	client, err := instance.api()
-	if err != nil {
-		return err
+	on, ok := value.(bool)
+	if !ok {
+		return fmt.Errorf("evcharger_charging verwacht aan of uit, kreeg %T", value)
+	}
+	writer := c.writer
+	if writer == nil {
+		client, err := instance.api()
+		if err != nil {
+			return err
+		}
+		writer = client
 	}
 	command := sigen.EvACChargerStop
-	on, _ := value.(bool)
 	if on {
 		command = sigen.EvACChargerStart
 	}
-	if err := client.WriteHolding(c.Unit(), sigen.EvACChargerControl, []uint16{command}); err != nil {
+	if err := writer.WriteSingle(c.Unit(), sigen.EvACChargerControl, command); err != nil {
 		return err
 	}
 	return nil

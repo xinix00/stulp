@@ -15,6 +15,12 @@ import (
 	"github.com/xinix00/stulp/plugins/matter/internal/tlv"
 )
 
+func TestSubscriptionDoesNotBatchAutomationReports(t *testing.T) {
+	if subscriptionMinInterval != 0 {
+		t.Fatalf("subscription minimum interval = %d, want 0 for immediate motion/contact/button reports", subscriptionMinInterval)
+	}
+}
+
 func TestApplyReportsPersistsStateAndEmitsDeduplicatedMatterEvent(t *testing.T) {
 	database := newBacking()
 	ctx := context.Background()

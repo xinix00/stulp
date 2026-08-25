@@ -30,4 +30,42 @@ app zelf op zodra je er een koppelt.</p>
 <p id="status" class="hint"></p>
 <div id="found"></div>
 
+<section>
+  <h2>Noodstroom-Gateway <small>(optioneel)</small></h2>
+  <p class="hint">De metingen hierboven blijven lokaal. Alleen handmatig van
+  het net schakelen en opnieuw verbinden loopt via mySigen, omdat Sigenergy die
+  bediening niet via Modbus aanbiedt. Het wachtwoord wordt uitsluitend voor de
+  aanmelding gebruikt; Stulp bewaart alleen de verversbare tokens in de private
+  appstate.</p>
+
+  <form id="cloudForm">
+    <label>Regio
+      <select id="cloudRegion">
+        <option value="eu">Europa</option>
+        <option value="apac">Azië-Pacific</option>
+        <option value="us">Verenigde Staten</option>
+        <option value="aus">Australië/Nieuw-Zeeland</option>
+        <option value="jp">Japan</option>
+        <option value="cn">China</option>
+      </select>
+    </label>
+    <label>mySigen-account
+      <input id="cloudUsername" placeholder="E-mail of telefoonnummer" autocomplete="username">
+    </label>
+    <label>mySigen-wachtwoord
+      <input id="cloudPassword" type="password" placeholder="········" autocomplete="current-password">
+    </label>
+    <div class="actions">
+      <button type="button" id="cloudCheck">Verbinding proberen</button>
+      <button type="button" id="cloudDisconnect" class="quiet">Koppeling verbreken</button>
+      <button type="submit" id="cloudConnect" class="primary">Koppelen</button>
+    </div>
+  </form>
+  <p id="cloudStatus" class="hint"></p>
+  <div id="cloudFound"></div>
+  <p class="hint">Na het koppelen verschijnt <em>Noodstroom-Gateway</em> bij
+  Apparaat toevoegen. Een handmatige tik vraagt bevestiging; een Flow of Scene
+  geldt zelf als de expliciete opdracht en doorloopt dezelfde statuscontroles.</p>
+</section>
+
 <script src="page.js"></script>

@@ -34,7 +34,7 @@ func TestAgainstARealSystem(t *testing.T) {
 	t.Log("  === welke units antwoorden ===")
 	for unit := uint8(1); unit <= 8; unit++ {
 		start := time.Now()
-		_, err := client.ReadHolding(unit, 30500, 1)
+		_, err := client.ReadInput(unit, 30500, 1)
 		switch {
 		case err == nil:
 			t.Logf("    unit %d: antwoordt (%v)", unit, time.Since(start).Round(time.Millisecond))
@@ -98,7 +98,13 @@ func TestWhatUnitOneOffers(t *testing.T) {
 		{32000, "ev-lader"},
 		{40000, "schrijfbereik"},
 	} {
-		words, err := client.ReadHolding(1, probe.addr, 1)
+		var words []uint16
+		var err error
+		if probe.addr >= 40000 {
+			words, err = client.ReadHolding(1, probe.addr, 1)
+		} else {
+			words, err = client.ReadInput(1, probe.addr, 1)
+		}
 		if err != nil {
 			t.Logf("    %-6d %-30s %v", probe.addr, probe.what, shorten(err.Error()))
 			continue
@@ -145,7 +151,7 @@ func TestScanLikeThePluginDoes(t *testing.T) {
 		found := []uint8{}
 		start := time.Now()
 		for _, unit := range []uint8{1, 2, 3, 4, 247} {
-			if _, err := client.ReadHolding(unit, card.reg.Addr, card.reg.Count); err == nil {
+			if _, err := card.reg.Read(client, unit); err == nil {
 				found = append(found, unit)
 			}
 		}

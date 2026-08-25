@@ -17,7 +17,23 @@ import (
 	"github.com/xinix00/stulp/internal/supervisor"
 )
 
-const executionTimeout = 45 * time.Second
+const (
+	executionTimeout = 45 * time.Second
+
+	// Automatic runs must not execute on the store-event goroutine. A Flow can
+	// legitimately wait on a device, an HTTP service, or the built-in delay
+	// card; doing that inline used to postpone every sensor edge behind it while
+	// Manage, which has its own store subscription, still looked instant.
+	//
+	// Small worker pools let unrelated (and repeated) sensor events make progress
+	// without turning a burst into an unbounded number of goroutines. The queues
+	// match the store subscription buffer: once they are full, backpressure is
+	// preferable to silently dropping an automation.
+	automaticTriggerWorkers   = 4
+	automaticTriggerQueue     = 256
+	automaticExecutionWorkers = 4
+	automaticExecutionQueue   = 256
+)
 
 type Options struct {
 	Timezone         string
@@ -83,23 +99,35 @@ type RunResult struct {
 	RanAt      string       `json:"ranAt"`
 }
 
+type automaticRun struct {
+	definition store.Flow
+	input      Trigger
+	starts     []string
+}
+
 type Engine struct {
-	store            *store.Store
-	apps             *supervisor.Supervisor
-	events           <-chan store.Event
-	cancel           func()
-	done             chan struct{}
-	closeOnce        sync.Once
-	stateMu          sync.Mutex
-	deviceState      map[string]map[string]any
-	location         *time.Location
-	ticks            <-chan time.Time
-	stopTicks        func()
-	scheduleMu       sync.Mutex
-	scheduled        map[string]string
-	invokeCapability func(context.Context, string, string, any, map[string]any) error
-	readToken        func(Trigger, string, any) (string, bool)
-	wantsNumber      func(store.FlowStep, string) bool
+	store             *store.Store
+	apps              *supervisor.Supervisor
+	events            <-chan store.Event
+	cancel            func()
+	done              chan struct{}
+	closeOnce         sync.Once
+	automaticTriggers chan Trigger
+	triggerWorkers    sync.WaitGroup
+	automaticRuns     chan automaticRun
+	automaticWorkers  sync.WaitGroup
+	resultMu          sync.Mutex
+	latestResult      map[string]time.Time
+	stateMu           sync.Mutex
+	deviceState       map[string]map[string]any
+	location          *time.Location
+	ticks             <-chan time.Time
+	stopTicks         func()
+	scheduleMu        sync.Mutex
+	scheduled         map[string]string
+	invokeCapability  func(context.Context, string, string, any, map[string]any) error
+	readToken         func(Trigger, string, any) (string, bool)
+	wantsNumber       func(store.FlowStep, string) bool
 }
 
 func New(database *store.Store, apps *supervisor.Supervisor) *Engine {
@@ -123,7 +151,9 @@ func NewWithOptions(database *store.Store, apps *supervisor.Supervisor, options 
 	}
 	engine := &Engine{
 		store: database, apps: apps, events: events, cancel: cancel,
-		done: make(chan struct{}), deviceState: make(map[string]map[string]any),
+		done: make(chan struct{}), automaticTriggers: make(chan Trigger, automaticTriggerQueue),
+		automaticRuns: make(chan automaticRun, automaticExecutionQueue),
+		latestResult:  make(map[string]time.Time), deviceState: make(map[string]map[string]any),
 		location: location, ticks: ticks, stopTicks: stopTicks, scheduled: make(map[string]string),
 		invokeCapability: options.InvokeCapability,
 		readToken:        options.ReadToken, wantsNumber: options.ArgumentWantsNumber,
@@ -132,6 +162,14 @@ func NewWithOptions(database *store.Store, apps *supervisor.Supervisor, options 
 		engine.invokeCapability = apps.InvokeCapability
 	}
 	engine.reloadDeviceState()
+	for range automaticTriggerWorkers {
+		engine.triggerWorkers.Add(1)
+		go engine.matchAutomaticTriggers()
+	}
+	for range automaticExecutionWorkers {
+		engine.automaticWorkers.Add(1)
+		go engine.runAutomaticFlows()
+	}
 	go engine.loop()
 	return engine
 }
@@ -161,7 +199,13 @@ func (e *Engine) reloadDeviceState() {
 }
 
 func (e *Engine) loop() {
-	defer close(e.done)
+	defer func() {
+		close(e.automaticTriggers)
+		e.triggerWorkers.Wait()
+		close(e.automaticRuns)
+		e.automaticWorkers.Wait()
+		close(e.done)
+	}()
 	for {
 		select {
 		case event, open := <-e.events:
@@ -246,16 +290,11 @@ func (e *Engine) handleScheduledFlows(now time.Time) {
 		if len(starts) == 0 {
 			continue
 		}
-		definition, starts := definition, starts
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), executionTimeout)
-			defer cancel()
-			input := Trigger{
-				Tokens: map[string]any{"time": localNow.Format("15:04"), "date": localNow.Format("2006-01-02")},
-				State:  map[string]any{"time": localNow.Format("15:04"), "date": localNow.Format("2006-01-02")},
-			}
-			_, _ = e.executeFrom(ctx, definition, input, starts)
-		}()
+		input := Trigger{
+			Tokens: map[string]any{"time": localNow.Format("15:04"), "date": localNow.Format("2006-01-02")},
+			State:  map[string]any{"time": localNow.Format("15:04"), "date": localNow.Format("2006-01-02")},
+		}
+		e.automaticRuns <- automaticRun{definition: definition, input: input, starts: starts}
 	}
 	e.scheduleMu.Lock()
 	for key := range e.scheduled {
@@ -369,7 +408,7 @@ func (e *Engine) handleCardTrigger(event store.Event) {
 		Tokens:   anyMap(data["tokens"]), State: anyMap(data["state"]),
 	}
 	input.DeviceID, _ = input.State["deviceId"].(string)
-	e.runMatching(input)
+	e.automaticTriggers <- input
 }
 
 func (e *Engine) handleDeviceUpdate(device store.Device) {
@@ -387,19 +426,19 @@ func (e *Engine) handleDeviceUpdate(device store.Device) {
 		}
 		tokens := map[string]any{"device": device.Name, "deviceId": device.ID, "capability": capability, "value": value, "oldValue": oldValue}
 		state := map[string]any{"deviceId": device.ID, "capability": capability, "value": value, "oldValue": oldValue}
-		e.runMatching(Trigger{
+		e.automaticTriggers <- Trigger{
 			AppID: "stulp", CardID: "device_capability_changed", CardType: "trigger", DeviceID: device.ID,
 			Tokens: tokens, State: state,
-		})
+		}
 		// Every capability turns into its own Flow card, so a smoke
 		// alarm reads as "Rookalarm werd aan" instead of a generic value
 		// change that has to be narrowed down by hand. Emitting the specific
 		// card alongside the generic one keeps both working.
 		for _, cardID := range CapabilityTriggerIDs(capability, value, oldValue) {
-			e.runMatching(Trigger{
+			e.automaticTriggers <- Trigger{
 				AppID: "stulp", CardID: cardID, CardType: "trigger", DeviceID: device.ID,
 				Tokens: tokens, State: state,
-			})
+			}
 		}
 	}
 }
@@ -469,15 +508,55 @@ func (e *Engine) runMatching(input Trigger) {
 			}
 		}
 		if matchErr != nil {
-			_ = e.store.SetFlowResult(context.Background(), definition.ID, time.Now(), matchErr.Error())
+			e.recordFlowResult(definition.ID, time.Now(), matchErr.Error())
 			cancel()
 			continue
 		}
 		if len(starts) > 0 {
-			_, _ = e.executeFrom(ctx, definition, input, starts)
+			e.automaticRuns <- automaticRun{definition: definition, input: input, starts: starts}
 		}
 		cancel()
 	}
+}
+
+// matchAutomaticTriggers keeps app-owned trigger filters off the store-event
+// loop as well. Most capability cards match locally, but a plugin may declare a
+// listener and take a network-sized amount of time to answer it; that must not
+// postpone capturing the next device update.
+func (e *Engine) matchAutomaticTriggers() {
+	defer e.triggerWorkers.Done()
+	for input := range e.automaticTriggers {
+		e.runMatching(input)
+	}
+}
+
+// runAutomaticFlows drains the bounded execution queue. Edge capture stays
+// ordered on loop, trigger matching has its own bounded pool, and the
+// potentially slow conditions and actions run here. Manual Test/Run calls
+// remain synchronous and return their result directly to the caller.
+func (e *Engine) runAutomaticFlows() {
+	defer e.automaticWorkers.Done()
+	for run := range e.automaticRuns {
+		ctx, cancel := context.WithTimeout(context.Background(), executionTimeout)
+		_, _ = e.executeFrom(ctx, run.definition, run.input, run.starts)
+		cancel()
+	}
+}
+
+// recordFlowResult keeps concurrent runs from moving a Flow's history
+// backwards. A slow older run may finish after a newer one; LastRunAt and its
+// error must still describe the newest start. Holding the lock through the
+// store write makes the comparison and write one ordered operation.
+func (e *Engine) recordFlowResult(flowID string, ranAt time.Time, runError string) {
+	e.resultMu.Lock()
+	defer e.resultMu.Unlock()
+	if latest := e.latestResult[flowID]; !latest.IsZero() && !ranAt.After(latest) {
+		return
+	}
+	// Advance even if persistence happens to fail: an older completion must not
+	// become the visible result merely because it got a second chance later.
+	e.latestResult[flowID] = ranAt
+	_ = e.store.SetFlowResult(context.Background(), flowID, ranAt, runError)
 }
 
 func isTriggerStep(step store.FlowStep) bool {
@@ -604,7 +683,7 @@ func (e *Engine) executeFrom(ctx context.Context, definition store.Flow, input T
 			result.Conditions = append(result.Conditions, stepResult)
 			if err != nil {
 				result.Error = err.Error()
-				_ = e.store.SetFlowResult(context.Background(), definition.ID, ranAt, result.Error)
+				e.recordFlowResult(definition.ID, ranAt, result.Error)
 				return result, err
 			}
 			follow = passed
@@ -614,7 +693,7 @@ func (e *Engine) executeFrom(ctx context.Context, definition store.Flow, input T
 			result.Actions = append(result.Actions, stepResult)
 			if err != nil {
 				result.Error = err.Error()
-				_ = e.store.SetFlowResult(context.Background(), definition.ID, ranAt, result.Error)
+				e.recordFlowResult(definition.ID, ranAt, result.Error)
 				return result, err
 			}
 		default:
@@ -632,7 +711,7 @@ func (e *Engine) executeFrom(ctx context.Context, definition store.Flow, input T
 	}
 	result.Success = true
 	result.Stopped = blocked && len(result.Actions) == 0
-	_ = e.store.SetFlowResult(context.Background(), definition.ID, ranAt, "")
+	e.recordFlowResult(definition.ID, ranAt, "")
 	return result, nil
 }
 

@@ -2,10 +2,10 @@
 //
 // Modbus/TCP is een klein binair protocol. Elk bericht begint met zeven bytes
 // MBAP-header -- transactie-id, protocol-id, lengte, unit-id -- en daarachter
-// staat een PDU die begint met een functiecode. Deze client kent er twee: 0x03
-// om holding registers te lezen en 0x10 om ze te schrijven. Meer gebruikt de
-// Sigenergy-registerkaart niet, en wat niet gebruikt wordt hoeft ook niet
-// onderhouden te worden.
+// staat een PDU die begint met een functiecode. Deze client kent de vier wegen
+// die de Sigenergy-registerkaart gebruikt: 0x03 voor holding registers, 0x04
+// voor read-only input registers, 0x06 voor een enkel holding register en 0x10
+// voor meerdere holding registers.
 //
 // De client staat hier omdat deze app hem nodig heeft, niet omdat Stulp hem
 // aanbiedt. Een installatie zonder Sigenergy draagt hem dus niet.
@@ -48,6 +48,8 @@ const (
 	protocolID = 0
 
 	functionReadHolding   = 0x03
+	functionReadInput     = 0x04
+	functionWriteSingle   = 0x06
 	functionWriteMultiple = 0x10
 
 	// exceptionBit staat aan in de functiecode van een foutantwoord.
@@ -144,29 +146,40 @@ func (c *Client) Close() error {
 	return c.drop()
 }
 
-// ReadHolding leest count holding registers vanaf start.
+// ReadHolding leest count holding registers vanaf start met functiecode 0x03.
 func (c *Client) ReadHolding(unit uint8, start, count uint16) ([]uint16, error) {
+	return c.readRegisters(unit, start, count, functionReadHolding, "holding")
+}
+
+// ReadInput leest count read-only input registers vanaf start met functiecode
+// 0x04. Sigenergy biedt zijn meetregisters in de 30000-reeks langs deze weg aan;
+// een 0x03-vraag naar hetzelfde adres kan stil worden genegeerd.
+func (c *Client) ReadInput(unit uint8, start, count uint16) ([]uint16, error) {
+	return c.readRegisters(unit, start, count, functionReadInput, "input")
+}
+
+func (c *Client) readRegisters(unit uint8, start, count uint16, function byte, area string) ([]uint16, error) {
 	if count == 0 || count > MaxReadRegisters {
-		return nil, fmt.Errorf("modbus: asked for %d registers at %d; a read carries 1 to %d",
-			count, start, MaxReadRegisters)
+		return nil, fmt.Errorf("modbus: asked for %d %s registers at %d; a read carries 1 to %d",
+			count, area, start, MaxReadRegisters)
 	}
 	request := make([]byte, 4)
 	binary.BigEndian.PutUint16(request[0:2], start)
 	binary.BigEndian.PutUint16(request[2:4], count)
 
-	answer, err := c.transact(unit, functionReadHolding, request)
+	answer, err := c.transact(unit, function, request)
 	if err != nil {
-		return nil, fmt.Errorf("modbus: read %d registers at %d on unit %d: %w", count, start, unit, err)
+		return nil, fmt.Errorf("modbus: read %d %s registers at %d on unit %d: %w", count, area, start, unit, err)
 	}
 	// Het bytegetal is wat het apparaat zegt te sturen; de rest van het antwoord
 	// is wat het stuurde. Als die twee niet kloppen is het antwoord niet te
 	// vertrouwen, en dan is stoppen beter dan de helft van een meting melden.
 	if len(answer) < 1 {
-		return nil, fmt.Errorf("modbus: read %d registers at %d on unit %d: the answer was empty", count, start, unit)
+		return nil, fmt.Errorf("modbus: read %d %s registers at %d on unit %d: the answer was empty", count, area, start, unit)
 	}
 	if got, want := int(answer[0]), int(count)*2; got != want || len(answer)-1 != want {
-		return nil, fmt.Errorf("modbus: read %d registers at %d on unit %d: the answer announces %d bytes and carries %d, expected %d",
-			count, start, unit, got, len(answer)-1, want)
+		return nil, fmt.Errorf("modbus: read %d %s registers at %d on unit %d: the answer announces %d bytes and carries %d, expected %d",
+			count, area, start, unit, got, len(answer)-1, want)
 	}
 	values := make([]uint16, count)
 	for i := range values {
@@ -175,10 +188,39 @@ func (c *Client) ReadHolding(unit uint8, start, count uint16) ([]uint16, error) 
 	return values, nil
 }
 
+// WriteSingle schrijft één holding register met functiecode 0x06.
+//
+// Sigenergy markeert sommige opdrachtregisters als write-only en schrijft voor
+// die enkele waarden expliciet 0x06 voor. Zo'n opdracht als een 0x10-blok
+// versturen wordt niet door iedere firmware aangenomen.
+func (c *Client) WriteSingle(unit uint8, start, value uint16) error {
+	request := make([]byte, 4)
+	binary.BigEndian.PutUint16(request[0:2], start)
+	binary.BigEndian.PutUint16(request[2:4], value)
+
+	answer, err := c.transact(unit, functionWriteSingle, request)
+	if err != nil {
+		return fmt.Errorf("modbus: write register at %d on unit %d: %w", start, unit, err)
+	}
+	// 0x06 bevestigt de opdracht door adres en waarde letterlijk te herhalen.
+	if len(answer) != 4 {
+		return fmt.Errorf("modbus: write register at %d on unit %d: the confirmation is %d bytes, expected 4",
+			start, unit, len(answer))
+	}
+	gotStart := binary.BigEndian.Uint16(answer[0:2])
+	gotValue := binary.BigEndian.Uint16(answer[2:4])
+	if gotStart != start || gotValue != value {
+		return fmt.Errorf("modbus: write register at %d on unit %d with value %d: the device confirms register %d with value %d",
+			start, unit, value, gotStart, gotValue)
+	}
+	return nil
+}
+
 // WriteHolding schrijft registers vanaf start, met functiecode 0x10.
 //
-// Ook voor één register: de bron schrijft alles met 0x10, en een apparaat dat
-// 0x10 aanneemt hoeft geen tweede weg te kennen.
+// De methode aanvaardt ook één waarde voor apparaten die juist 0x10
+// voorschrijven. Een Sigenergy-opdrachtregister dat 0x06 verlangt loopt via
+// WriteSingle.
 func (c *Client) WriteHolding(unit uint8, start uint16, values []uint16) error {
 	if len(values) == 0 || len(values) > MaxWriteRegisters {
 		return fmt.Errorf("modbus: asked to write %d registers at %d; a write carries 1 to %d",

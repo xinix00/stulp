@@ -25,6 +25,29 @@ function showFound(result) {
     ...(result.found || []).map(answer => row('Unit ' + answer.unit, (answer.offers || []).join(', '))));
 }
 
+function cloudSay(message, tone = '') {
+  $('cloudStatus').textContent = message || '';
+  $('cloudStatus').className = `hint ${tone}`.trim();
+}
+
+function showCloudStations(result) {
+  const stations = result.stations || [];
+  $('cloudFound').replaceChildren(...stations.map(station => {
+    let state = 'station gevonden';
+    if (station.gatewayError) state = station.gatewayError;
+    else if (station.gateway) state = station.offGrid ? 'Gateway · noodstroom' : 'Gateway · op het net';
+    return row(station.name || `Station ${station.id}`, state);
+  }));
+}
+
+function cloudLinked(linked) {
+  $('cloudCheck').disabled = !linked;
+  $('cloudDisconnect').disabled = !linked;
+  $('cloudPassword').placeholder = linked
+    ? '········ (niet opgeslagen; alleen nodig om opnieuw te koppelen)'
+    : '········';
+}
+
 $('test').addEventListener('click', async () => {
   const values = fields();
   if (!values.host) { say('Vul eerst een adres in.', 'bad'); return; }
@@ -65,6 +88,64 @@ $('form').addEventListener('submit', async event => {
   }
 });
 
+$('cloudForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const username = $('cloudUsername').value.trim();
+  const password = $('cloudPassword').value;
+  if (!username || !password) {
+    cloudSay('Vul het mySigen-account en wachtwoord in.', 'bad');
+    return;
+  }
+  $('cloudConnect').disabled = true;
+  cloudSay('Aanmelden bij mySigen…', 'busy');
+  try {
+    const result = await Stulp.api('POST', 'cloud_connect', {
+      region: $('cloudRegion').value,
+      username,
+      password,
+    });
+    $('cloudPassword').value = '';
+    cloudLinked(true);
+    showCloudStations(result);
+    const count = (result.stations || []).length;
+    cloudSay(`Gekoppeld. ${count} station${count === 1 ? '' : 's'} gevonden — voeg de Gateway toe als apparaat.`, 'ok');
+  } catch (error) {
+    cloudSay(error.message || String(error), 'bad');
+  } finally {
+    $('cloudConnect').disabled = false;
+  }
+});
+
+$('cloudCheck').addEventListener('click', async () => {
+  $('cloudCheck').disabled = true;
+  cloudSay('Stations en Gateway-status opvragen…', 'busy');
+  try {
+    const result = await Stulp.api('POST', 'cloud_check', {});
+    showCloudStations(result);
+    const gateways = (result.stations || []).filter(station => station.gateway).length;
+    cloudSay(`Verbonden. ${gateways} bedienbare Gateway${gateways === 1 ? '' : 's'} gevonden.`, 'ok');
+  } catch (error) {
+    showCloudStations({});
+    cloudSay(error.message || String(error), 'bad');
+  } finally {
+    $('cloudCheck').disabled = false;
+  }
+});
+
+$('cloudDisconnect').addEventListener('click', async () => {
+  $('cloudDisconnect').disabled = true;
+  try {
+    await Stulp.api('POST', 'cloud_disconnect', {});
+    $('cloudPassword').value = '';
+    showCloudStations({});
+    cloudLinked(false);
+    cloudSay('De mySigen-koppeling is verbroken. Regio en accountnaam zijn blijven staan.', 'ok');
+  } catch (error) {
+    cloudSay(error.message || String(error), 'bad');
+    $('cloudDisconnect').disabled = false;
+  }
+});
+
 Stulp.ready();
 
 // Wat er al staat invullen.
@@ -76,4 +157,12 @@ Stulp.api('POST', 'status', {}).then(status => {
   if (status.units) $('units').value = status.units;
   if (status.error) say(status.error, 'bad');
   else if (status.connected) say(`Verbonden. ${status.devices} apparaten worden uitgelezen.`, 'ok');
+
+  if (status.cloudRegion) $('cloudRegion').value = status.cloudRegion;
+  if (status.cloudUsername) $('cloudUsername').value = status.cloudUsername;
+  cloudLinked(Boolean(status.cloudLinked));
+  cloudSay(status.cloudLinked
+    ? 'Gekoppeld met mySigen. Het wachtwoord is niet bewaard.'
+    : 'Niet gekoppeld met mySigen. Lokale Modbus-metingen werken onafhankelijk hiervan.',
+  status.cloudLinked ? 'ok' : '');
 }).catch(() => {});

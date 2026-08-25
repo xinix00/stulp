@@ -1,0 +1,32 @@
+<p class="hint">Maak een schakelaar zonder fysiek apparaat. De stand blijft na
+een herstart bewaard en werkt als gewone aan/uit-status in Flows en Scenes.</p>
+
+<form id="form">
+  <label>Naam
+    <input id="name" maxlength="160" placeholder="Bijvoorbeeld Alarm aan" autocomplete="off" autofocus>
+  </label>
+  <div class="actions">
+    <button type="submit" id="next" class="primary">Schakelaar maken</button>
+  </div>
+</form>
+
+<p id="status" class="hint"></p>
+
+<script>
+const { $, say } = Stulp;
+
+$('form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const name = $('name').value.trim();
+  if (!name) { say('Geef de schakelaar eerst een naam.', 'bad'); return; }
+  $('next').disabled = true;
+  say('Schakelaar voorbereiden…', 'busy');
+  try {
+    await Stulp.emit('create', { name });
+    Stulp.showView('list_devices');
+  } catch (error) {
+    say(error.message || String(error), 'bad');
+    $('next').disabled = false;
+  }
+});
+</script>

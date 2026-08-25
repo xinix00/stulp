@@ -1,0 +1,52 @@
+{
+  "id": "com.stulp.virtualdevices",
+  "version": "1.0.0",
+  "sdk": 3,
+  "compatibility": ">=1.0.0",
+  "name": {
+    "en": "Virtual devices",
+    "nl": "Virtuele apparaten"
+  },
+  "description": {
+    "en": "On/off switches without hardware, for logic in Flows and Scenes",
+    "nl": "Aan/uit-schakelaars zonder hardware, voor logica in Flows en Scenes"
+  },
+  "author": {
+    "name": "Stulp"
+  },
+  "category": [
+    "tools"
+  ],
+  "drivers": [
+    {
+      "id": "switch",
+      "name": {
+        "en": "Virtual switch",
+        "nl": "Virtuele schakelaar"
+      },
+      "class": "other",
+      "capabilities": [
+        "onoff"
+      ],
+      "pair": [
+        {
+          "id": "name",
+          "navigation": {
+            "next": "list_devices"
+          }
+        },
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    }
+  ]
+}

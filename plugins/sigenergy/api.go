@@ -29,7 +29,7 @@ func (a *app) registerAPI(stulp *appsdk.Stulp) {
 		lastErr := a.lastErr
 		devices := len(a.devices)
 		a.mu.RUnlock()
-		return map[string]any{
+		answer := map[string]any{
 			"host":      stulp.SettingText("host"),
 			"port":      stulp.SettingNumber("port", defaultPort),
 			"interval":  stulp.SettingNumber("interval", defaultInterval),
@@ -38,7 +38,11 @@ func (a *app) registerAPI(stulp *appsdk.Stulp) {
 			"connected": connected && lastErr == "",
 			"error":     lastErr,
 			"devices":   devices,
-		}, nil
+		}
+		for key, value := range a.cloudStatus() {
+			answer[key] = value
+		}
+		return answer, nil
 	})
 
 	// test probeert de opgegeven gegevens meteen uit zonder ze te bewaren, en
@@ -97,7 +101,7 @@ func probe(client *modbus.Client, units []uint8) (any, error) {
 		var offers []string
 		for _, kind := range kinds {
 			reg := kind.card.Probe()
-			if _, err := client.ReadHolding(unit, reg.Addr, reg.Count); err == nil {
+			if _, err := reg.Read(client, unit); err == nil {
 				offers = append(offers, kind.label)
 				continue
 			} else if !isRefusal(err) && firstFailure == nil {

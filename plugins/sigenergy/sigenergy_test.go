@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
+	"github.com/xinix00/stulp/plugins/sigenergy/internal/modbus"
 	"github.com/xinix00/stulp/plugins/sigenergy/internal/sigen"
 )
 
@@ -11,12 +13,68 @@ import (
 // als nul, precies zoals een register dat wél bestaat maar niets meldt.
 type stub struct{ words map[uint16]uint16 }
 
-func (s stub) ReadHolding(_ uint8, start, count uint16) ([]uint16, error) {
+type recordedWrite struct {
+	unit  uint8
+	start uint16
+	value uint16
+}
+
+type writeRecorder struct{ writes []recordedWrite }
+
+func (w *writeRecorder) WriteSingle(unit uint8, start, value uint16) error {
+	w.writes = append(w.writes, recordedWrite{unit: unit, start: start, value: value})
+	return nil
+}
+
+type scanRead struct {
+	unit    uint8
+	start   uint16
+	holding bool
+}
+
+type scanReader struct {
+	present map[uint8]bool
+	refuse  map[uint8]bool
+	reads   []scanRead
+}
+
+func (s *scanReader) ReadInput(unit uint8, start, count uint16) ([]uint16, error) {
+	return s.read(unit, start, count, false)
+}
+
+func (s *scanReader) ReadHolding(unit uint8, start, count uint16) ([]uint16, error) {
+	return s.read(unit, start, count, true)
+}
+
+func (s *scanReader) read(unit uint8, start, count uint16, holding bool) ([]uint16, error) {
+	s.reads = append(s.reads, scanRead{unit: unit, start: start, holding: holding})
+	if s.present[unit] {
+		return make([]uint16, count), nil
+	}
+	if s.refuse[unit] {
+		function := byte(0x04)
+		if holding {
+			function = 0x03
+		}
+		return nil, modbus.Exception{Function: function, Code: 2}
+	}
+	return nil, errors.New("i/o timeout")
+}
+
+func (s stub) read(start, count uint16) ([]uint16, error) {
 	out := make([]uint16, count)
 	for i := range out {
 		out[i] = s.words[start+uint16(i)]
 	}
 	return out, nil
+}
+
+func (s stub) ReadInput(_ uint8, start, count uint16) ([]uint16, error) {
+	return s.read(start, count)
+}
+
+func (s stub) ReadHolding(_ uint8, start, count uint16) ([]uint16, error) {
+	return s.read(start, count)
 }
 
 // De helpers hieronder schrijven een waarde zoals het systeem hem op de lijn zet:
@@ -177,6 +235,31 @@ func TestChargerReachesTheTilesInWatts(t *testing.T) {
 	}
 }
 
+func TestChargerOnCapabilityUsesSingleWriteAndProtocolPolarity(t *testing.T) {
+	writer := &writeRecorder{}
+	charger := &chargerDevice{meter: &meter{unit: 2}, writer: writer}
+
+	if err := charger.OnCapability("evcharger_charging", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := charger.OnCapability("evcharger_charging", false); err != nil {
+		t.Fatal(err)
+	}
+	want := []recordedWrite{
+		{unit: 2, start: sigen.EvACChargerControl, value: 0},
+		{unit: 2, start: sigen.EvACChargerControl, value: 1},
+	}
+	if !reflect.DeepEqual(writer.writes, want) {
+		t.Fatalf("laadpaalopdrachten = %#v, wil %#v", writer.writes, want)
+	}
+	if err := charger.OnCapability("evcharger_charging", "aan"); err == nil {
+		t.Fatal("een niet-booleaanse laadopdracht werd als stoppen behandeld")
+	}
+	if !reflect.DeepEqual(writer.writes, want) {
+		t.Fatalf("ongeldige opdracht schreef toch: %#v", writer.writes)
+	}
+}
+
 // Een omvormer met twee PV-ingangen op één fase meldt twee spanningen en één
 // fase, en niet vier lege ingangen en drie fasen.
 func TestInverterOnlyReportsWhatItHas(t *testing.T) {
@@ -238,6 +321,46 @@ func TestParseUnitsFallsBackToTheDefault(t *testing.T) {
 	}
 	if len(units) != 33 || units[0] != 1 || units[len(units)-1] != 247 {
 		t.Fatalf("de standaard leverde %v", units)
+	}
+}
+
+func TestChargerScanUsesInputRegistersAndDoesNotSkipSparseUnits(t *testing.T) {
+	reader := &scanReader{
+		present: map[uint8]bool{8: true},
+		refuse:  map[uint8]bool{247: true},
+	}
+	units := []uint8{1, 2, 3, 4, 5, 6, 7, 8, 247}
+	found, err := scanUnits(reader, sigen.EvACCharger, units)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(found, []uint8{8}) {
+		t.Fatalf("gevonden units = %v, wil [8]", found)
+	}
+	if len(reader.reads) != len(units) {
+		t.Fatalf("%d van %d opgegeven units zijn afgetast", len(reader.reads), len(units))
+	}
+	for _, call := range reader.reads {
+		if call.holding {
+			t.Fatalf("probe op unit %d gebruikte holding-registerfunctie", call.unit)
+		}
+		if call.start != sigen.EvACCharger.Status.Addr {
+			t.Fatalf("probe-adres = %d", call.start)
+		}
+	}
+}
+
+func TestScanTreatsARefusalAsAReachableSystem(t *testing.T) {
+	reader := &scanReader{
+		present: map[uint8]bool{},
+		refuse:  map[uint8]bool{247: true},
+	}
+	found, err := scanUnits(reader, sigen.EvACCharger, []uint8{1, 2, 247})
+	if err != nil {
+		t.Fatalf("een antwoordend systeem werd als timeout gemeld: %v", err)
+	}
+	if len(found) != 0 {
+		t.Fatalf("gevonden units = %v", found)
 	}
 }
 

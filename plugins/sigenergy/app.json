@@ -1,6 +1,6 @@
 {
   "id": "com.stulp.sigenergy",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "sdk": 3,
   "compatibility": ">=1.0.0",
   "name": {
@@ -8,8 +8,8 @@
     "nl": "Sigenergy"
   },
   "description": {
-    "en": "Inverters, batteries, grid meter and AC charger of a Sigenergy system over Modbus/TCP",
-    "nl": "Omvormers, batterijen, netmeter en AC-lader van een Sigenergy-systeem over Modbus/TCP"
+    "en": "Sigenergy inverters, batteries, grid meter and chargers over local Modbus, plus optional Gateway control through mySigen",
+    "nl": "Sigenergy-omvormers, batterijen, netmeter en laders via lokaal Modbus, met optionele Gateway-bediening via mySigen"
   },
   "author": {
     "name": "Stulp"
@@ -53,6 +53,15 @@
       },
       "getable": true,
       "setable": false
+    },
+    "off_grid": {
+      "type": "boolean",
+      "title": {
+        "en": "Emergency power mode",
+        "nl": "Noodstroomstand"
+      },
+      "getable": true,
+      "setable": true
     },
     "evcharger_charging": {
       "type": "boolean",
@@ -480,6 +489,31 @@
           "template": "add_devices"
         }
       ]
+    },
+    {
+      "id": "gateway",
+      "name": {
+        "en": "Emergency power Gateway",
+        "nl": "Noodstroom-Gateway"
+      },
+      "class": "other",
+      "capabilities": [
+        "off_grid",
+        "grid_status"
+      ],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
     }
   ],
   "api": {
@@ -490,6 +524,18 @@
     "test": {
       "method": "POST",
       "path": "/test"
+    },
+    "cloud_connect": {
+      "method": "POST",
+      "path": "/cloud/connect"
+    },
+    "cloud_check": {
+      "method": "POST",
+      "path": "/cloud/check"
+    },
+    "cloud_disconnect": {
+      "method": "POST",
+      "path": "/cloud/disconnect"
     }
   }
 }

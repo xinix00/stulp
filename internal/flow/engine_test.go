@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -78,6 +79,131 @@ func TestRunActionHonorsContextDeadline(t *testing.T) {
 	})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("RunAction did not stop at its context deadline: result=%#v err=%v", result, err)
+	}
+}
+
+func TestSlowAutomaticRunDoesNotDelayNextSensorEdge(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(store.InMemoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.InstallMatterApp(ctx, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	device, err := database.AddDevice(ctx, store.Device{
+		AppID: store.NativeMatterAppID, DriverID: "matter", Name: "Hall sensor", Class: "sensor",
+		Data:         map[string]any{"node_id": "1", "endpoint": 1},
+		Capabilities: []string{"alarm_motion", "alarm_contact", "onoff"},
+		State:        map[string]any{"alarm_motion": false, "alarm_contact": false, "onoff": false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.CreateFlow(ctx, store.Flow{
+		Name: "Two sensor edges", Enabled: true,
+		Nodes: []store.FlowNode{
+			{ID: "motion", Step: store.FlowStep{
+				AppID: "stulp", CardID: "capability.alarm_motion.on", CardType: "trigger",
+				Args: map[string]any{"device": map[string]any{"$device": device.ID}},
+			}},
+			{ID: "slow", Step: store.FlowStep{
+				AppID: "stulp", CardID: "capability.onoff.set", CardType: "action",
+				Args: map[string]any{"device": map[string]any{"$device": device.ID}, "value": true},
+			}},
+			{ID: "contact", Step: store.FlowStep{
+				AppID: "stulp", CardID: "capability.alarm_contact.on", CardType: "trigger",
+				Args: map[string]any{"device": map[string]any{"$device": device.ID}},
+			}},
+			{ID: "fast", Step: store.FlowStep{
+				AppID: "stulp", CardID: "capability.onoff.set", CardType: "action",
+				Args: map[string]any{"device": map[string]any{"$device": device.ID}, "value": false},
+			}},
+		},
+		Edges: []store.FlowEdge{{From: "motion", To: "slow"}, {From: "contact", To: "fast"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	slowStarted := make(chan struct{})
+	fastStarted := make(chan struct{})
+	releaseSlow := make(chan struct{})
+	var slowOnce, fastOnce, releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseSlow) }) }
+	defer release()
+
+	apps := supervisor.New(database, plugin.Options{})
+	defer apps.Close()
+	engine := NewWithOptions(database, apps, Options{
+		Ticks: make(chan time.Time),
+		InvokeCapability: func(callCtx context.Context, _ string, _ string, value any, _ map[string]any) error {
+			if value == true {
+				slowOnce.Do(func() { close(slowStarted) })
+				select {
+				case <-releaseSlow:
+					return nil
+				case <-callCtx.Done():
+					return callCtx.Err()
+				}
+			}
+			fastOnce.Do(func() { close(fastStarted) })
+			return nil
+		},
+	})
+	defer engine.Close()
+
+	device.State["alarm_motion"] = true
+	if err := database.UpdateDevice(ctx, device); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-slowStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first sensor edge did not start its Flow")
+	}
+
+	device.State["alarm_contact"] = true
+	if err := database.UpdateDevice(ctx, device); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-fastStarted:
+		// The first action is deliberately still blocked. Reaching this action
+		// proves the store-event loop was free to capture and dispatch the edge.
+	case <-time.After(250 * time.Millisecond):
+		release()
+		t.Fatal("second sensor edge waited behind the running Flow")
+	}
+	release()
+}
+
+func TestConcurrentRunsKeepNewestFlowResult(t *testing.T) {
+	database, err := store.Open(store.InMemoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	definition, err := database.CreateFlow(context.Background(), store.Flow{Name: "Concurrent result"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apps := supervisor.New(database, plugin.Options{})
+	defer apps.Close()
+	engine := NewWithOptions(database, apps, Options{Ticks: make(chan time.Time)})
+	defer engine.Close()
+
+	newer := time.Now().UTC()
+	engine.recordFlowResult(definition.ID, newer, "newer run")
+	engine.recordFlowResult(definition.ID, newer.Add(-time.Second), "older run finished late")
+
+	stored, err := database.Flow(context.Background(), definition.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.LastRunAt != newer.Format(time.RFC3339Nano) || stored.LastError != "newer run" {
+		t.Fatalf("late older run replaced newest result: %#v", stored)
 	}
 }
 

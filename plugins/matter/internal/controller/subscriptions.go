@@ -22,12 +22,12 @@ import (
 
 const (
 	switchCluster uint32 = 0x003B
-	// 1s: bij 0 mag een spraakzame publisher (energiemeters!) onbeperkt vaak
-	// rapporteren, en elk rapport kost hier decrypt+TLV+store+SSE. Eén seconde
-	// batcht dat aan de brón zonder merkbare vertraging voor een dashboard;
-	// events (knoppen) blijven de spec volgen en reizen met het eerstvolgende
-	// rapport mee (CPU-ronde 19-08: matter was ~6% van de bundel).
-	subscriptionMinInterval = 1
+	// Automations are latency-sensitive: this subscription also carries motion,
+	// contact and button events, so asking the publisher to batch for a second
+	// makes a healthy Flow feel intermittent. Zero lets a node report an urgent
+	// change immediately. The controller still coalesces every report into one
+	// device update, and a device remains free to apply its own reporting policy.
+	subscriptionMinInterval = 0
 	subscriptionMaxInterval = 300
 )
 

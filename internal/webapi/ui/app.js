@@ -708,6 +708,7 @@ function deviceQuickControl(device) {
 // je hem indrukt.
 const quickActionWords = {
   default: { on: 'aan', off: 'uit', turnOn: 'aanzetten', turnOff: 'uitzetten' },
+  off_grid: { on: 'noodstroom', off: 'op het net', turnOn: 'van het net schakelen', turnOff: 'opnieuw met het net verbinden' },
   speaker_playing: { on: 'speelt', off: 'gepauzeerd', turnOn: 'afspelen', turnOff: 'pauzeren' },
   volume_mute: { on: 'stil', off: 'geluid aan', turnOn: 'dempen', turnOff: 'geluid aanzetten' },
   locked: { on: 'op slot', off: 'open', turnOn: 'op slot doen', turnOff: 'van het slot doen' },
@@ -716,6 +717,9 @@ const quickActionWords = {
 function quickActionIcon(base, active) {
   const icons = {
     locked: active ? 'lock' : 'lock_open',
+    // Dit is een actieknop: op het net toont hij loskoppelen, in eilandstand
+    // toont hij juist opnieuw verbinden.
+    off_grid: active ? 'electrical_services' : 'power_off',
     // Een transportknop toont wat hij doet, niet hoe het ervoor staat: speelt
     // hij, dan is de knop pauze. Andersom stond er pauze terwijl indrukken
     // pauzeerde -- precies verkeerd om.
@@ -1197,6 +1201,17 @@ function actionButton(label, handler, className = '') {
   return button;
 }
 async function setCapability(device, capability, value) {
+  if (baseCapabilityID(capability.id) === 'off_grid') {
+    const offGrid = Boolean(value);
+    const accepted = await requestConfirmation(offGrid
+      ? 'De Gateway scheidt de installatie van het openbare net en vormt daarna het lokale noodstroomnet.'
+      : 'De Gateway controleert de netstatus en verbindt de installatie daarna opnieuw met het openbare net.', {
+      title: offGrid ? 'Noodstroom inschakelen' : 'Opnieuw met het net verbinden',
+      confirmLabel: offGrid ? 'Van het net schakelen' : 'Met het net verbinden',
+      dangerous: offGrid,
+    });
+    if (!accepted) return;
+  }
   try {
     await api(`/api/manager/devices/device/${encode(device.id)}/capability/${encode(capability.id)}`, {
       method: 'PUT', body: JSON.stringify({ value }),
@@ -2930,7 +2945,10 @@ async function chooseDriver() {
   builtInTitle.append(node('strong', '', 'Stulp'), node('small', 'muted', '1 apparaattype'));
   const builtInChoices = node('div', 'choices');
   const scene = node('button', 'choice');
-  scene.append(node('strong', '', 'Scene'), node('small', 'muted', 'Virtueel aan/uit-apparaat'));
+  // Een Scene is óók een apparaat, maar niet hetzelfde als de vrije virtuele
+  // schakelaar uit de Virtual devices-plugin: deze voert opgeslagen standen
+  // van andere apparaten uit. Benoem dat verschil al bij Device toevoegen.
+  scene.append(node('strong', '', 'Scene'), node('small', 'muted', 'Schakelt opgeslagen apparaatstanden'));
   scene.addEventListener('click', () => openScene());
   builtInChoices.append(scene); builtIn.append(builtInTitle, builtInChoices); groups.append(builtIn);
 

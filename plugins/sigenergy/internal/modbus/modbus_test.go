@@ -106,8 +106,8 @@ func frame(transaction uint16, unit uint8, pdu []byte) []byte {
 }
 
 // registers bouwt de PDU van een geslaagde leesactie.
-func registers(values ...uint16) []byte {
-	pdu := []byte{functionReadHolding, byte(len(values) * 2)}
+func registers(function byte, values ...uint16) []byte {
+	pdu := []byte{function, byte(len(values) * 2)}
 	for _, value := range values {
 		pdu = binary.BigEndian.AppendUint16(pdu, value)
 	}
@@ -116,7 +116,7 @@ func registers(values ...uint16) []byte {
 
 func TestReadsHoldingRegisters(t *testing.T) {
 	d := newDevice(t, func(in request) []byte {
-		return frame(in.transaction, in.unit, registers(0x0001, 0x86A0))
+		return frame(in.transaction, in.unit, registers(functionReadHolding, 0x0001, 0x86A0))
 	})
 	values, err := d.client(t).ReadHolding(247, 30005, 2)
 	if err != nil {
@@ -134,6 +134,26 @@ func TestReadsHoldingRegisters(t *testing.T) {
 	}
 	if count := binary.BigEndian.Uint16(got.payload[2:4]); count != 2 {
 		t.Fatalf("gevraagd aantal = %d", count)
+	}
+}
+
+func TestReadsInputRegistersWithFunction04(t *testing.T) {
+	d := newDevice(t, func(in request) []byte {
+		return frame(in.transaction, in.unit, registers(functionReadInput, 4))
+	})
+	values, err := d.client(t).ReadInput(2, 32000, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0] != 4 {
+		t.Fatalf("registers = %v", values)
+	}
+	got := <-d.seen
+	if got.unit != 2 || got.function != functionReadInput {
+		t.Fatalf("de vraag ging als unit %d functie 0x%02X de deur uit", got.unit, got.function)
+	}
+	if start := binary.BigEndian.Uint16(got.payload[0:2]); start != 32000 {
+		t.Fatalf("gevraagd adres = %d", start)
 	}
 }
 
@@ -169,7 +189,7 @@ func TestExceptionKeepsTheConnectionUsable(t *testing.T) {
 		if answers == 1 {
 			return frame(in.transaction, in.unit, []byte{functionReadHolding | exceptionBit, 10})
 		}
-		return frame(in.transaction, in.unit, registers(42))
+		return frame(in.transaction, in.unit, registers(functionReadHolding, 42))
 	})
 	client := d.client(t)
 	if _, err := client.ReadHolding(3, 30005, 1); err == nil {
@@ -189,7 +209,7 @@ func TestExceptionKeepsTheConnectionUsable(t *testing.T) {
 // het huidige.
 func TestRefusesAnAnswerWithTheWrongTransactionID(t *testing.T) {
 	d := newDevice(t, func(in request) []byte {
-		return frame(in.transaction+1, in.unit, registers(7))
+		return frame(in.transaction+1, in.unit, registers(functionReadHolding, 7))
 	})
 	_, err := d.client(t).ReadHolding(1, 30005, 1)
 	if err == nil || !strings.Contains(err.Error(), "belongs to request") {
@@ -271,6 +291,38 @@ func TestWritesHoldingRegisters(t *testing.T) {
 	}
 	if value := binary.BigEndian.Uint16(got.payload[5:7]); value != 1 {
 		t.Fatalf("geschreven waarde = %d", value)
+	}
+}
+
+func TestWritesOneHoldingRegisterWithFunction06(t *testing.T) {
+	d := newDevice(t, func(in request) []byte {
+		return frame(in.transaction, in.unit, append([]byte{functionWriteSingle}, in.payload...))
+	})
+	if err := d.client(t).WriteSingle(2, 42000, 0); err != nil {
+		t.Fatal(err)
+	}
+	got := <-d.seen
+	if got.function != functionWriteSingle {
+		t.Fatalf("functiecode = 0x%02X", got.function)
+	}
+	if len(got.payload) != 4 {
+		t.Fatalf("payload = %v", got.payload)
+	}
+	if start := binary.BigEndian.Uint16(got.payload[0:2]); start != 42000 {
+		t.Fatalf("adres = %d", start)
+	}
+	if value := binary.BigEndian.Uint16(got.payload[2:4]); value != 0 {
+		t.Fatalf("geschreven waarde = %d", value)
+	}
+}
+
+func TestRefusesASingleWriteConfirmationThatDoesNotMatch(t *testing.T) {
+	d := newDevice(t, func(in request) []byte {
+		return frame(in.transaction, in.unit, []byte{functionWriteSingle, 0xA4, 0x10, 0, 1})
+	})
+	err := d.client(t).WriteSingle(2, 42000, 0)
+	if err == nil || !strings.Contains(err.Error(), "confirms") {
+		t.Fatalf("verkeerde bevestiging gaf %v", err)
 	}
 }
 

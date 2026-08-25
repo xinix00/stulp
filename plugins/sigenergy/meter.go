@@ -295,7 +295,7 @@ func listBySerial(card sigen.Card, serial sigen.Reg, label string) ([]appsdk.Pai
 		// units die al geantwoord hebben. Een unit zonder leesbaar serienummer is
 		// er nog steeds; dan is het unit-id waaraan hij te herkennen is.
 		id := unitID(unit)
-		if words, err := client.ReadHolding(unit, serial.Addr, serial.Count); err == nil {
+		if words, err := serial.Read(client, unit); err == nil {
 			if text, ok := serial.Text(words); ok && text != "" {
 				id = text
 			}

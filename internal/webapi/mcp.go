@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,7 +43,14 @@ const (
 
 	mcpInstructions = "Control this Stulp home through its devices and visual Flows. Start with system_context: it names the device groups (rooms) of this home. " +
 		"Then narrow with devices_list (groupId, capabilityId, search) and flow_cards_list before changing anything; only set capabilities marked setable. " +
+		"When a Flow needs durable boolean memory, devices_create can add a virtual_switch; use its returned device id in Flow cards. " +
 		"A device with class=scene is a normal on/off scene device: the first on saves the current target states and applies the scene, repeated on keeps that original snapshot, and off restores it."
+)
+
+const (
+	mcpVirtualDeviceType = "virtual_switch"
+	virtualDevicesAppID  = "com.stulp.virtualdevices"
+	virtualSwitchDriver  = "switch"
 )
 
 var supportedMCPVersions = [...]string{
@@ -354,6 +362,7 @@ type mcpToolHandler func(*Server, context.Context, map[string]any) (any, string,
 var mcpToolHandlers = map[string]mcpToolHandler{
 	"system_context":         (*Server).mcpSystemContextTool,
 	"devices_list":           (*Server).mcpDevices,
+	"devices_create":         (*Server).mcpCreateDevice,
 	"devices_write":          (*Server).mcpWriteDevice,
 	"flow_cards_list":        (*Server).mcpFlowCards,
 	"flow_card_autocomplete": (*Server).mcpFlowCardAutocomplete,
@@ -533,6 +542,85 @@ func (s *Server) mcpDevices(ctx context.Context, arguments map[string]any) (any,
 		summary = fmt.Sprintf("Found %d devices with %s; returned %d.", total, capabilityID, len(projected))
 	}
 	return result, summary, nil
+}
+
+// mcpCreateDevice is deliberately narrower than the normal pairing API. An MCP
+// client may ask for one advertised kind, but it cannot choose an arbitrary app,
+// driver or candidate object. That keeps private device data and hardware
+// pairing firmly behind each plugin's own UI while still giving Flows a durable
+// boolean to use as a variable.
+//
+// The virtual-device plugin remains the sole owner of identity, validation and
+// initial state. Running its real create/list_devices pairing conversation is
+// important: duplicating that logic here would eventually create devices that
+// the plugin itself could not restore.
+func (s *Server) mcpCreateDevice(ctx context.Context, arguments map[string]any) (any, string, error) {
+	if kind := stringArgument(arguments, "type"); kind != mcpVirtualDeviceType {
+		return nil, "", fmt.Errorf("unsupported virtual device type %q", kind)
+	}
+	name := strings.TrimSpace(stringArgument(arguments, "name"))
+	if name == "" {
+		return nil, "", errors.New("virtual device name cannot be empty")
+	}
+
+	sessionID, err := randomID()
+	if err != nil {
+		return nil, "", fmt.Errorf("create virtual-device pairing session: %w", err)
+	}
+	defer func() {
+		// Arm cleanup before pair.start. Its response may be lost after the app
+		// already created the session; pair.close is idempotent when it did not.
+		// Give it a short independent window so a canceled MCP request cannot
+		// leave that session in the app until its next restart.
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = s.supervisor.ClosePairSession(cleanup, virtualDevicesAppID, sessionID)
+	}()
+	handlers, err := s.supervisor.StartPairSession(ctx, virtualDevicesAppID, virtualSwitchDriver, sessionID)
+	if err != nil {
+		return nil, "", fmt.Errorf("start Virtual devices pairing (install and start %s first): %w", virtualDevicesAppID, err)
+	}
+	if !slices.Contains(handlers, "create") || !slices.Contains(handlers, "list_devices") {
+		return nil, "", errors.New("the installed Virtual devices app does not support MCP-safe switch creation; update it first")
+	}
+	if _, err := s.supervisor.PairEmit(ctx, virtualDevicesAppID, sessionID, "create", map[string]any{"name": name}); err != nil {
+		return nil, "", fmt.Errorf("prepare virtual switch: %w", err)
+	}
+	found, err := s.supervisor.PairEmit(ctx, virtualDevicesAppID, sessionID, "list_devices", nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("read prepared virtual switch: %w", err)
+	}
+	var candidates []map[string]any
+	encoded, err := json.Marshal(found)
+	if err == nil {
+		err = json.Unmarshal(encoded, &candidates)
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("decode prepared virtual switch: %w", err)
+	}
+	if len(candidates) != 1 {
+		return nil, "", fmt.Errorf("Virtual devices pairing returned %d candidates, expected exactly one", len(candidates))
+	}
+	created, err := s.supervisor.AddPairedDevice(ctx, virtualDevicesAppID, virtualSwitchDriver, candidates[0])
+	if err != nil {
+		return nil, "", fmt.Errorf("add virtual switch: %w", err)
+	}
+	// AddPairedDevice returns the snapshot from before device.init. Re-read it
+	// so the result includes the durable onoff=false state restored by OnInit.
+	created, err = s.store.Device(ctx, created.ID)
+	if err != nil {
+		return nil, "", fmt.Errorf("read created virtual switch: %w", err)
+	}
+	groups, err := s.deviceGroupIndex(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	result := map[string]any{
+		"created": true,
+		"type":    mcpVirtualDeviceType,
+		"device":  s.mcpDeviceDetail(created, "", groups),
+	}
+	return result, fmt.Sprintf("Created virtual switch %s (%s), initially off.", created.Name, created.ID), nil
 }
 
 // mcpDeviceGroups lists every room/group with its full path and how many

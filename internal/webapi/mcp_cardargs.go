@@ -151,7 +151,7 @@ func (s *Server) validateMCPCardArgumentValue(node *store.FlowNode, card, defini
 		if node.Step.CardType == "action" {
 			setable, _ := capability["setable"].(bool)
 			if !setable {
-				return fmt.Errorf("capability %q is read-only", capabilityID)
+				return s.mcpReadOnlyCapabilityError(device, capabilityID)
 			}
 		}
 		if err := validateMCPCapabilityValue(capability, value); err != nil {

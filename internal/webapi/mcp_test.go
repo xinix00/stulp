@@ -32,8 +32,8 @@ func mcpTestServer(t *testing.T) (*Server, *store.Store, store.Device) {
 		AppID: store.NativeMatterAppID, DriverID: "matter", Name: "Woonkamer", Class: "sensor",
 		Data:     map[string]any{"id": "mcp-sensor", "secret": "DO_NOT_EXPOSE_DATA"},
 		Settings: map[string]any{"token": "DO_NOT_EXPOSE_SETTINGS"}, Store: map[string]any{"credential": "DO_NOT_EXPOSE_STORE"},
-		Capabilities: []string{"onoff", "measure_temperature"},
-		State:        map[string]any{"onoff": false, "measure_temperature": 21.5}, Available: true,
+		Capabilities: []string{"onoff", "measure_temperature", "button.2"},
+		State:        map[string]any{"onoff": false, "measure_temperature": 21.5, "button.2": false}, Available: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -352,6 +352,13 @@ func TestMCPReadsDevicesAndRefusesReadOnlyWrites(t *testing.T) {
 	})
 	if failed["isError"] != true || !strings.Contains(mcpToolText(failed), "read-only") {
 		t.Fatalf("read-only write was not refused: %#v", failed)
+	}
+	buttonFailed := mcpToolCall(t, handler, "devices_write", map[string]any{
+		"deviceId": device.ID, "capabilityId": "button.2", "value": true,
+	})
+	buttonError := mcpToolText(buttonFailed)
+	if buttonFailed["isError"] != true || !strings.Contains(buttonError, "physical button input") || !strings.Contains(buttonError, "onoff") {
+		t.Fatalf("button write did not explain the writable relay: %#v", buttonFailed)
 	}
 	stored, err := database.Device(context.Background(), device.ID)
 	if err != nil || stored.State["measure_temperature"] != 21.5 {

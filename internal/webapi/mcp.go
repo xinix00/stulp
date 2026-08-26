@@ -420,11 +420,19 @@ func mcpStructuredToolResult(value any, summary string, toolErr error) map[strin
 		} else {
 			summary = mcpTrimString(summary+" Error: "+errorText, mcpErrorLimit)
 		}
-	} else if summary == "" {
-		summary = string(encoded)
+	}
+	// structuredContent is useful to clients that expose it, but MCP explicitly
+	// keeps TextContent as the compatibility path. Some connectors hand only
+	// content to the model; putting a count-only summary there made every list
+	// look empty even though the complete objects were present beside it. Keep
+	// the serialized structured value first so even those clients receive ids,
+	// names and graph contents. The concise prose remains a second block.
+	content := []any{map[string]any{"type": "text", "text": string(encoded)}}
+	if summary != "" {
+		content = append(content, map[string]any{"type": "text", "text": summary})
 	}
 	return map[string]any{
-		"content":           []any{map[string]any{"type": "text", "text": summary}},
+		"content":           content,
 		"structuredContent": json.RawMessage(encoded),
 		"isError":           toolErr != nil,
 	}

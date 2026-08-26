@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +90,21 @@ func mcpStructured(t *testing.T, result map[string]any) map[string]any {
 	structured, ok := result["structuredContent"].(map[string]any)
 	if !ok {
 		t.Fatalf("tool has no structuredContent: %#v", result)
+	}
+	return structured
+}
+
+func mcpTextStructured(t *testing.T, result map[string]any) map[string]any {
+	t.Helper()
+	content, _ := result["content"].([]any)
+	if len(content) == 0 {
+		t.Fatalf("tool has no compatibility content: %#v", result)
+	}
+	first, _ := content[0].(map[string]any)
+	text, _ := first["text"].(string)
+	var structured map[string]any
+	if err := json.Unmarshal([]byte(text), &structured); err != nil {
+		t.Fatalf("first TextContent is not the structured JSON: %q: %v", text, err)
 	}
 	return structured
 }
@@ -355,6 +371,63 @@ func TestMCPReadsDevicesAndRefusesReadOnlyWrites(t *testing.T) {
 	}
 	if !foundSet {
 		t.Fatal("device-filtered Flow cards omit the writable capability action")
+	}
+}
+
+func TestMCPCompatibilityContentCarriesListsAndFlowGraph(t *testing.T) {
+	server, database, device := mcpTestServer(t)
+	handler := server.Handler()
+	flow, err := database.CreateFlow(context.Background(), store.Flow{
+		Name: "Gang per etage", Enabled: true,
+		Nodes: []store.FlowNode{{ID: "clock", X: 40, Y: 70, Step: store.FlowStep{
+			AppID: "stulp", CardID: "time_at", CardType: "trigger", Args: map[string]any{"time": "08:00"},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deviceResult := mcpToolCall(t, handler, "devices_list", map[string]any{"search": "woonkamer"})
+	deviceText := mcpTextStructured(t, deviceResult)
+	if !reflect.DeepEqual(deviceText, mcpStructured(t, deviceResult)) {
+		t.Fatalf("device TextContent differs from structuredContent: %#v", deviceResult)
+	}
+	devices, _ := deviceText["devices"].([]any)
+	listedDevice, _ := devices[0].(map[string]any)
+	if listedDevice["id"] != device.ID || listedDevice["name"] != device.Name {
+		t.Fatalf("device compatibility content omits identity: %#v", listedDevice)
+	}
+
+	cardResult := mcpToolCall(t, handler, "flow_cards_list", map[string]any{"kind": "trigger", "search": "time"})
+	cardText := mcpTextStructured(t, cardResult)
+	if !reflect.DeepEqual(cardText, mcpStructured(t, cardResult)) {
+		t.Fatalf("card TextContent differs from structuredContent: %#v", cardResult)
+	}
+	cards, _ := cardText["cards"].([]any)
+	foundCardIdentity := false
+	for _, raw := range cards {
+		card, _ := raw.(map[string]any)
+		if card["id"] == "time_at" && card["title"] != "" && card["appId"] == "stulp" {
+			foundCardIdentity = true
+		}
+	}
+	if !foundCardIdentity {
+		t.Fatalf("Flow-card compatibility content omits id/title/appId: %#v", cards)
+	}
+
+	flowResult := mcpToolCall(t, handler, "flows_list", map[string]any{"flowId": flow.ID})
+	flowText := mcpTextStructured(t, flowResult)
+	if !reflect.DeepEqual(flowText, mcpStructured(t, flowResult)) {
+		t.Fatalf("Flow TextContent differs from structuredContent: %#v", flowResult)
+	}
+	flows, _ := flowText["flows"].([]any)
+	listedFlow, _ := flows[0].(map[string]any)
+	nodes, _ := listedFlow["nodes"].([]any)
+	node, _ := nodes[0].(map[string]any)
+	step, _ := node["step"].(map[string]any)
+	if listedFlow["id"] != flow.ID || listedFlow["name"] != flow.Name || len(nodes) != 1 ||
+		node["id"] != "clock" || step["cardId"] != "time_at" {
+		t.Fatalf("Flow compatibility content omits graph: %#v", listedFlow)
 	}
 }
 
@@ -669,12 +742,14 @@ func mcpReadFlow(t *testing.T, handler http.Handler, flowID string) map[string]a
 
 func mcpToolText(result map[string]any) string {
 	content, _ := result["content"].([]any)
-	if len(content) == 0 {
-		return ""
+	texts := make([]string, 0, len(content))
+	for _, raw := range content {
+		block, _ := raw.(map[string]any)
+		if text, _ := block["text"].(string); text != "" {
+			texts = append(texts, text)
+		}
 	}
-	text, _ := content[0].(map[string]any)
-	value, _ := text["text"].(string)
-	return value
+	return strings.Join(texts, "\n")
 }
 
 func mcpRawRoundTrip(t *testing.T, handler http.Handler, method, path string, body any, headers map[string]string) (*httptest.ResponseRecorder, map[string]any) {

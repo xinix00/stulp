@@ -30,9 +30,9 @@ func TestGatewaySwitchIsConfirmedOnceAndReadBackBoundedly(t *testing.T) {
 			statusCalls++
 			switch statusCalls {
 			case 1, 2, 3:
-				writeGatewayStatus(response, StatusOnGrid, map[int]int{3: ManualInProgress}[statusCalls], true, ControlModeOwner)
+				writeGatewayStatus(response, StatusOnGrid, map[int]int{3: ManualInProgress}[statusCalls], true, 0)
 			default:
-				writeGatewayStatus(response, StatusManualIsland, ManualIdle, true, ControlModeOwner)
+				writeGatewayStatus(response, StatusManualIsland, ManualIdle, true, 0)
 			}
 		case "/device/gateway/ongrid-state/update":
 			postCalls++
@@ -94,7 +94,7 @@ func TestReconnectSendsZero(t *testing.T) {
 			if statusCalls >= 3 {
 				status = StatusOnGrid
 			}
-			writeGatewayStatus(response, status, ManualIdle, true, ControlModeOwner)
+			writeGatewayStatus(response, status, ManualIdle, true, 1)
 		case "/device/gateway/ongrid-state/update":
 			postCalls++
 			var body map[string]any
@@ -126,7 +126,7 @@ func TestReconnectSendsZero(t *testing.T) {
 
 func TestSwitchPreconditionsFailClosed(t *testing.T) {
 	baseSettings := GatewaySettings{StationID: testStationID, OffGridEnable: true}
-	baseStatus := GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualIdle, ControlMode: ControlModeOwner, ShowButton: true}
+	baseStatus := GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualIdle, ControlMode: 1, ShowButton: true}
 	tests := []struct {
 		name     string
 		settings GatewaySettings
@@ -135,11 +135,10 @@ func TestSwitchPreconditionsFailClosed(t *testing.T) {
 		want     error
 	}{
 		{"off-grid uitgezet", GatewaySettings{StationID: testStationID}, baseStatus, TargetOffGrid, nil},
-		{"knop verborgen", baseSettings, GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualIdle, ControlMode: ControlModeOwner}, TargetOffGrid, nil},
-		{"verkeerde controlmodus", baseSettings, GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualIdle, ControlMode: 0, ShowButton: true}, TargetOffGrid, nil},
-		{"overgang bezig", baseSettings, GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualInProgress, ControlMode: ControlModeOwner, ShowButton: true}, TargetOffGrid, ErrTransitionBusy},
-		{"automatisch eiland niet reconnecten", baseSettings, GatewayStatus{OnOffGridStatus: StatusAutomaticIsland, ManualOffGridStatus: ManualIdle, ControlMode: ControlModeOwner, ShowButton: true}, TargetOnGrid, ErrAutomaticOffGrid},
-		{"generator niet als publiek net", baseSettings, GatewayStatus{OnOffGridStatus: StatusGeneratorGrid, ManualOffGridStatus: ManualIdle, ControlMode: ControlModeOwner, ShowButton: true}, TargetOnGrid, ErrUnsupportedStatus},
+		{"knop verborgen", baseSettings, GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualIdle, ControlMode: 1}, TargetOffGrid, nil},
+		{"overgang bezig", baseSettings, GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualInProgress, ControlMode: 1, ShowButton: true}, TargetOffGrid, ErrTransitionBusy},
+		{"automatisch eiland niet reconnecten", baseSettings, GatewayStatus{OnOffGridStatus: StatusAutomaticIsland, ManualOffGridStatus: ManualIdle, ControlMode: 1, ShowButton: true}, TargetOnGrid, ErrAutomaticOffGrid},
+		{"generator niet als publiek net", baseSettings, GatewayStatus{OnOffGridStatus: StatusGeneratorGrid, ManualOffGridStatus: ManualIdle, ControlMode: 1, ShowButton: true}, TargetOnGrid, ErrUnsupportedStatus},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -162,6 +161,13 @@ func TestSwitchPreconditionsFailClosed(t *testing.T) {
 			t.Errorf("status %d naar %s: %v", allowed.status, allowed.target, err)
 		}
 	}
+	for _, controlMode := range []int{0, 1} {
+		status := baseStatus
+		status.ControlMode = controlMode
+		if err := validateSwitch(baseSettings, status, testStationID, TargetOffGrid); err != nil {
+			t.Errorf("zichtbare knop met controlmodus %d werd geweigerd: %v", controlMode, err)
+		}
+	}
 }
 
 func TestExecuteRevalidatesBeforeItCanPost(t *testing.T) {
@@ -174,7 +180,7 @@ func TestExecuteRevalidatesBeforeItCanPost(t *testing.T) {
 			statusCalls++
 			// The button was available during Prepare, then mySigen withdrew
 			// control before the user confirmed.
-			writeGatewayStatus(response, StatusOnGrid, ManualIdle, statusCalls == 1, ControlModeOwner)
+			writeGatewayStatus(response, StatusOnGrid, ManualIdle, statusCalls == 1, 1)
 		case "/device/gateway/ongrid-state/update":
 			postCalls++
 			writeJSON(response, http.StatusOK, `{"code":0,"data":0}`)
@@ -205,7 +211,7 @@ func TestConfirmationExpiresBeforeAnyFurtherRequest(t *testing.T) {
 			writeGatewaySettings(response, true)
 		case "/device/gateway/gateway-status":
 			statusCalls++
-			writeGatewayStatus(response, StatusOnGrid, ManualIdle, true, ControlModeOwner)
+			writeGatewayStatus(response, StatusOnGrid, ManualIdle, true, 1)
 		case "/device/gateway/ongrid-state/update":
 			postCalls++
 			writeJSON(response, http.StatusOK, `{"code":0,"data":0}`)
@@ -236,7 +242,7 @@ func TestReadbackTimesOutWithoutRepeatingCommand(t *testing.T) {
 		case fmt.Sprintf("/device/gateway/settings/%d", testStationID):
 			writeGatewaySettings(response, true)
 		case "/device/gateway/gateway-status":
-			writeGatewayStatus(response, StatusOnGrid, ManualIdle, true, ControlModeOwner)
+			writeGatewayStatus(response, StatusOnGrid, ManualIdle, true, 1)
 		case "/device/gateway/ongrid-state/update":
 			postCalls++
 			writeJSON(response, http.StatusOK, `{"code":0,"data":0}`)
@@ -272,7 +278,7 @@ func TestDefiniteCommandErrorGetsOneReadAndNoReplay(t *testing.T) {
 			writeGatewaySettings(response, true)
 		case "/device/gateway/gateway-status":
 			statusCalls++
-			writeGatewayStatus(response, StatusOnGrid, ManualIdle, true, ControlModeOwner)
+			writeGatewayStatus(response, StatusOnGrid, ManualIdle, true, 1)
 		case "/device/gateway/ongrid-state/update":
 			postCalls++
 			writeJSON(response, http.StatusConflict, `{"code":409,"msg":"busy"}`)

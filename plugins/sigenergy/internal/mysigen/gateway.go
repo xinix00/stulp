@@ -24,10 +24,6 @@ const (
 	ManualConfirming = 2
 	ManualErrorFirst = 3
 	ManualErrorLast  = 5
-
-	// The official owner UI enables its switch at control mode 1 and shows a
-	// notice without sending a command at mode 0. Unknown modes fail closed.
-	ControlModeOwner = 1
 )
 
 type flag bool
@@ -86,6 +82,15 @@ func (s GatewayStatus) ButtonVisible() bool { return bool(s.ShowButton) }
 // handmatige knop op dat moment zichtbaar is, zegt alleen iets over bediening.
 func (s GatewayStatus) KnownGridStatus() bool {
 	return s.OnOffGridStatus >= StatusOnGrid && s.OnOffGridStatus <= StatusGeneratorGrid
+}
+
+// ManualControlAvailable volgt het expliciete UI-signaal van mySigen. Een echte
+// owner-response gebruikt controlmodus 0 terwijl de Go-Off-Grid-knop zichtbaar
+// is; de betekenis van dat getal is niet gedocumenteerd en het is dus geen
+// betrouwbare autorisatiecheck. showButton is dat wel. De server valideert het
+// uiteindelijke commando daarnaast zelf nogmaals.
+func (s GatewayStatus) ManualControlAvailable() bool {
+	return s.ButtonVisible() && s.KnownGridStatus()
 }
 
 func (c *Client) GatewaySettings(ctx context.Context, stationID int64) (GatewaySettings, error) {
@@ -223,9 +228,6 @@ func validateSwitch(settings GatewaySettings, status GatewayStatus, stationID in
 	}
 	if !status.ButtonVisible() {
 		return fmt.Errorf("mySigen biedt de Go-Off-Grid-knop niet aan voor dit station")
-	}
-	if status.ControlMode != ControlModeOwner {
-		return fmt.Errorf("Gateway-controlmodus %d staat geen eigenaarsschakeling toe", status.ControlMode)
 	}
 	if status.ManualOffGridStatus == ManualInProgress || status.ManualOffGridStatus == ManualConfirming {
 		return ErrTransitionBusy

@@ -260,7 +260,7 @@ func describeCloudStations(ctx context.Context, client cloudClient, stations mys
 			continue
 		}
 		items[index]["gateway"] = status.KnownGridStatus()
-		items[index]["gatewayControllable"] = status.ButtonVisible() && status.ControlMode == mysigen.ControlModeOwner
+		items[index]["gatewayControllable"] = status.ManualControlAvailable()
 		items[index]["offGrid"] = status.OffGrid()
 		items[index]["gridStatus"] = status.OnOffGridStatus
 	}

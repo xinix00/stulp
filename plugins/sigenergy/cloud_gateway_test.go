@@ -181,7 +181,7 @@ func TestGatewayPairingDoesNotConfuseHiddenManualButtonWithMissingGateway(t *tes
 			{ID: 11, Name: "Thuis"}, {ID: 12, Name: "Schuur"},
 		}},
 		status: map[int64]mysigen.GatewayStatus{
-			11: gatewayStatus(t, 0, 0, mysigen.ControlModeOwner, true),
+			11: gatewayStatus(t, 0, 0, 1, true),
 			12: gatewayStatus(t, 0, 0, 0, false),
 		},
 	}
@@ -213,8 +213,8 @@ func TestCloudSummarySeparatesGatewayPresenceFromManualControl(t *testing.T) {
 		{ID: 11, Name: "Thuis"}, {ID: 12, Name: "Schuur"},
 	}}
 	cloud := &fakeGatewayCloud{status: map[int64]mysigen.GatewayStatus{
-		11: gatewayStatus(t, mysigen.StatusOnGrid, 0, mysigen.ControlModeOwner, true),
-		12: gatewayStatus(t, mysigen.StatusAutomaticIsland, 0, 0, false),
+		11: gatewayStatus(t, mysigen.StatusOnGrid, 0, 1, true),
+		12: gatewayStatus(t, mysigen.StatusAutomaticIsland, 0, 0, true),
 	}}
 	summary := describeCloudStations(context.Background(), cloud, stations)
 	items, ok := summary["stations"].([]map[string]any)
@@ -224,8 +224,8 @@ func TestCloudSummarySeparatesGatewayPresenceFromManualControl(t *testing.T) {
 	if items[0]["gateway"] != true || items[0]["gatewayControllable"] != true || items[0]["offGrid"] != false {
 		t.Fatalf("bedienbare Gateway = %#v", items[0])
 	}
-	if items[1]["gateway"] != true || items[1]["gatewayControllable"] != false || items[1]["offGrid"] != true {
-		t.Fatalf("Gateway zonder zichtbare knop = %#v", items[1])
+	if items[1]["gateway"] != true || items[1]["gatewayControllable"] != true || items[1]["offGrid"] != true {
+		t.Fatalf("Gateway met zichtbare knop en controlmodus 0 = %#v", items[1])
 	}
 }
 

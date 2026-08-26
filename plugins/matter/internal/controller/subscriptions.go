@@ -925,13 +925,17 @@ func (c *Controller) applyReports(ctx context.Context, nodeID uint64, attributes
 			device.Store = make(map[string]any)
 		}
 		device.Store["matter.lastEventNumber"] = strconv.FormatUint(event.Number, 10)
+		var eventCapability string
+		var switchState any
 		if *event.Path.Cluster == switchCluster {
 			if pressed, ok := switchPressed(*event.Path.Event); ok {
+				switchState = pressed
 				if device.State == nil {
 					device.State = make(map[string]any)
 				}
 				if capability := capabilityForEndpoint(*device, "button", *event.Path.Endpoint); capability != "" {
 					device.State[capability] = pressed
+					eventCapability = capability
 				}
 			}
 		}
@@ -941,10 +945,17 @@ func (c *Controller) applyReports(ctx context.Context, nodeID uint64, attributes
 		tokens := map[string]any{
 			"device": device.Name, "deviceId": device.ID, "event": name, "eventNumber": event.Number,
 			"cluster": fmt.Sprintf("0x%04X", *event.Path.Cluster), "eventId": fmt.Sprintf("0x%04X", *event.Path.Event),
-			"priority": event.Priority, "data": eventValue(event.Value),
+			"endpoint": *event.Path.Endpoint, "priority": event.Priority, "data": eventValue(event.Value),
 		}
 		state := map[string]any{
 			"deviceId": device.ID, "event": name, "cluster": tokens["cluster"], "eventId": tokens["eventId"],
+			"endpoint": *event.Path.Endpoint,
+		}
+		if eventCapability != "" {
+			tokens["capability"], state["capability"] = eventCapability, eventCapability
+		}
+		if switchState != nil {
+			tokens["pressed"], state["pressed"] = switchState, switchState
 		}
 		pendingEvents = append(pendingEvents, pendingEvent{deviceID: device.ID, tokens: tokens, state: state})
 	}

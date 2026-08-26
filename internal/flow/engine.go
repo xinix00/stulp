@@ -991,11 +991,17 @@ func (e *Engine) runAction(ctx context.Context, step store.FlowStep, input Trigg
 func (e *Engine) runBuiltinCondition(ctx context.Context, cardID string, args map[string]any) (any, error) {
 	capability, _ := args["capability"].(string)
 	comparison := "is"
-	if derived, action, ok := CapabilityFromCardID(cardID); ok && (action == "is" || action == "above" || action == "below") {
+	if derived, action, ok := CapabilityFromCardID(cardID); ok &&
+		(action == "is" || action == "is_on" || action == "is_off" || action == "above" || action == "below") {
 		// A derived card names its capability in the card itself, so the
 		// step only has to carry the device and the value to compare.
 		capability, cardID = derived, "device_capability_equals"
 		comparison = action
+		if action == "is_on" {
+			comparison, args["value"] = "is", true
+		} else if action == "is_off" {
+			comparison, args["value"] = "is", false
+		}
 	}
 	if cardID != "device_capability_equals" {
 		return nil, fmt.Errorf("unknown built-in condition %q", cardID)
@@ -1024,10 +1030,28 @@ func (e *Engine) runBuiltinCondition(ctx context.Context, cardID string, args ma
 
 func (e *Engine) runBuiltinAction(ctx context.Context, cardID string, args map[string]any) (any, error) {
 	capability, _ := args["capability"].(string)
-	if derived, action, ok := CapabilityFromCardID(cardID); ok && (action == "set" || action == "run") {
+	if derived, action, ok := CapabilityFromCardID(cardID); ok &&
+		(action == "set" || action == "run" || action == "turn_on" || action == "turn_off" || action == "toggle") {
 		capability, cardID = derived, "set_device_capability"
-		if action == "run" {
+		switch action {
+		case "run", "turn_on":
 			args["value"] = true
+		case "turn_off":
+			args["value"] = false
+		case "toggle":
+			deviceID := selectedDevice(args)
+			if deviceID == "" {
+				return nil, errors.New("device is required")
+			}
+			device, err := e.store.Device(ctx, deviceID)
+			if err != nil {
+				return nil, err
+			}
+			current, ok := device.State[capability].(bool)
+			if !ok {
+				return nil, fmt.Errorf("capability %q has no boolean state to toggle", capability)
+			}
+			args["value"] = !current
 		}
 	}
 	switch cardID {

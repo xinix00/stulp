@@ -140,6 +140,57 @@ func TestCapabilityCardsCoverWhatTheDeviceReports(t *testing.T) {
 	}
 }
 
+func TestMatterButtonsHavePressCardsBeforeTheirFirstEvent(t *testing.T) {
+	server, installed := capabilityCardServer(t)
+	device := store.Device{
+		ID: "aqara-h2", AppID: installed.AppID, DriverID: installed.DriverID,
+		Name: "Gang", Class: "light", Capabilities: []string{"button.1", "button.2", "onoff"},
+		// A Matter Switch cluster reports events, not an initial button
+		// attribute. This is therefore the normal state directly after boot.
+		State: nil,
+	}
+
+	for _, capability := range []string{"button.1", "button.2"} {
+		definition := server.capabilityObject(device, capability, nil)
+		if definition["type"] != "boolean" || definition["getable"] != true || definition["setable"] != false {
+			t.Fatalf("%s definition = %#v", capability, definition)
+		}
+	}
+
+	cards := server.capabilityCards([]store.Device{device})
+	triggers := cardTitles(cards["triggers"])
+	for id, want := range map[string]string{
+		"capability.button.1.on":  "Knop 1 werd ingedrukt",
+		"capability.button.1.off": "Knop 1 werd losgelaten",
+		"capability.button.2.on":  "Knop 2 werd ingedrukt",
+		"capability.button.2.off": "Knop 2 werd losgelaten",
+	} {
+		if got := triggers[id]; got != want {
+			t.Errorf("%s title = %q, want %q", id, got, want)
+		}
+	}
+	conditions := cardTitles(cards["conditions"])
+	if got := conditions["capability.button.1.is_on"]; got != "Knop 1 is ingedrukt" {
+		t.Errorf("button condition title = %q", got)
+	}
+	actions := cardTitles(cards["actions"])
+	for id, want := range map[string]string{
+		"capability.onoff.turn_on":  "Zet Aan/uit aan",
+		"capability.onoff.turn_off": "Zet Aan/uit uit",
+		"capability.onoff.toggle":   "Wissel Aan/uit",
+	} {
+		if got := actions[id]; got != want {
+			t.Errorf("%s title = %q, want %q", id, got, want)
+		}
+	}
+	for _, card := range cards["actions"] {
+		capability, _ := card["capability"].(string)
+		if capabilityBaseID(capability) == "button" {
+			t.Fatalf("physical Matter button got an action: %#v", card)
+		}
+	}
+}
+
 func TestCapabilityStaysCardUsesPlainSeconds(t *testing.T) {
 	card := builtinCapabilityStaysTrigger()
 	if card["id"] != flow.DeviceCapabilityStaysCardID {

@@ -61,6 +61,12 @@ func TestApplyReportsPersistsStateAndEmitsDeduplicatedMatterEvent(t *testing.T) 
 	if len(fired) != 1 || fired[0].cardType != "trigger" || fired[0].cardID != "matter_event" {
 		t.Fatalf("gemelde Flow-kaarten = %#v", fired)
 	}
+	tokens, _ := fired[0].tokens.(map[string]any)
+	state, _ := fired[0].state.(map[string]any)
+	if tokens["endpoint"] != endpoint || tokens["capability"] != "button" || tokens["pressed"] != true ||
+		state["endpoint"] != endpoint || state["capability"] != "button" || state["pressed"] != true {
+		t.Fatalf("Matter button event mist routeinformatie: tokens=%#v state=%#v", tokens, state)
+	}
 
 	// Hetzelfde rapport nog eens: een node herhaalt zijn events na een
 	// herverbinding, en dat mag geen tweede keer een Flow starten.

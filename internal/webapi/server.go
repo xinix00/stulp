@@ -1413,7 +1413,7 @@ func (s *Server) capabilityObject(device store.Device, id string, value any) map
 func applyDefaultCapabilityMetadata(result map[string]any, id string) {
 	id, _, _ = strings.Cut(id, ".")
 	switch id {
-	case "onoff", "locked", "volume_mute", "speaker_playing", "speaker_shuffle":
+	case "onoff", "button", "locked", "volume_mute", "speaker_playing", "speaker_shuffle":
 		result["type"] = "boolean"
 	case "speaker_next", "speaker_prev":
 		result["type"], result["getable"], result["setable"] = "boolean", false, true
@@ -1585,10 +1585,11 @@ func capabilityType(id string, value any) string {
 	case float64, float32, int, int64, json.Number:
 		return "number"
 	}
-	if id == "onoff" || id == "locked" || strings.HasPrefix(id, "alarm_") {
+	base, _, _ := strings.Cut(id, ".")
+	if base == "onoff" || base == "button" || base == "locked" || strings.HasPrefix(base, "alarm_") {
 		return "boolean"
 	}
-	if id == "dim" || strings.HasPrefix(id, "measure_") || strings.HasPrefix(id, "meter_") || strings.HasPrefix(id, "target_") {
+	if base == "dim" || strings.HasPrefix(base, "measure_") || strings.HasPrefix(base, "meter_") || strings.HasPrefix(base, "target_") {
 		return "number"
 	}
 	return "string"

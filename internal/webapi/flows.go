@@ -316,8 +316,15 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 		if len(found.readableDeviceIDs) > 0 {
 			switch {
 			case valueType == "boolean":
-				// An alarm reads as an event, not as a switch being flipped.
-				if strings.HasPrefix(capability, "alarm_") {
+				// A button and an alarm read as events, not as switches being
+				// flipped. Matter buttons have no initial attribute value after a
+				// restart, so their declared type is what makes these cards
+				// available before the first physical press.
+				if capabilityBaseID(capability) == "button" {
+					card("triggers", "on", title+" werd ingedrukt")
+					card("triggers", "off", title+" werd losgelaten")
+					card("triggers", "on_for", title+" bleef ingedrukt", secondsArgument)
+				} else if strings.HasPrefix(capability, "alarm_") {
 					card("triggers", "on", title+" ging af")
 					card("triggers", "off", title+" is voorbij")
 					card("triggers", "on_for", title+" bleef actief", secondsArgument)
@@ -328,7 +335,14 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 					card("triggers", "on_for", title+" bleef aan", secondsArgument)
 					card("triggers", "off_for", title+" bleef uit", secondsArgument)
 				}
-				card("conditions", "is", title+" is", valueArgument)
+				if capabilityBaseID(capability) == "button" {
+					card("conditions", "is_on", title+" is ingedrukt")
+					card("conditions", "is_off", title+" is losgelaten")
+				} else {
+					card("conditions", "is", title+" is", valueArgument)
+					card("conditions", "is_on", title+" is aan")
+					card("conditions", "is_off", title+" is uit")
+				}
 			case valueType == "number":
 				card("triggers", "changed", title+" is veranderd")
 				card("triggers", "rose_above", title+" kwam boven", valueArgument)
@@ -349,6 +363,13 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 			getable, _ := found.definition["getable"].(bool)
 			if !getable {
 				card("actions", "run", title+" uitvoeren")
+			} else if valueType == "boolean" {
+				// Keep the generic set card for existing Flows and offer the
+				// ordinary one-click operations people actually want in an editor.
+				card("actions", "set", "Zet "+title, valueArgument)
+				card("actions", "turn_on", "Zet "+title+" aan")
+				card("actions", "turn_off", "Zet "+title+" uit")
+				card("actions", "toggle", "Wissel "+title)
 			} else {
 				card("actions", "set", "Zet "+title, valueArgument)
 			}
@@ -434,11 +455,14 @@ func builtinMatterEventTrigger() map[string]any {
 	return map[string]any{
 		"appId": "stulp", "appName": "Stulp", "id": "matter_event", "type": "trigger",
 		"title": "Een Matter-event is ontvangen", "available": true,
-		"args": []any{deviceArgument(),
+		"args": []any{deviceArgument(), capabilityArgument("Capability", true),
 			map[string]any{"name": "event", "type": "dropdown", "title": "Event", "values": matterEventChoices()}},
 		"tokens": []any{
 			map[string]any{"name": "device", "type": "string", "title": "Apparaat"},
 			map[string]any{"name": "event", "type": "string", "title": "Event"},
+			map[string]any{"name": "capability", "type": "string", "title": "Capability"},
+			map[string]any{"name": "endpoint", "type": "number", "title": "Endpoint"},
+			map[string]any{"name": "pressed", "type": "boolean", "title": "Ingedrukt"},
 			map[string]any{"name": "eventNumber", "type": "number", "title": "Eventnummer"},
 			map[string]any{"name": "cluster", "type": "string", "title": "Cluster"},
 			map[string]any{"name": "eventId", "type": "string", "title": "Event-ID"},

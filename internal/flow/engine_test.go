@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -517,6 +518,61 @@ func TestDerivedCommandActionSendsTrueWithoutAValueArgument(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("write-only command was not invoked")
+	}
+}
+
+func TestDerivedBooleanCardsOfferDirectActionsAndConditions(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(store.InMemoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.InstallMatterApp(ctx, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	device, err := database.AddDevice(ctx, store.Device{
+		AppID: store.NativeMatterAppID, DriverID: "matter", Name: "Blue indicator", Class: "light",
+		Capabilities: []string{"onoff"}, State: map[string]any{"onoff": false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apps := supervisor.New(database, plugin.Options{})
+	defer apps.Close()
+	values := make([]any, 0, 3)
+	engine := NewWithOptions(database, apps, Options{
+		Ticks: make(chan time.Time),
+		InvokeCapability: func(_ context.Context, deviceID, capability string, value any, _ map[string]any) error {
+			if deviceID != device.ID || capability != "onoff" {
+				t.Fatalf("invocation = device %q capability %q", deviceID, capability)
+			}
+			values = append(values, value)
+			return nil
+		},
+	})
+	defer engine.Close()
+
+	deviceArg := map[string]any{"$device": device.ID}
+	for _, cardID := range []string{"capability.onoff.turn_on", "capability.onoff.turn_off", "capability.onoff.toggle"} {
+		if _, err := engine.RunAction(ctx, store.FlowStep{
+			AppID: "stulp", CardID: cardID, CardType: "action", Args: map[string]any{"device": deviceArg},
+		}); err != nil {
+			t.Fatalf("%s: %v", cardID, err)
+		}
+	}
+	if !reflect.DeepEqual(values, []any{true, false, true}) {
+		t.Fatalf("boolean action values = %#v", values)
+	}
+
+	for cardID, want := range map[string]bool{
+		"capability.onoff.is_on":  false,
+		"capability.onoff.is_off": true,
+	} {
+		got, err := engine.runBuiltinCondition(ctx, cardID, map[string]any{"device": deviceArg})
+		if err != nil || got != want {
+			t.Fatalf("%s = %#v, %v; want %v", cardID, got, err, want)
+		}
 	}
 }
 

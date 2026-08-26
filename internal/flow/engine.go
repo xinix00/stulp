@@ -376,12 +376,22 @@ func (e *Engine) reconcileStability(now time.Time) {
 }
 
 func stabilityConfiguration(step store.FlowStep) (deviceID, capability string, target any, seconds float64, signature string, ok bool) {
-	if step.AppID != "stulp" || step.CardType != "trigger" || step.CardID != DeviceCapabilityStaysCardID {
+	if step.AppID != "stulp" || step.CardType != "trigger" {
 		return "", "", nil, 0, "", false
 	}
 	deviceID = selectedDevice(step.Args)
-	capability, _ = step.Args["capability"].(string)
-	target, hasTarget := step.Args["value"]
+	hasTarget := false
+	switch step.CardID {
+	case DeviceCapabilityStaysCardID:
+		capability, _ = step.Args["capability"].(string)
+		target, hasTarget = step.Args["value"]
+	default:
+		derived, action, derivedOK := CapabilityFromCardID(step.CardID)
+		if !derivedOK || (action != "on_for" && action != "off_for") {
+			return "", "", nil, 0, "", false
+		}
+		capability, target, hasTarget = derived, action == "on_for", true
+	}
 	seconds, hasSeconds := numberValue(step.Args["seconds"])
 	if deviceID == "" || capability == "" || !hasTarget || !hasSeconds || seconds <= 0 || seconds > 86400 {
 		return "", "", nil, 0, "", false
@@ -645,7 +655,21 @@ func CapabilityTriggerIDs(capability string, value, oldValue any) []string {
 			return []string{CapabilityCardPrefix + capability + ".off"}
 		}
 	}
-	return []string{CapabilityCardPrefix + capability + ".changed"}
+	changed := CapabilityCardPrefix + capability + ".changed"
+	if current, currentOK := numberValue(value); currentOK {
+		previous, previousOK := numberValue(oldValue)
+		if !previousOK || current == previous {
+			return []string{changed}
+		}
+		if current > previous {
+			return []string{changed, CapabilityCardPrefix + capability + ".rose_above"}
+		}
+		return []string{changed, CapabilityCardPrefix + capability + ".fell_below"}
+	}
+	if _, isText := value.(string); isText {
+		return []string{changed, CapabilityCardPrefix + capability + ".became"}
+	}
+	return []string{changed}
 }
 
 // CapabilityFromCardID reports the capability and the suffix a derived card
@@ -758,6 +782,26 @@ func (e *Engine) matchesTrigger(ctx context.Context, step store.FlowStep, input 
 		return false, nil
 	}
 	if step.AppID == "stulp" {
+		if _, action, derived := CapabilityFromCardID(step.CardID); derived {
+			switch action {
+			case "became":
+				return equivalent(step.Args["value"], input.State["value"]), nil
+			case "rose_above", "fell_below":
+				threshold, thresholdOK := numberValue(step.Args["value"])
+				current, currentOK := numberValue(input.State["value"])
+				previous, previousOK := numberValue(input.State["oldValue"])
+				if !thresholdOK {
+					return false, errors.New("numeric trigger threshold is required")
+				}
+				if !currentOK || !previousOK {
+					return false, nil
+				}
+				if action == "rose_above" {
+					return previous <= threshold && current > threshold, nil
+				}
+				return previous >= threshold && current < threshold, nil
+			}
+		}
 		if capability, _ := step.Args["capability"].(string); capability != "" && capability != input.State["capability"] {
 			return false, nil
 		}
@@ -946,10 +990,12 @@ func (e *Engine) runAction(ctx context.Context, step store.FlowStep, input Trigg
 
 func (e *Engine) runBuiltinCondition(ctx context.Context, cardID string, args map[string]any) (any, error) {
 	capability, _ := args["capability"].(string)
-	if derived, action, ok := CapabilityFromCardID(cardID); ok && action == "is" {
+	comparison := "is"
+	if derived, action, ok := CapabilityFromCardID(cardID); ok && (action == "is" || action == "above" || action == "below") {
 		// A derived card names its capability in the card itself, so the
 		// step only has to carry the device and the value to compare.
 		capability, cardID = derived, "device_capability_equals"
+		comparison = action
 	}
 	if cardID != "device_capability_equals" {
 		return nil, fmt.Errorf("unknown built-in condition %q", cardID)
@@ -962,13 +1008,27 @@ func (e *Engine) runBuiltinCondition(ctx context.Context, cardID string, args ma
 	if err != nil {
 		return nil, err
 	}
-	return equivalent(device.State[capability], args["value"]), nil
+	if comparison == "is" {
+		return equivalent(device.State[capability], args["value"]), nil
+	}
+	current, currentOK := numberValue(device.State[capability])
+	threshold, thresholdOK := numberValue(args["value"])
+	if !currentOK || !thresholdOK {
+		return nil, fmt.Errorf("capability %q and its threshold must be numeric", capability)
+	}
+	if comparison == "above" {
+		return current > threshold, nil
+	}
+	return current < threshold, nil
 }
 
 func (e *Engine) runBuiltinAction(ctx context.Context, cardID string, args map[string]any) (any, error) {
 	capability, _ := args["capability"].(string)
-	if derived, action, ok := CapabilityFromCardID(cardID); ok && action == "set" {
+	if derived, action, ok := CapabilityFromCardID(cardID); ok && (action == "set" || action == "run") {
 		capability, cardID = derived, "set_device_capability"
+		if action == "run" {
+			args["value"] = true
+		}
 	}
 	switch cardID {
 	case "set_device_capability":

@@ -227,9 +227,9 @@ func (s *Server) flowCards(ctx context.Context) (map[string][]map[string]any, er
 // "a value changed" card with a capability to guess.
 func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string]any {
 	type entry struct {
-		definition       map[string]any
-		deviceIDs        []string
-		setableDeviceIDs []string
+		definition        map[string]any
+		readableDeviceIDs []string
+		setableDeviceIDs  []string
 	}
 	byCapability := make(map[string]*entry)
 	order := make([]string, 0, 16)
@@ -242,7 +242,9 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 				byCapability[capability] = existing
 				order = append(order, capability)
 			}
-			existing.deviceIDs = append(existing.deviceIDs, device.ID)
+			if getable, _ := definition["getable"].(bool); getable {
+				existing.readableDeviceIDs = append(existing.readableDeviceIDs, device.ID)
+			}
 			if setable, _ := definition["setable"].(bool); setable {
 				existing.setableDeviceIDs = append(existing.setableDeviceIDs, device.ID)
 			}
@@ -263,7 +265,7 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 		values, hasValues := found.definition["values"].([]any)
 
 		card := func(kind, suffix, cardTitle string, extra ...map[string]any) {
-			deviceIDs := found.deviceIDs
+			deviceIDs := found.readableDeviceIDs
 			if kind == "actions" {
 				deviceIDs = found.setableDeviceIDs
 			}
@@ -271,40 +273,85 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 			for _, argument := range extra {
 				args = append(args, argument)
 			}
-			result[kind] = append(result[kind], map[string]any{
+			entry := map[string]any{
 				"appId": "stulp", "appName": "Apparaat", "id": flow.CapabilityCardPrefix + capability + "." + suffix,
 				"type": strings.TrimSuffix(kind, "s"), "title": cardTitle, "available": true,
 				"capability": capability, "args": args,
 				"scope": "device", "deviceArgument": "device", "deviceIds": deviceIDs,
-				"tokens": []any{
+			}
+			if kind == "triggers" {
+				tokenType := valueType
+				if tokenType != "number" && tokenType != "boolean" {
+					tokenType = "string"
+				}
+				tokens := []any{
 					map[string]any{"name": "device", "type": "string", "title": "Apparaat"},
-					map[string]any{"name": "value", "type": "string", "title": "Nieuwe waarde"},
-					map[string]any{"name": "oldValue", "type": "string", "title": "Vorige waarde"},
-				},
-			})
+					map[string]any{"name": "value", "type": tokenType, "title": "Nieuwe waarde"},
+				}
+				if suffix == "on_for" || suffix == "off_for" {
+					tokens = append(tokens, map[string]any{"name": "seconds", "type": "number", "title": "Seconden"})
+				} else {
+					tokens = append(tokens, map[string]any{"name": "oldValue", "type": tokenType, "title": "Vorige waarde"})
+				}
+				entry["tokens"] = tokens
+			}
+			for _, argument := range extra {
+				switch argument["name"] {
+				case "value":
+					entry["titleFormatted"] = cardTitle + " [[value]]"
+				case "seconds":
+					entry["titleFormatted"] = cardTitle + " gedurende [[seconds]] seconden"
+				}
+			}
+			result[kind] = append(result[kind], entry)
 		}
 		valueArgument := map[string]any{"name": "value", "type": "capability-value", "title": "Waarde"}
-
-		switch {
-		case valueType == "boolean":
-			// An alarm reads as an event, not as a switch being flipped.
-			if strings.HasPrefix(capability, "alarm_") {
-				card("triggers", "on", title+" ging af")
-				card("triggers", "off", title+" is voorbij")
-			} else {
-				card("triggers", "on", title+" werd aan")
-				card("triggers", "off", title+" werd uit")
+		for _, key := range []string{"min", "max", "step", "units", "values"} {
+			if found.definition[key] != nil {
+				valueArgument[key] = found.definition[key]
 			}
-			card("conditions", "is", title+" is", valueArgument)
-		case hasValues && len(values) > 0:
-			card("triggers", "changed", title+" is veranderd")
-			card("conditions", "is", title+" is", valueArgument)
-		default:
-			card("triggers", "changed", title+" is veranderd")
-			card("conditions", "is", title+" is gelijk aan", valueArgument)
+		}
+		secondsArgument := map[string]any{"name": "seconds", "type": "number", "title": "Seconden", "min": 1, "max": 86400, "step": 1}
+
+		if len(found.readableDeviceIDs) > 0 {
+			switch {
+			case valueType == "boolean":
+				// An alarm reads as an event, not as a switch being flipped.
+				if strings.HasPrefix(capability, "alarm_") {
+					card("triggers", "on", title+" ging af")
+					card("triggers", "off", title+" is voorbij")
+					card("triggers", "on_for", title+" bleef actief", secondsArgument)
+					card("triggers", "off_for", title+" bleef rustig", secondsArgument)
+				} else {
+					card("triggers", "on", title+" werd aan")
+					card("triggers", "off", title+" werd uit")
+					card("triggers", "on_for", title+" bleef aan", secondsArgument)
+					card("triggers", "off_for", title+" bleef uit", secondsArgument)
+				}
+				card("conditions", "is", title+" is", valueArgument)
+			case valueType == "number":
+				card("triggers", "changed", title+" is veranderd")
+				card("triggers", "rose_above", title+" kwam boven", valueArgument)
+				card("triggers", "fell_below", title+" kwam onder", valueArgument)
+				card("conditions", "is", title+" is gelijk aan", valueArgument)
+				card("conditions", "above", title+" is hoger dan", valueArgument)
+				card("conditions", "below", title+" is lager dan", valueArgument)
+			case hasValues && len(values) > 0:
+				card("triggers", "changed", title+" is veranderd")
+				card("triggers", "became", title+" werd", valueArgument)
+				card("conditions", "is", title+" is", valueArgument)
+			default:
+				card("triggers", "changed", title+" is veranderd")
+				card("conditions", "is", title+" is gelijk aan", valueArgument)
+			}
 		}
 		if len(found.setableDeviceIDs) > 0 {
-			card("actions", "set", "Zet "+title, valueArgument)
+			getable, _ := found.definition["getable"].(bool)
+			if !getable {
+				card("actions", "run", title+" uitvoeren")
+			} else {
+				card("actions", "set", "Zet "+title, valueArgument)
+			}
 		}
 	}
 	return result
@@ -417,7 +464,7 @@ func builtinCapabilityTrigger() map[string]any {
 func builtinCapabilityStaysTrigger() map[string]any {
 	return map[string]any{
 		"appId": "stulp", "appName": "Stulp", "id": flow.DeviceCapabilityStaysCardID, "type": "trigger",
-		"title": "Een apparaatwaarde blijft gelijk", "available": true,
+		"title": "Een apparaatwaarde blijft gelijk", "titleFormatted": "Een apparaatwaarde blijft [[seconds]] seconden gelijk aan [[value]]", "available": true,
 		"args": []any{
 			deviceArgument(), capabilityArgument("Waarde", false),
 			map[string]any{"name": "value", "type": "capability-value", "title": "Blijft gelijk aan"},

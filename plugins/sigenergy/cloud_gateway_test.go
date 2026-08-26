@@ -154,7 +154,7 @@ func TestGatewayCapabilityPreparesOnceAndPublishesReadback(t *testing.T) {
 	}
 	device.mu.Lock()
 	defer device.mu.Unlock()
-	if device.values["off_grid"] != true || device.values["grid_status"] != "Noodstroom (handmatig)" || !device.available {
+	if device.values["off_grid"] != true || device.values["grid_status"] != "off_grid_manual" || !device.available {
 		t.Fatalf("Gateway-projectie = values %#v, available %t", device.values, device.available)
 	}
 }

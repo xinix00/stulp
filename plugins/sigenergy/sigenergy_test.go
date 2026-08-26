@@ -159,7 +159,7 @@ func TestPlantReachesTheTiles(t *testing.T) {
 		"measure_power.solar":     float64(3500), // eigen plus derden
 		"measure_power.evcharger": float64(0),    // geen laadpaal gekoppeld
 		"measure_battery":         float64(80),
-		"grid_status":             "Op het net",
+		"grid_status":             "on_grid",
 	})
 }
 
@@ -210,8 +210,8 @@ func TestEnergyMeterReachesTheTiles(t *testing.T) {
 		"measure_power.L3":     float64(-600),
 		"meter_power.imported": float64(12345),
 		"meter_power.exported": float64(6789),
-		"grid_status":          "Van het net",
-		"phase_control":        "Aan",
+		"grid_status":          "off_grid",
+		"phase_control":        "on",
 	})
 }
 

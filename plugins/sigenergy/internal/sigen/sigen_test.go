@@ -326,10 +326,10 @@ func TestTranslatesStatesTheWayTheSourceDoes(t *testing.T) {
 			t.Errorf("stand %v = %q, wil idle", status, got)
 		}
 	}
-	if got := GridStatus(1); got != "Van het net" {
+	if got := GridStatus(1); got != "off_grid" {
 		t.Errorf("netstand 1 = %q", got)
 	}
-	if got := GridStatus(9); got != "onbekend (9)" {
+	if got := GridStatus(9); got != "unknown_9" {
 		t.Errorf("een onbekende netstand hoort het getal te dragen, kreeg %q", got)
 	}
 	if got := ACChargerChargingState(4, 7000); got != "plugged_in_charging" {

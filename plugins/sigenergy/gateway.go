@@ -210,25 +210,25 @@ func (g *gatewayDevice) refresh(parent context.Context) {
 	}
 }
 
-func gatewayStatusText(status mysigen.GatewayStatus) string {
+func gatewayGridStatus(status mysigen.GatewayStatus) string {
 	switch status.OnOffGridStatus {
 	case mysigen.StatusOnGrid:
-		return "Op het net"
+		return "on_grid"
 	case mysigen.StatusAutomaticIsland:
-		return "Noodstroom (automatisch)"
+		return "off_grid_automatic"
 	case mysigen.StatusManualIsland:
-		return "Noodstroom (handmatig)"
+		return "off_grid_manual"
 	case mysigen.StatusGeneratorGrid:
-		return "Op het generatornet"
+		return "generator_grid"
 	default:
-		return fmt.Sprintf("Onbekende netstand (%d)", status.OnOffGridStatus)
+		return fmt.Sprintf("unknown_%d", status.OnOffGridStatus)
 	}
 }
 
 func (g *gatewayDevice) apply(status mysigen.GatewayStatus) error {
 	if err := g.device.SetCapabilityValues(map[string]any{
 		"off_grid":    status.OffGrid(),
-		"grid_status": gatewayStatusText(status),
+		"grid_status": gatewayGridStatus(status),
 	}); err != nil {
 		return err
 	}

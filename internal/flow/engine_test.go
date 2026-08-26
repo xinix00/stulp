@@ -488,6 +488,80 @@ func TestCapabilityActionUsesConfiguredInvokerForNativeMatter(t *testing.T) {
 	}
 }
 
+func TestDerivedCommandActionSendsTrueWithoutAValueArgument(t *testing.T) {
+	database, err := store.Open(store.InMemoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	apps := supervisor.New(database, plugin.Options{})
+	defer apps.Close()
+	called := false
+	engine := NewWithOptions(database, apps, Options{
+		Ticks: make(chan time.Time),
+		InvokeCapability: func(_ context.Context, deviceID, capability string, value any, _ map[string]any) error {
+			called = true
+			if deviceID != "player" || capability != "speaker_next" || value != true {
+				t.Fatalf("command = device %q capability %q value %#v", deviceID, capability, value)
+			}
+			return nil
+		},
+	})
+	defer engine.Close()
+
+	if _, err := engine.RunAction(context.Background(), store.FlowStep{
+		AppID: "stulp", CardID: "capability.speaker_next.run", CardType: "action",
+		Args: map[string]any{"device": map[string]any{"$device": "player"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("write-only command was not invoked")
+	}
+}
+
+func TestDerivedNumericConditionsReadTheCurrentValue(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(store.InMemoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.InstallMatterApp(ctx, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	device, err := database.AddDevice(ctx, store.Device{
+		AppID: store.NativeMatterAppID, DriverID: "matter", Name: "Omvormer", Class: "sensor",
+		Data: map[string]any{"node_id": "1", "endpoint": 1}, Capabilities: []string{"measure_power"},
+		State: map[string]any{"measure_power": 125.0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apps := supervisor.New(database, plugin.Options{})
+	defer apps.Close()
+	engine := NewWithOptions(database, apps, Options{Ticks: make(chan time.Time)})
+	defer engine.Close()
+
+	for _, testCase := range []struct {
+		cardID   string
+		value    float64
+		expected bool
+	}{
+		{"capability.measure_power.above", 100, true},
+		{"capability.measure_power.above", 150, false},
+		{"capability.measure_power.below", 150, true},
+		{"capability.measure_power.below", 100, false},
+	} {
+		result, runErr := engine.runBuiltinCondition(ctx, testCase.cardID, map[string]any{
+			"device": map[string]any{"$device": device.ID}, "value": testCase.value,
+		})
+		if runErr != nil || result != testCase.expected {
+			t.Errorf("%s %v = %#v err=%v, want %v", testCase.cardID, testCase.value, result, runErr, testCase.expected)
+		}
+	}
+}
+
 func TestScheduledTimeFlowRunsOncePerMinuteAndCreatesNotification(t *testing.T) {
 	ctx := context.Background()
 	database, err := store.Open(filepath.Join(t.TempDir(), "stulp.json"))

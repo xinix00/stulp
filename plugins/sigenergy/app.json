@@ -1,6 +1,6 @@
 {
   "id": "com.stulp.sigenergy",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "sdk": 3,
   "compatibility": ">=1.0.0",
   "name": {
@@ -19,22 +19,33 @@
   ],
   "capabilities": {
     "grid_status": {
-      "type": "string",
+      "type": "enum",
       "title": {
         "en": "Grid status",
         "nl": "Netstand"
       },
       "getable": true,
-      "setable": false
+      "setable": false,
+      "values": [
+        { "id": "on_grid", "title": { "en": "On grid", "nl": "Op het net" } },
+        { "id": "off_grid", "title": { "en": "Backup power", "nl": "Noodstroom" } },
+        { "id": "off_grid_automatic", "title": { "en": "Automatic backup power", "nl": "Noodstroom (automatisch)" } },
+        { "id": "off_grid_manual", "title": { "en": "Manual backup power", "nl": "Noodstroom (handmatig)" } },
+        { "id": "generator_grid", "title": { "en": "Generator grid", "nl": "Op het generatornet" } }
+      ]
     },
     "phase_control": {
-      "type": "string",
+      "type": "enum",
       "title": {
         "en": "Independent phase control",
         "nl": "Individuele fasesturing"
       },
       "getable": true,
-      "setable": false
+      "setable": false,
+      "values": [
+        { "id": "off", "title": { "en": "Off", "nl": "Uit" } },
+        { "id": "on", "title": { "en": "On", "nl": "Aan" } }
+      ]
     },
     "firmware": {
       "type": "string",
@@ -46,13 +57,18 @@
       "setable": false
     },
     "battery_charging_state": {
-      "type": "string",
+      "type": "enum",
       "title": {
         "en": "Battery state",
         "nl": "Batterijstand"
       },
       "getable": true,
-      "setable": false
+      "setable": false,
+      "values": [
+        { "id": "idle", "title": { "en": "Idle", "nl": "Stil" } },
+        { "id": "charging", "title": { "en": "Charging", "nl": "Laden" } },
+        { "id": "discharging", "title": { "en": "Discharging", "nl": "Ontladen" } }
+      ]
     },
     "off_grid": {
       "type": "boolean",
@@ -73,13 +89,18 @@
       "setable": true
     },
     "evcharger_charging_state": {
-      "type": "string",
+      "type": "enum",
       "title": {
         "en": "Charging state",
         "nl": "Laadstand"
       },
       "getable": true,
-      "setable": false
+      "setable": false,
+      "values": [
+        { "id": "plugged_out", "title": { "en": "Unplugged", "nl": "Niet aangesloten" } },
+        { "id": "plugged_in", "title": { "en": "Connected", "nl": "Aangesloten" } },
+        { "id": "plugged_in_charging", "title": { "en": "Charging", "nl": "Laden" } }
+      ]
     }
   },
   "drivers": [

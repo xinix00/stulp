@@ -28,10 +28,12 @@ func capabilityCardServer(t *testing.T) (*Server, store.Device) {
       "capabilities":{
         "alarm_vape":{"type":"boolean","title":{"en":"Vape detected","nl":"Vape gedetecteerd"},"getable":true,"setable":false},
         "chime_tune":{"type":"enum","title":{"en":"Chime tune"},"getable":true,"setable":true,
-          "values":[{"id":"ding","title":{"en":"Ding"}},{"id":"dong","title":{"en":"Dong"}}]}
+          "values":[{"id":"ding","title":{"en":"Ding"}},{"id":"dong","title":{"en":"Dong"}}]},
+        "door_chime":{"type":"boolean","title":{"en":"Ring chime"},"getable":false,"setable":true}
       },
       "drivers":[{"id":"sensor","name":{"en":"Sensor"},"class":"sensor",
-        "capabilities":["alarm_smoke","alarm_vape","measure_temperature","onoff","chime_tune"]}]
+        "capabilities":["alarm_smoke","alarm_vape","measure_temperature","onoff","chime_tune","door_chime"],
+        "capabilitiesOptions":{"chime_tune":{"title":{"en":"Hall chime"}}}}]
     }`
 	if err := os.WriteFile(filepath.Join(root, "app.json"), []byte(appJSON), 0o600); err != nil {
 		t.Fatal(err)
@@ -51,7 +53,7 @@ func capabilityCardServer(t *testing.T) (*Server, store.Device) {
 	}
 	device, err := database.AddDevice(ctx, store.Device{
 		AppID: "com.acme.sensors", DriverID: "sensor", Name: "Hal", Class: "sensor",
-		Capabilities: []string{"alarm_smoke", "alarm_vape", "measure_temperature", "onoff", "chime_tune"},
+		Capabilities: []string{"alarm_smoke", "alarm_vape", "measure_temperature", "onoff", "chime_tune", "door_chime"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,6 +90,9 @@ func TestCapabilityCardsCoverWhatTheDeviceReports(t *testing.T) {
 	if got := triggers["capability.alarm_smoke.off"]; got != "Rookalarm is voorbij" {
 		t.Fatalf("alarm_smoke off trigger = %q", got)
 	}
+	if got := triggers["capability.alarm_smoke.off_for"]; got != "Rookalarm bleef rustig" {
+		t.Fatalf("alarm_smoke stable trigger = %q", got)
+	}
 	// A custom capability keeps the app's own title.
 	if got := triggers["capability.alarm_vape.on"]; got != "Vape detected ging af" {
 		t.Fatalf("alarm_vape trigger = %q", got)
@@ -95,6 +100,17 @@ func TestCapabilityCardsCoverWhatTheDeviceReports(t *testing.T) {
 	// A non-boolean reports that it changed, and a plain switch is not an alarm.
 	if got := triggers["capability.measure_temperature.changed"]; got != "Temperatuur is veranderd" {
 		t.Fatalf("measure_temperature trigger = %q", got)
+	}
+	if got := triggers["capability.measure_temperature.rose_above"]; got != "Temperatuur kwam boven" {
+		t.Fatalf("measure_temperature threshold trigger = %q", got)
+	}
+	if got := triggers["capability.chime_tune.became"]; got != "Hall chime werd" {
+		t.Fatalf("enum transition trigger = %q", got)
+	}
+	for id := range triggers {
+		if strings.HasPrefix(id, "capability.door_chime.") {
+			t.Fatalf("write-only command got trigger %q", id)
+		}
 	}
 	if got := triggers["capability.onoff.on"]; got != "Aan/uit werd aan" {
 		t.Fatalf("onoff trigger = %q", got)
@@ -104,6 +120,9 @@ func TestCapabilityCardsCoverWhatTheDeviceReports(t *testing.T) {
 	if _, ok := conditions["capability.alarm_smoke.is"]; !ok {
 		t.Fatalf("no condition for alarm_smoke: %v", conditions)
 	}
+	if _, ok := conditions["capability.measure_temperature.below"]; !ok {
+		t.Fatalf("no below condition for measure_temperature: %v", conditions)
+	}
 
 	// Only a setable capability gets an action; a smoke alarm cannot be set.
 	actions := cardTitles(cards["actions"])
@@ -112,6 +131,12 @@ func TestCapabilityCardsCoverWhatTheDeviceReports(t *testing.T) {
 	}
 	if _, present := actions["capability.alarm_smoke.set"]; present {
 		t.Fatal("a read-only alarm got a set action")
+	}
+	if got := actions["capability.chime_tune.set"]; got != "Zet Hall chime" {
+		t.Fatalf("driver capability title was ignored: %q", got)
+	}
+	if got := actions["capability.door_chime.run"]; got != "Ring chime uitvoeren" {
+		t.Fatalf("write-only command action = %q", got)
 	}
 }
 

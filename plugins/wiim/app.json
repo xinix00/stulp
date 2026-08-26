@@ -1,6 +1,6 @@
 {
   "id": "com.stulp.wiim",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "sdk": 3,
   "compatibility": ">=1.0.0",
   "name": {
@@ -46,30 +46,45 @@
       ],
       "capabilitiesOptions": {
         "button.off": {
+          "type": "boolean",
+          "getable": false,
+          "setable": true,
           "title": {
             "en": "Player off",
             "nl": "Speler uit"
           }
         },
         "button.preset1": {
+          "type": "boolean",
+          "getable": false,
+          "setable": true,
           "title": {
             "en": "Preset 1",
             "nl": "Voorkeur 1"
           }
         },
         "button.preset2": {
+          "type": "boolean",
+          "getable": false,
+          "setable": true,
           "title": {
             "en": "Preset 2",
             "nl": "Voorkeur 2"
           }
         },
         "button.preset3": {
+          "type": "boolean",
+          "getable": false,
+          "setable": true,
           "title": {
             "en": "Preset 3",
             "nl": "Voorkeur 3"
           }
         },
         "button.preset4": {
+          "type": "boolean",
+          "getable": false,
+          "setable": true,
           "title": {
             "en": "Preset 4",
             "nl": "Voorkeur 4"

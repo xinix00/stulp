@@ -89,6 +89,7 @@ func buildMCPToolCatalog() []map[string]any {
 		mcpTool("flow_cards_list", "Read Flow cards", mcpRead,
 			"Find ALS/trigger, EN/condition and DAN/action cards. Without cardId this lists titles only; "+
 				"pass cardId to read one card's arguments and tokens before configuring it. "+
+				"Pass deviceId to include its semantic capability cards: boolean on/off and continuous seconds, numeric above/below crossings, enum transitions, current-value conditions and safe actions. "+
 				"Device arguments use {\"$device\":\"DEVICE_ID\"}; dropdowns store an id and tokens use {{token}}.",
 			mcpObject(mcpFields(page,
 				"kind", map[string]any{"type": "string", "enum": []any{"trigger", "condition", "action"}},

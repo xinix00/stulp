@@ -1382,10 +1382,28 @@ func (s *Server) capabilityObject(device store.Device, id string, value any) map
 	}
 	definitions, _ := app.Manifest["capabilities"].(map[string]any)
 	definition, _ := definitions[id].(map[string]any)
-	for _, key := range []string{"type", "getable", "setable", "title", "desc", "values", "min", "max", "step", "units"} {
-		if definition[key] != nil {
-			result[key] = definition[key]
+	apply := func(metadata map[string]any) {
+		for _, key := range []string{"type", "getable", "setable", "title", "desc", "values", "min", "max", "step", "units"} {
+			if metadata[key] != nil {
+				result[key] = metadata[key]
+			}
 		}
+	}
+	apply(definition)
+	// capabilitiesOptions belongs to one driver. It is where an app explains
+	// that measure_power.solar is "Zon" and measure_power.grid is "Net".
+	// Ignoring it made both Manage and generated Flow cards fall back to raw
+	// suffixes such as "Vermogen solar".
+	drivers, _ := app.Manifest["drivers"].([]any)
+	for _, raw := range drivers {
+		driver, _ := raw.(map[string]any)
+		if driverID, _ := driver["id"].(string); driverID != device.DriverID {
+			continue
+		}
+		options, _ := driver["capabilitiesOptions"].(map[string]any)
+		selected, _ := options[id].(map[string]any)
+		apply(selected)
+		break
 	}
 	// Als laatste, want pas nu staat de eenheid vast die de app bedoelde.
 	s.showUnits(result)
@@ -1395,6 +1413,19 @@ func (s *Server) capabilityObject(device store.Device, id string, value any) map
 func applyDefaultCapabilityMetadata(result map[string]any, id string) {
 	id, _, _ = strings.Cut(id, ".")
 	switch id {
+	case "onoff", "locked", "volume_mute", "speaker_playing", "speaker_shuffle":
+		result["type"] = "boolean"
+	case "speaker_next", "speaker_prev":
+		result["type"], result["getable"], result["setable"] = "boolean", false, true
+	case "speaker_repeat":
+		result["type"], result["setable"] = "enum", true
+		result["values"] = []any{
+			map[string]any{"id": "none", "title": map[string]any{"nl": "Uit", "en": "Off"}},
+			map[string]any{"id": "track", "title": map[string]any{"nl": "Eén nummer", "en": "One track"}},
+			map[string]any{"id": "playlist", "title": map[string]any{"nl": "Afspeellijst", "en": "Playlist"}},
+		}
+	case "speaker_position", "speaker_duration":
+		result["type"], result["min"], result["step"], result["units"] = "number", 0.0, 1.0, "s"
 	case "dim", "light_hue", "light_saturation", "windowcoverings_set", "volume_set":
 		result["type"], result["min"], result["max"], result["step"] = "number", 0.0, 1.0, 0.01
 	case "windowcoverings_state":
@@ -1432,7 +1463,8 @@ func defaultCapabilitySetable(id string) bool {
 	// degelijk een bediening: het is de richtingknop van een zonwering. Zonder
 	// deze regel toont de interface hem als een waarde die je alleen kunt lezen.
 	if id == "onoff" || id == "dim" || id == "locked" || id == "light_hue" || id == "light_saturation" ||
-		id == "volume_set" || id == "speaker_playing" || id == "windowcoverings_state" {
+		id == "volume_set" || id == "volume_mute" || id == "speaker_playing" || id == "speaker_next" || id == "speaker_prev" ||
+		id == "speaker_shuffle" || id == "speaker_repeat" || id == "windowcoverings_state" {
 		return true
 	}
 	return strings.HasSuffix(id, "_set") || strings.HasPrefix(id, "target_")

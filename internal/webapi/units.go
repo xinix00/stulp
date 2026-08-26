@@ -495,6 +495,14 @@ func (s *Server) flowArgumentWantsNumber(step store.FlowStep, argument string) b
 
 func (s *Server) flowArgumentKind(ctx context.Context, step store.FlowStep, argument string) string {
 	if step.AppID == "stulp" {
+		if _, action, derived := flowengine.CapabilityFromCardID(step.CardID); derived {
+			if argument == "value" && (action == "is" || action == "set" || action == "above" || action == "below" || action == "rose_above" || action == "fell_below" || action == "became") {
+				return "capability-value"
+			}
+			if argument == "seconds" && (action == "on_for" || action == "off_for") {
+				return "number"
+			}
+		}
 		return builtinArgumentKinds[step.CardID+"."+argument]
 	}
 	app, err := s.store.App(ctx, step.AppID)
@@ -530,6 +538,8 @@ var builtinArgumentKinds = map[string]string{
 	"set_device_capability.value":     "capability-value",
 	"device_capability_equals.value":  "capability-value",
 	"device_capability_changed.value": "capability-value",
+	"device_capability_stays.value":   "capability-value",
+	"device_capability_stays.seconds": "number",
 	"delay.seconds":                   "number",
 	"sunrise.offset":                  "number",
 	"sunset.offset":                   "number",

@@ -10,7 +10,8 @@ import "fmt"
 // unknown is wat een stand krijgt die niet in de lijst staat. Met het getal
 // erbij, want dan is er tenminste iets om op te zoeken in de protocolbeschrijving
 // -- een lege tegel zegt niets en "onbekend" ook niet.
-func unknown(value float64) string { return fmt.Sprintf("onbekend (%.0f)", value) }
+func unknown(value float64) string   { return fmt.Sprintf("onbekend (%.0f)", value) }
+func unknownID(value float64) string { return fmt.Sprintf("unknown_%.0f", value) }
 
 // BatteryChargingState vertaalt bedrijfsstand plus vermogen naar de drie
 // waarden die battery_charging_state kent.
@@ -30,28 +31,29 @@ func BatteryChargingState(status, power float64) string {
 	}
 }
 
-// GridStatus is de netstand van het systeem.
+// GridStatus is de stabiele enumwaarde van de netstand. De zichtbare vertaling
+// staat in app.json, zodat dezelfde state in elke taal en in Flows bruikbaar is.
 func GridStatus(value float64) string {
 	switch int(value) {
 	case 0:
-		return "Op het net"
+		return "on_grid"
 	case 1:
-		return "Van het net"
+		return "off_grid"
 	case 2:
-		return "Van het net (handmatig)"
+		return "off_grid_manual"
 	}
-	return unknown(value)
+	return unknownID(value)
 }
 
 // PhaseControl zegt of het systeem de fasen los van elkaar stuurt.
 func PhaseControl(value float64) string {
 	switch int(value) {
 	case 0:
-		return "Uit"
+		return "off"
 	case 1:
-		return "Aan"
+		return "on"
 	}
-	return unknown(value)
+	return unknownID(value)
 }
 
 // InverterOutputType is hoe de omvormer zijn wisselspanning levert. Bepaalt of

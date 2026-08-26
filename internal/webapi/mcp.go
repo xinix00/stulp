@@ -42,7 +42,8 @@ const (
 	mcpMaximumGroupDepth = 16
 
 	mcpInstructions = "Control this Stulp home through its devices and visual Flows. Start with system_context: it names the device groups (rooms) of this home. " +
-		"Then narrow with devices_list (groupId, capabilityId, search) and flow_cards_list before changing anything; only set capabilities marked setable. " +
+		"Then narrow with devices_list (groupId, capabilityId, search), read one exact device with devices_list(deviceId), and pass that deviceId to flow_cards_list before changing anything. " +
+		"Capability-derived Flow cards include boolean edges, continuous seconds, numeric threshold crossings and enum transitions; prefer those semantic cards over a generic value-changed card. Only set capabilities marked setable. " +
 		"When a Flow needs durable boolean memory, devices_create can add a virtual_switch; use its returned device id in Flow cards. " +
 		"A device with class=scene is a normal on/off scene device: the first on saves the current target states and applies the scene, repeated on keeps that original snapshot, and off restores it."
 )

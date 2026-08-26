@@ -17,7 +17,7 @@ cd "$(dirname "$0")"
 
 # Eén stempel voor controller en apps. CI/releasebouw kan hem blijven
 # overschrijven met STULP_VERSION; een gewone build hoort bij deze bronversie.
-stulp_version=${STULP_VERSION:-v0.8.7}
+stulp_version=${STULP_VERSION:-v0.8.8}
 
 # ---- HopOS ------------------------------------------------------------------
 #

@@ -372,6 +372,34 @@ func TestMCPReadsDevicesAndRefusesReadOnlyWrites(t *testing.T) {
 	if !foundSet {
 		t.Fatal("device-filtered Flow cards omit the writable capability action")
 	}
+
+	thresholdList := mcpStructured(t, mcpToolCall(t, handler, "flow_cards_list", map[string]any{
+		"kind": "trigger", "deviceId": device.ID, "search": "Temperatuur kwam boven",
+	}))
+	thresholds, _ := thresholdList["cards"].([]any)
+	if len(thresholds) != 1 {
+		t.Fatalf("MCP did not discover the device threshold card: %#v", thresholds)
+	}
+	threshold, _ := thresholds[0].(map[string]any)
+	if threshold["id"] != "capability.measure_temperature.rose_above" {
+		t.Fatalf("unexpected threshold card: %#v", threshold)
+	}
+	detail := mcpStructured(t, mcpToolCall(t, handler, "flow_cards_list", map[string]any{
+		"kind": "trigger", "deviceId": device.ID, "cardId": "capability.measure_temperature.rose_above",
+	}))
+	detailedCards, _ := detail["cards"].([]any)
+	detailed, _ := detailedCards[0].(map[string]any)
+	arguments, _ := detailed["args"].([]any)
+	valueArgument := map[string]any{}
+	for _, raw := range arguments {
+		argument, _ := raw.(map[string]any)
+		if argument["name"] == "value" {
+			valueArgument = argument
+		}
+	}
+	if valueArgument["type"] != "capability-value" || valueArgument["units"] != "°C" {
+		t.Fatalf("MCP threshold argument lacks capability metadata: %#v", valueArgument)
+	}
 }
 
 func TestMCPCompatibilityContentCarriesListsAndFlowGraph(t *testing.T) {

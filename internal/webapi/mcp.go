@@ -832,6 +832,34 @@ func (s *Server) mcpDeviceHasWritableCapability(device store.Device, onlyCapabil
 	return false
 }
 
+// mcpReadOnlyCapabilityError explains the distinction which is particularly
+// easy to miss on wall switches: button.* is the physical input, while the
+// relay behind that button is exposed separately as onoff[.*].  Naming the
+// real writable ids prevents an MCP client from inventing an action which can
+// never work.
+func (s *Server) mcpReadOnlyCapabilityError(device store.Device, capabilityID string) error {
+	base, _, _ := strings.Cut(capabilityID, ".")
+	if base != "button" {
+		return fmt.Errorf("capability %q on device %q is read-only", capabilityID, device.ID)
+	}
+	var outputs []string
+	for _, id := range device.Capabilities {
+		outputBase, _, _ := strings.Cut(id, ".")
+		if outputBase != "onoff" {
+			continue
+		}
+		capability := s.capabilityObject(device, id, device.State[id])
+		if setable, _ := capability["setable"].(bool); setable {
+			outputs = append(outputs, id)
+		}
+	}
+	slices.Sort(outputs)
+	if len(outputs) == 0 {
+		return fmt.Errorf("capability %q on device %q is a physical button input and is read-only; this device exposes no writable relay output", capabilityID, device.ID)
+	}
+	return fmt.Errorf("capability %q on device %q is a physical button input and is read-only; use writable relay capability %s to switch the load", capabilityID, device.ID, strings.Join(outputs, ", "))
+}
+
 func (s *Server) mcpWriteDevice(ctx context.Context, arguments map[string]any) (any, string, error) {
 	deviceID, capabilityID := stringArgument(arguments, "deviceId"), stringArgument(arguments, "capabilityId")
 	value, hasValue := arguments["value"]
@@ -855,7 +883,7 @@ func (s *Server) mcpWriteDevice(ctx context.Context, arguments map[string]any) (
 	capability := s.capabilityObject(device, capabilityID, device.State[capabilityID])
 	setable, _ := capability["setable"].(bool)
 	if !setable {
-		return nil, "", fmt.Errorf("capability %q on device %q is read-only", capabilityID, deviceID)
+		return nil, "", s.mcpReadOnlyCapabilityError(device, capabilityID)
 	}
 	if err := validateMCPCapabilityValue(capability, value); err != nil {
 		return nil, "", fmt.Errorf("value for capability %q: %w", capabilityID, err)

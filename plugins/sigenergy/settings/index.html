@@ -21,6 +21,10 @@ app zelf op zodra je er een koppelt.</p>
   <label>Unit-ids om af te tasten
     <input id="units" placeholder="1-32,247" autocomplete="off">
   </label>
+  <label>Modbus unit-id AC-laadpaal <small>(optioneel)</small>
+    <input id="chargerUnit" type="number" min="1" max="246" placeholder="leeg = automatisch 1-246">
+    <small>Dit is het unieke Modbus-adres uit mySigen, niet het IP-adres van de laadpaal. Ingevuld verschijnt de lader direct bij koppelen.</small>
+  </label>
   <div class="actions">
     <button type="button" id="test">Proberen</button>
     <button type="submit" id="save" class="primary">Opslaan</button>

@@ -324,6 +324,62 @@ func TestParseUnitsFallsBackToTheDefault(t *testing.T) {
 	}
 }
 
+func TestChargerUnitsPreferConfiguredRangeThenCoverOfficialDeviceRange(t *testing.T) {
+	units, exact, err := chargerUnits("1-4,100,247", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exact {
+		t.Fatal("een lege laadpaalunit werd als expliciet behandeld")
+	}
+	if len(units) != 246 {
+		t.Fatalf("%d laadpaalunits, wil 246", len(units))
+	}
+	if want := []uint8{1, 2, 3, 4, 100, 5}; !reflect.DeepEqual(units[:len(want)], want) {
+		t.Fatalf("voorkeursvolgorde = %v, wil %v", units[:len(want)], want)
+	}
+	seen := map[uint8]bool{}
+	for _, unit := range units {
+		if unit == 247 || seen[unit] {
+			t.Fatalf("ongeldige of dubbele laadpaalunit %d in %v", unit, units)
+		}
+		seen[unit] = true
+	}
+}
+
+func TestExplicitChargerUnitAvoidsTheFullScan(t *testing.T) {
+	units, exact, err := chargerUnits("1-32,247", "203")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exact || !reflect.DeepEqual(units, []uint8{203}) {
+		t.Fatalf("laadpaalunits = %v, exact=%v", units, exact)
+	}
+	for _, value := range []string{"0", "247", "abc"} {
+		if _, _, err := chargerUnits("1-32,247", value); err == nil {
+			t.Errorf("expliciete laadpaalunit %q werd geaccepteerd", value)
+		}
+	}
+}
+
+func TestAutomaticChargerScanCanFindAUnitOutsideTheLegacyRange(t *testing.T) {
+	units, _, err := chargerUnits("1-32,247", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &scanReader{present: map[uint8]bool{203: true}}
+	found, err := scanUnits(reader, sigen.EvACCharger, units)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(found, []uint8{203}) {
+		t.Fatalf("gevonden laadpaalunits = %v, wil [203]", found)
+	}
+	if len(reader.reads) != 246 {
+		t.Fatalf("%d van 246 officiële device-units zijn afgetast", len(reader.reads))
+	}
+}
+
 func TestChargerScanUsesSigenergyFunction03AndDoesNotSkipSparseUnits(t *testing.T) {
 	reader := &scanReader{
 		present: map[uint8]bool{8: true},

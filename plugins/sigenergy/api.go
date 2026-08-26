@@ -30,14 +30,15 @@ func (a *app) registerAPI(stulp *appsdk.Stulp) {
 		devices := len(a.devices)
 		a.mu.RUnlock()
 		answer := map[string]any{
-			"host":      stulp.SettingText("host"),
-			"port":      stulp.SettingNumber("port", defaultPort),
-			"interval":  stulp.SettingNumber("interval", defaultInterval),
-			"timeout":   stulp.SettingNumber("timeout", defaultTimeout),
-			"units":     unitsSetting(stulp),
-			"connected": connected && lastErr == "",
-			"error":     lastErr,
-			"devices":   devices,
+			"host":        stulp.SettingText("host"),
+			"port":        stulp.SettingNumber("port", defaultPort),
+			"interval":    stulp.SettingNumber("interval", defaultInterval),
+			"timeout":     stulp.SettingNumber("timeout", defaultTimeout),
+			"units":       unitsSetting(stulp),
+			"chargerUnit": stulp.SettingText("chargerUnit"),
+			"connected":   connected && lastErr == "",
+			"error":       lastErr,
+			"devices":     devices,
 		}
 		for key, value := range a.cloudStatus() {
 			answer[key] = value
@@ -63,11 +64,26 @@ func (a *app) registerAPI(stulp *appsdk.Stulp) {
 		if err != nil {
 			return nil, err
 		}
+		chargerUnit, _ := body["chargerUnit"].(string)
+		if extra, exact, err := chargerUnits(unitText, chargerUnit); err != nil {
+			return nil, err
+		} else if exact {
+			known := false
+			for _, unit := range units {
+				known = known || unit == extra[0]
+			}
+			if !known {
+				units = append(units, extra[0])
+			}
+		}
 
 		// Kort van draad: dit is iemand die op een knop wacht. Een systeem dat
 		// binnen twee seconden niets zegt gaat dat bij unit 200 ook niet doen.
 		client := modbus.New(host, port, 2*time.Second)
 		defer client.Close()
+		if _, err := sigen.Plant.Probe().Read(client, sigen.SystemUnit); err != nil {
+			return nil, fmt.Errorf("Sigenergy op %s:%d antwoordt niet op systeem-unit 247: %w; controleer het adres en of Modbus TCP in mySigen aanstaat", host, port, err)
+		}
 
 		return probe(client, units)
 	})

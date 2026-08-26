@@ -15,6 +15,7 @@ function fields() {
     interval: Number($('interval').value) || 10,
     timeout: Number($('timeout').value) || 5,
     units: $('units').value.trim(),
+    chargerUnit: $('chargerUnit').value.trim(),
   };
 }
 
@@ -82,6 +83,7 @@ $('form').addEventListener('submit', async event => {
     await Stulp.set('interval', values.interval);
     await Stulp.set('timeout', values.timeout);
     await Stulp.set('units', values.units);
+    await Stulp.set('chargerUnit', values.chargerUnit);
     await Stulp.set('host', values.host);
     say('Opgeslagen. De app verbindt opnieuw.', 'ok');
   } catch (error) {
@@ -161,6 +163,7 @@ Stulp.api('POST', 'status', {}).then(status => {
   if (status.interval) $('interval').value = status.interval;
   if (status.timeout) $('timeout').value = status.timeout;
   if (status.units) $('units').value = status.units;
+  if (status.chargerUnit) $('chargerUnit').value = status.chargerUnit;
   if (status.error) say(status.error, 'bad');
   else if (status.connected) say(`Verbonden. ${status.devices} apparaten worden uitgelezen.`, 'ok');
 

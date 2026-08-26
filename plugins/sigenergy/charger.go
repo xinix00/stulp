@@ -45,7 +45,15 @@ func (chargerDriver) NewDevice(device *appsdk.Device) (appsdk.DeviceHandler, err
 // serienummer in zijn registers -- de bron leest het ook niet -- dus het unit-id
 // is waaraan hij te herkennen is.
 func (chargerDriver) ListDevices() ([]appsdk.PairedDevice, error) {
-	return listByUnit(sigen.EvACCharger, "Sigenergy AC-laadpaal")
+	found, err := instance.scanCharger()
+	if err != nil {
+		return nil, err
+	}
+	devices := make([]appsdk.PairedDevice, 0, len(found))
+	for _, unit := range found {
+		devices = append(devices, paired("Sigenergy AC-laadpaal", unitID(unit), unit))
+	}
+	return devices, nil
 }
 
 func (c *chargerDevice) apply(values sigen.Reading) map[string]any {

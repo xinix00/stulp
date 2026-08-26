@@ -31,6 +31,11 @@ const (
 	// unit antwoordt op het lokale netwerk binnen milliseconden; een halve
 	// seconde per stille unit houdt een volledige, ook sparse scan hanteerbaar.
 	scanTimeout = 500 * time.Millisecond
+	// chargerScanTimeout is korter omdat een EVAC zonder ingevuld unit-id het
+	// volledige, door Sigenergy voorgeschreven bereik 1-246 moet proberen. De
+	// verbinding zelf wordt eerst apart op unit 247 gecontroleerd; hier wachten
+	// we dus alleen nog op een stille slave achter een bereikbare omvormer.
+	chargerScanTimeout = 100 * time.Millisecond
 	// minInterval houdt het pollen bij een omvormer vandaan die er niet tegen
 	// kan. De bron staat vijf seconden als ondergrens toe en dat is hier
 	// overgenomen.
@@ -294,6 +299,33 @@ func (a *app) scan(card sigen.Card) ([]uint8, error) {
 	if err != nil {
 		return nil, err
 	}
+	return a.scanAt(card, units, scanTimeout)
+}
+
+// scanCharger gebruikt een expliciet EVAC-unit-id als dat is ingevuld. Zonder
+// zo'n aanwijzing doorzoekt alleen deze driver het volledige officiële bereik:
+// een AC-lader kan in mySigen ieder uniek adres van 1 tot en met 246 krijgen en
+// hoeft dus niet binnen de historische algemene scan 1-32 te vallen.
+func (a *app) scanCharger() ([]uint8, error) {
+	units, exact, err := chargerUnits(a.settings().SettingText("units"), a.settings().SettingText("chargerUnit"))
+	if err != nil {
+		return nil, err
+	}
+	timeout := chargerScanTimeout
+	if exact {
+		timeout = scanTimeout
+	}
+	found, err := a.scanAt(sigen.EvACCharger, units, timeout)
+	if err != nil {
+		return nil, err
+	}
+	if exact && len(found) == 0 {
+		return nil, fmt.Errorf("op unit %d zijn geen Sigenergy AC-laadpaalregisters gevonden; controleer het EVAC-unit-id in mySigen", units[0])
+	}
+	return found, nil
+}
+
+func (a *app) scanAt(card sigen.Card, units []uint8, timeout time.Duration) ([]uint8, error) {
 	// Een eigen verbinding met een korte wachttijd.
 	//
 	// Getoetst tegen een echt systeem: een unit die bestaat antwoordt binnen
@@ -305,10 +337,71 @@ func (a *app) scan(card sigen.Card) ([]uint8, error) {
 	if host == "" {
 		return nil, fmt.Errorf("er is nog geen adres ingesteld")
 	}
-	client := modbus.New(host, a.settings().SettingNumber("port", defaultPort), scanTimeout)
-	defer client.Close()
+	port := a.settings().SettingNumber("port", defaultPort)
+	// Een stille of onbereikbare TCP-server hoeft niet voor ieder mogelijk
+	// slave-adres opnieuw zijn timeout te krijgen. Unit 247 is het verplichte
+	// plantadres; één vraag daar maakt onderscheid tussen een kapotte verbinding
+	// en een bereikbare omvormer waar alleen deze apparaatsoort ontbreekt.
+	check := modbus.New(host, port, scanTimeout)
+	_, checkErr := sigen.Plant.Probe().Read(check, sigen.SystemUnit)
+	_ = check.Close()
+	if checkErr != nil {
+		return nil, fmt.Errorf("Sigenergy op %s:%d antwoordt niet op systeem-unit 247: %w; controleer het adres en of Modbus TCP in mySigen aanstaat", host, port, checkErr)
+	}
 
-	return scanUnits(client, card, units)
+	client := modbus.New(host, port, timeout)
+	defer client.Close()
+	found, err := scanUnits(client, card, units)
+	if err == nil {
+		return found, nil
+	}
+
+	// Als geen geprobeerde slave antwoordde, controleert scanUnits terecht de
+	// verbinding. De plantcheck hierboven bewees dat die bij aanvang goed was;
+	// toets hem na de ronde nogmaals. Antwoordt hij nog, dan is "geen apparaat"
+	// de juiste uitkomst. Is hij intussen weggevallen, behoud dan de echte
+	// transportfout uit de scan.
+	recheck := modbus.New(host, port, scanTimeout)
+	_, stillReachable := sigen.Plant.Probe().Read(recheck, sigen.SystemUnit)
+	_ = recheck.Close()
+	if stillReachable == nil {
+		return found, nil
+	}
+	return nil, err
+}
+
+// chargerUnits zet eerst de al gekozen units neer: die zijn de meest
+// waarschijnlijke en antwoorden dus snel. Daarna volgen alle nog niet genoemde
+// device-adressen. 247 is het plantadres en kan nooit een EVAC zijn.
+func chargerUnits(configured, exactText string) ([]uint8, bool, error) {
+	exactText = strings.TrimSpace(exactText)
+	if exactText != "" {
+		exact, err := strconv.Atoi(exactText)
+		if err != nil || exact < 1 || exact > 246 {
+			return nil, false, fmt.Errorf("het Modbus unit-id van de AC-laadpaal moet een getal van 1 tot en met 246 zijn")
+		}
+		return []uint8{uint8(exact)}, true, nil
+	}
+
+	preferred, err := parseUnits(configured)
+	if err != nil {
+		return nil, false, err
+	}
+	seen := map[uint8]bool{}
+	units := make([]uint8, 0, 246)
+	for _, unit := range preferred {
+		if unit <= 246 && !seen[unit] {
+			seen[unit] = true
+			units = append(units, unit)
+		}
+	}
+	for unit := 1; unit <= 246; unit++ {
+		value := uint8(unit)
+		if !seen[value] {
+			units = append(units, value)
+		}
+	}
+	return units, false, nil
 }
 
 // scanUnits tast iedere opgegeven unit af. De lijst kan bewust gaten bevatten:

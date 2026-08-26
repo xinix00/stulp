@@ -20,6 +20,11 @@ import (
 const (
 	executionTimeout = 45 * time.Second
 
+	// DeviceCapabilityStaysCardID is evaluated by the engine itself. Its timer
+	// lives outside a Flow execution, so waiting several minutes cannot consume
+	// the 45-second execution budget or hold an execution worker.
+	DeviceCapabilityStaysCardID = "device_capability_stays"
+
 	// Automatic runs must not execute on the store-event goroutine. A Flow can
 	// legitimately wait on a device, an HTTP service, or the built-in delay
 	// card; doing that inline used to postpone every sensor edge behind it while
@@ -105,6 +110,27 @@ type automaticRun struct {
 	starts     []string
 }
 
+type stabilityKey struct {
+	flowID string
+	nodeID string
+}
+
+// stabilityWatch represents one continuous matching episode. Once fired it
+// stays in the map until the value stops matching; that makes the trigger fire
+// once, not once every configured interval.
+type stabilityWatch struct {
+	signature  string
+	deadline   time.Time
+	fired      bool
+	definition store.Flow
+	nodeID     string
+	deviceID   string
+	deviceName string
+	capability string
+	value      any
+	seconds    float64
+}
+
 type Engine struct {
 	store             *store.Store
 	apps              *supervisor.Supervisor
@@ -125,6 +151,8 @@ type Engine struct {
 	stopTicks         func()
 	scheduleMu        sync.Mutex
 	scheduled         map[string]string
+	stabilityReset    chan struct{}
+	stability         map[stabilityKey]stabilityWatch
 	invokeCapability  func(context.Context, string, string, any, map[string]any) error
 	readToken         func(Trigger, string, any) (string, bool)
 	wantsNumber       func(store.FlowStep, string) bool
@@ -155,6 +183,7 @@ func NewWithOptions(database *store.Store, apps *supervisor.Supervisor, options 
 		automaticRuns: make(chan automaticRun, automaticExecutionQueue),
 		latestResult:  make(map[string]time.Time), deviceState: make(map[string]map[string]any),
 		location: location, ticks: ticks, stopTicks: stopTicks, scheduled: make(map[string]string),
+		stabilityReset: make(chan struct{}, 1), stability: make(map[stabilityKey]stabilityWatch),
 		invokeCapability: options.InvokeCapability,
 		readToken:        options.ReadToken, wantsNumber: options.ArgumentWantsNumber,
 	}
@@ -162,6 +191,7 @@ func NewWithOptions(database *store.Store, apps *supervisor.Supervisor, options 
 		engine.invokeCapability = apps.InvokeCapability
 	}
 	engine.reloadDeviceState()
+	engine.reconcileStability(time.Now())
 	for range automaticTriggerWorkers {
 		engine.triggerWorkers.Add(1)
 		go engine.matchAutomaticTriggers()
@@ -199,7 +229,18 @@ func (e *Engine) reloadDeviceState() {
 }
 
 func (e *Engine) loop() {
+	stabilityTimer := time.NewTimer(time.Hour)
+	if !stabilityTimer.Stop() {
+		<-stabilityTimer.C
+	}
+	stabilityC := e.armStabilityTimer(stabilityTimer, time.Now())
 	defer func() {
+		if !stabilityTimer.Stop() {
+			select {
+			case <-stabilityTimer.C:
+			default:
+			}
+		}
 		close(e.automaticTriggers)
 		e.triggerWorkers.Wait()
 		close(e.automaticRuns)
@@ -212,26 +253,40 @@ func (e *Engine) loop() {
 			if !open {
 				return
 			}
+			reconcileStability := false
 			switch {
 			// The stream fell behind and was emptied. Every capability the
 			// engine thinks it knows may have moved since, so comparing the
 			// next update against that cache would invent or swallow an edge.
 			case event.Manager == "store":
 				e.reloadDeviceState()
+				// An overflow means an intermediate mismatch may have been lost.
+				// Restart matching intervals conservatively instead of firing early.
+				e.stability = make(map[stabilityKey]stabilityWatch)
+				reconcileStability = true
 			case event.Manager == "flow" && event.Type == "card.trigger":
 				e.handleCardTrigger(event)
+			case event.Manager == "flow" && (event.Type == "flow.create" || event.Type == "flow.update" || event.Type == "flow.delete"):
+				reconcileStability = true
 			case event.Manager == "devices" && event.Type == "device.create":
 				if device, ok := event.Data.(store.Device); ok {
 					e.setDeviceState(device.ID, device.State)
 				}
+				reconcileStability = true
 			case event.Manager == "devices" && event.Type == "device.update":
 				if device, ok := event.Data.(store.Device); ok {
 					e.handleDeviceUpdate(device)
 				}
+				reconcileStability = true
 			case event.Manager == "devices" && event.Type == "device.delete":
 				e.stateMu.Lock()
 				delete(e.deviceState, event.ID)
 				e.stateMu.Unlock()
+				reconcileStability = true
+			}
+			if reconcileStability {
+				e.reconcileStability(time.Now())
+				stabilityC = e.armStabilityTimer(stabilityTimer, time.Now())
 			}
 		case now, open := <-e.ticks:
 			if !open {
@@ -239,6 +294,20 @@ func (e *Engine) loop() {
 				continue
 			}
 			e.handleScheduledFlows(now)
+		case <-e.stabilityReset:
+			// A live restore can replace both Flows and state without delivering
+			// their individual transitions. A matching value therefore starts a
+			// fresh interval at the restore boundary.
+			e.stability = make(map[stabilityKey]stabilityWatch)
+			e.reconcileStability(time.Now())
+			stabilityC = e.armStabilityTimer(stabilityTimer, time.Now())
+		case <-stabilityC:
+			now := time.Now()
+			// Re-read the store before firing. A disable or sensor update can
+			// already be committed even when its event has not won the select yet.
+			e.reconcileStability(now)
+			e.fireDueStability(now)
+			stabilityC = e.armStabilityTimer(stabilityTimer, now)
 		}
 	}
 }
@@ -252,6 +321,123 @@ func (e *Engine) Reset() {
 	e.scheduleMu.Lock()
 	e.scheduled = make(map[string]string)
 	e.scheduleMu.Unlock()
+	select {
+	case e.stabilityReset <- struct{}{}:
+	case <-e.done:
+	default:
+	}
+}
+
+func (e *Engine) reconcileStability(now time.Time) {
+	flows, err := e.store.Flows(context.Background())
+	if err != nil {
+		return
+	}
+	devices, err := e.store.Devices(context.Background(), "")
+	if err != nil {
+		return
+	}
+	byID := make(map[string]store.Device, len(devices))
+	for _, device := range devices {
+		byID[device.ID] = device
+	}
+
+	desired := make(map[stabilityKey]stabilityWatch)
+	for _, definition := range flows {
+		if !definition.Enabled {
+			continue
+		}
+		for _, node := range definition.Nodes {
+			deviceID, capability, target, seconds, signature, ok := stabilityConfiguration(node.Step)
+			if !ok {
+				continue
+			}
+			device, exists := byID[deviceID]
+			current, hasValue := device.State[capability]
+			if !exists || !hasValue || !equivalent(current, target) {
+				continue
+			}
+			key := stabilityKey{flowID: definition.ID, nodeID: node.ID}
+			if watch, watching := e.stability[key]; watching && watch.signature == signature {
+				watch.definition = definition
+				watch.deviceName = device.Name
+				watch.value = current
+				desired[key] = watch
+				continue
+			}
+			desired[key] = stabilityWatch{
+				signature: signature, deadline: now.Add(time.Duration(seconds * float64(time.Second))),
+				definition: definition, nodeID: node.ID, deviceID: deviceID, deviceName: device.Name,
+				capability: capability, value: current, seconds: seconds,
+			}
+		}
+	}
+	e.stability = desired
+}
+
+func stabilityConfiguration(step store.FlowStep) (deviceID, capability string, target any, seconds float64, signature string, ok bool) {
+	if step.AppID != "stulp" || step.CardType != "trigger" || step.CardID != DeviceCapabilityStaysCardID {
+		return "", "", nil, 0, "", false
+	}
+	deviceID = selectedDevice(step.Args)
+	capability, _ = step.Args["capability"].(string)
+	target, hasTarget := step.Args["value"]
+	seconds, hasSeconds := numberValue(step.Args["seconds"])
+	if deviceID == "" || capability == "" || !hasTarget || !hasSeconds || seconds <= 0 || seconds > 86400 {
+		return "", "", nil, 0, "", false
+	}
+	encoded, err := json.Marshal([]any{deviceID, capability, target, seconds})
+	if err != nil {
+		return "", "", nil, 0, "", false
+	}
+	return deviceID, capability, target, seconds, string(encoded), true
+}
+
+func (e *Engine) fireDueStability(now time.Time) {
+	for key, watch := range e.stability {
+		if watch.fired || watch.deadline.After(now) {
+			continue
+		}
+		watch.fired = true
+		e.stability[key] = watch
+		input := Trigger{
+			AppID: "stulp", CardID: DeviceCapabilityStaysCardID, CardType: "trigger", DeviceID: watch.deviceID,
+			Tokens: map[string]any{
+				"device": watch.deviceName, "deviceId": watch.deviceID, "capability": watch.capability,
+				"value": watch.value, "seconds": watch.seconds,
+			},
+			State: map[string]any{
+				"deviceId": watch.deviceID, "capability": watch.capability,
+				"value": watch.value, "seconds": watch.seconds,
+			},
+		}
+		e.automaticRuns <- automaticRun{definition: watch.definition, input: input, starts: []string{watch.nodeID}}
+	}
+}
+
+func (e *Engine) armStabilityTimer(timer *time.Timer, now time.Time) <-chan time.Time {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	var earliest time.Time
+	for _, watch := range e.stability {
+		if watch.fired || (!earliest.IsZero() && !watch.deadline.Before(earliest)) {
+			continue
+		}
+		earliest = watch.deadline
+	}
+	if earliest.IsZero() {
+		return nil
+	}
+	wait := earliest.Sub(now)
+	if wait < 0 {
+		wait = 0
+	}
+	timer.Reset(wait)
+	return timer.C
 }
 
 func (e *Engine) handleScheduledFlows(now time.Time) {

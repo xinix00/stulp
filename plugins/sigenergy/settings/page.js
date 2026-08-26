@@ -99,7 +99,7 @@ $('cloudForm').addEventListener('submit', async event => {
   $('cloudConnect').disabled = true;
   cloudSay('Aanmelden bij mySigen…', 'busy');
   try {
-    const result = await Stulp.api('POST', 'cloud_connect', {
+    const result = await Stulp.api('POST', 'cloud/connect', {
       region: $('cloudRegion').value,
       username,
       password,
@@ -120,7 +120,7 @@ $('cloudCheck').addEventListener('click', async () => {
   $('cloudCheck').disabled = true;
   cloudSay('Stations en Gateway-status opvragen…', 'busy');
   try {
-    const result = await Stulp.api('POST', 'cloud_check', {});
+    const result = await Stulp.api('POST', 'cloud/check', {});
     showCloudStations(result);
     const gateways = (result.stations || []).filter(station => station.gateway).length;
     cloudSay(`Verbonden. ${gateways} bedienbare Gateway${gateways === 1 ? '' : 's'} gevonden.`, 'ok');
@@ -135,7 +135,7 @@ $('cloudCheck').addEventListener('click', async () => {
 $('cloudDisconnect').addEventListener('click', async () => {
   $('cloudDisconnect').disabled = true;
   try {
-    await Stulp.api('POST', 'cloud_disconnect', {});
+    await Stulp.api('POST', 'cloud/disconnect', {});
     $('cloudPassword').value = '';
     showCloudStations({});
     cloudLinked(false);

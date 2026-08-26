@@ -140,7 +140,7 @@ func (s *Server) flowCards(ctx context.Context) (map[string][]map[string]any, er
 		return nil, err
 	}
 	result := map[string][]map[string]any{
-		"triggers":   {builtinCapabilityTrigger(), builtinMatterEventTrigger(), builtinTimeTrigger(), builtinSunTrigger("sunrise", "De zon komt op"), builtinSunTrigger("sunset", "De zon gaat onder")},
+		"triggers":   {builtinCapabilityTrigger(), builtinCapabilityStaysTrigger(), builtinMatterEventTrigger(), builtinTimeTrigger(), builtinSunTrigger("sunrise", "De zon komt op"), builtinSunTrigger("sunset", "De zon gaat onder")},
 		"conditions": {builtinCapabilityCondition()},
 		"actions":    {builtinCapabilityAction(), builtinDelayAction(), builtinNotificationAction()},
 	}
@@ -410,6 +410,24 @@ func builtinCapabilityTrigger() map[string]any {
 			map[string]any{"name": "capability", "type": "string", "title": "Capability"},
 			map[string]any{"name": "value", "type": "string", "title": "Nieuwe waarde"},
 			map[string]any{"name": "oldValue", "type": "string", "title": "Vorige waarde"},
+		},
+	}
+}
+
+func builtinCapabilityStaysTrigger() map[string]any {
+	return map[string]any{
+		"appId": "stulp", "appName": "Stulp", "id": flow.DeviceCapabilityStaysCardID, "type": "trigger",
+		"title": "Een apparaatwaarde blijft gelijk", "available": true,
+		"args": []any{
+			deviceArgument(), capabilityArgument("Waarde", false),
+			map[string]any{"name": "value", "type": "capability-value", "title": "Blijft gelijk aan"},
+			map[string]any{"name": "seconds", "type": "number", "title": "Seconden", "min": 1, "max": 86400, "step": 1},
+		},
+		"tokens": []any{
+			map[string]any{"name": "device", "type": "string", "title": "Apparaat"},
+			map[string]any{"name": "capability", "type": "string", "title": "Capability"},
+			map[string]any{"name": "value", "type": "string", "title": "Waarde"},
+			map[string]any{"name": "seconds", "type": "number", "title": "Seconden"},
 		},
 	}
 }

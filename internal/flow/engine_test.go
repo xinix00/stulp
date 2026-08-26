@@ -179,6 +179,90 @@ func TestSlowAutomaticRunDoesNotDelayNextSensorEdge(t *testing.T) {
 	release()
 }
 
+func TestCapabilityStaysRequiresOneContinuousInterval(t *testing.T) {
+	ctx := context.Background()
+	database, err := store.Open(store.InMemoryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if err := database.InstallMatterApp(ctx, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	device, err := database.AddDevice(ctx, store.Device{
+		AppID: store.NativeMatterAppID, DriverID: "matter", Name: "Gang sensor", Class: "sensor",
+		Data:         map[string]any{"node_id": "1", "endpoint": 1},
+		Capabilities: []string{"alarm_motion"}, State: map[string]any{"alarm_motion": false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.CreateFlow(ctx, store.Flow{
+		Name: "Licht uit na aanhoudende rust", Enabled: true,
+		Nodes: []store.FlowNode{
+			{ID: "quiet", Step: store.FlowStep{
+				AppID: "stulp", CardID: DeviceCapabilityStaysCardID, CardType: "trigger",
+				Args: map[string]any{
+					"device": map[string]any{"$device": device.ID}, "capability": "alarm_motion",
+					"value": false, "seconds": 0.15,
+				},
+			}},
+			{ID: "message", Step: store.FlowStep{
+				AppID: "stulp", CardID: "notification", CardType: "action",
+				Args: map[string]any{"excerpt": "Gang is rustig"},
+			}},
+		},
+		Edges: []store.FlowEdge{{From: "quiet", To: "message"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	apps := supervisor.New(database, plugin.Options{})
+	defer apps.Close()
+	engine := NewWithOptions(database, apps, Options{Ticks: make(chan time.Time)})
+	defer engine.Close()
+
+	// Interrupt the first interval, then start a new quiet interval. The old
+	// deadline must not be allowed to turn anything off early.
+	time.Sleep(75 * time.Millisecond)
+	device.State["alarm_motion"] = true
+	if err := database.UpdateDevice(ctx, device); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	device.State["alarm_motion"] = false
+	if err := database.UpdateDevice(ctx, device); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(80 * time.Millisecond)
+	if notifications, listErr := database.Notifications(ctx, 10); listErr != nil || len(notifications) != 0 {
+		t.Fatalf("interrupted interval fired at its old deadline: notifications=%#v err=%v", notifications, listErr)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		notifications, listErr := database.Notifications(ctx, 10)
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		if len(notifications) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("continuous matching interval did not fire")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// A value that remains matching is one episode and must not repeat every
+	// 150 ms.
+	time.Sleep(200 * time.Millisecond)
+	if notifications, listErr := database.Notifications(ctx, 10); listErr != nil || len(notifications) != 1 {
+		t.Fatalf("one matching episode fired repeatedly: notifications=%#v err=%v", notifications, listErr)
+	}
+}
+
 func TestConcurrentRunsKeepNewestFlowResult(t *testing.T) {
 	database, err := store.Open(store.InMemoryPath)
 	if err != nil {

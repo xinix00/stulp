@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xinix00/stulp/internal/flow"
 	"github.com/xinix00/stulp/internal/manifest"
 	"github.com/xinix00/stulp/internal/plugin"
 	"github.com/xinix00/stulp/internal/store"
@@ -111,6 +112,26 @@ func TestCapabilityCardsCoverWhatTheDeviceReports(t *testing.T) {
 	}
 	if _, present := actions["capability.alarm_smoke.set"]; present {
 		t.Fatal("a read-only alarm got a set action")
+	}
+}
+
+func TestCapabilityStaysCardUsesPlainSeconds(t *testing.T) {
+	card := builtinCapabilityStaysTrigger()
+	if card["id"] != flow.DeviceCapabilityStaysCardID {
+		t.Fatalf("stability card id = %#v", card["id"])
+	}
+	arguments, _ := card["args"].([]any)
+	var seconds map[string]any
+	for _, raw := range arguments {
+		argument, _ := raw.(map[string]any)
+		if argument["name"] == "seconds" {
+			seconds = argument
+			break
+		}
+	}
+	if seconds == nil || seconds["type"] != "number" || seconds["title"] != "Seconden" ||
+		seconds["min"] != 1 || seconds["max"] != 86400 || seconds["step"] != 1 {
+		t.Fatalf("seconds argument = %#v", seconds)
 	}
 }
 

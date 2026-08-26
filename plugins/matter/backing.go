@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/xinix00/stulp/internal/appsdk"
+	"github.com/xinix00/stulp/plugins/matter/internal/bridge"
 	"github.com/xinix00/stulp/plugins/matter/internal/controller"
 )
 
@@ -18,6 +21,7 @@ import (
 type backing struct {
 	stulp *appsdk.Stulp
 	state pluginState
+	mu    sync.Mutex
 }
 
 // pluginState is de eigen state van deze plugin: zijn identiteit in de fabric.
@@ -28,7 +32,9 @@ type backing struct {
 // die hetzelfde bijhouden lopen uit elkaar, en een node-id dat twee keer wordt
 // uitgegeven is een apparaat dat het andere overschrijft.
 type pluginState struct {
-	Fabric *controller.FabricRecord `json:"fabric,omitempty"`
+	Fabric         *controller.FabricRecord            `json:"fabric,omitempty"`
+	SharingWindows map[string]controller.SharingWindow `json:"sharingWindows,omitempty"`
+	Bridge         *bridge.Record                      `json:"bridge,omitempty"`
 }
 
 func newBacking(stulp *appsdk.Stulp) (*backing, error) {
@@ -45,6 +51,12 @@ func newBacking(stulp *appsdk.Stulp) (*backing, error) {
 }
 
 func (b *backing) save() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.saveLocked()
+}
+
+func (b *backing) saveLocked() error {
 	raw, err := json.Marshal(b.state)
 	if err != nil {
 		return err
@@ -166,6 +178,8 @@ func (b *backing) UpdateDevice(_ context.Context, updated controller.Device) err
 // ---------------------------------------------------------------------------
 
 func (b *backing) Fabric(context.Context) (controller.FabricRecord, bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.state.Fabric == nil {
 		return controller.FabricRecord{}, false, nil
 	}
@@ -173,8 +187,10 @@ func (b *backing) Fabric(context.Context) (controller.FabricRecord, bool, error)
 }
 
 func (b *backing) SaveFabric(_ context.Context, record controller.FabricRecord) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.state.Fabric = &record
-	return b.save()
+	return b.saveLocked()
 }
 
 // AllocateNodeID geeft het volgende vrije node-id uit en schuift de teller op.
@@ -182,6 +198,8 @@ func (b *backing) SaveFabric(_ context.Context, record controller.FabricRecord) 
 // Zonder fabric bestaat er niets om in uit te delen. Dat is een fout en geen
 // nul: een node-id 0 zou pas veel later opvallen, als apparaat.
 func (b *backing) AllocateNodeID(context.Context) (uint64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.state.Fabric == nil {
 		return 0, fmt.Errorf("no Matter fabric exists yet")
 	}
@@ -190,7 +208,60 @@ func (b *backing) AllocateNodeID(context.Context) (uint64, error) {
 		return 0, fmt.Errorf("stored Matter fabric has no next node ID")
 	}
 	b.state.Fabric.NextNodeID = allocated + 1
-	return allocated, b.save()
+	return allocated, b.saveLocked()
+}
+
+func (b *backing) saveSharingWindow(window controller.SharingWindow) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.state.SharingWindows == nil {
+		b.state.SharingWindows = map[string]controller.SharingWindow{}
+	}
+	b.state.SharingWindows[window.NodeID] = window
+	return b.saveLocked()
+}
+
+func (b *backing) deleteSharingWindow(nodeID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.state.SharingWindows, nodeID)
+	return b.saveLocked()
+}
+
+func (b *backing) sharingWindows() []controller.SharingWindow {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := time.Now()
+	result := make([]controller.SharingWindow, 0, len(b.state.SharingWindows))
+	changed := false
+	for nodeID, window := range b.state.SharingWindows {
+		if !window.ExpiresAt.After(now) {
+			delete(b.state.SharingWindows, nodeID)
+			changed = true
+			continue
+		}
+		result = append(result, window)
+	}
+	if changed {
+		_ = b.saveLocked()
+	}
+	return result
+}
+
+func (b *backing) bridgeRecord() bridge.Record {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.state.Bridge == nil {
+		return bridge.Record{}
+	}
+	return *b.state.Bridge
+}
+
+func (b *backing) saveBridgeRecord(record bridge.Record) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.state.Bridge = &record
+	return b.saveLocked()
 }
 
 // ---------------------------------------------------------------------------

@@ -592,6 +592,17 @@ func (p *process) registrations() registration {
 // event handelt eenrichtingsberichten af. Stulp duwt statewijzigingen zo door,
 // en dat is wat de lokale kopie bij houdt zonder dat de app ooit vraagt.
 func (p *process) event(method string, params json.RawMessage) {
+	if method == "state.home_device" {
+		var probe struct {
+			DeviceID string `json:"deviceId"`
+		}
+		_ = json.Unmarshal(params, &probe)
+		p.state.Apply(method, params)
+		if probe.DeviceID != "" {
+			p.stulp.homeDeviceChanged(probe.DeviceID)
+		}
+		return
+	}
 	if method == "state.settings" {
 		previous := map[string]any{}
 		for _, key := range p.state.SettingKeys() {

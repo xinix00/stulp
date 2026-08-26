@@ -36,6 +36,11 @@ type Options struct {
 	ImageSources func(ctx context.Context) ([]ImageRegistration, error)
 	ImageURL     func(ctx context.Context, deviceID, slot string) (string, error)
 
+	// HomeCapability is the deliberately narrow cross-app control seam used by
+	// trusted bridge apps. Process still enforces the manifest permission and
+	// refuses self-invocation before this callback is reached.
+	HomeCapability func(ctx context.Context, deviceID, capabilityID string, value any, options map[string]any) error
+
 	// NewRuntime kiest welke implementatie NewRuntime teruggeeft. Nil betekent
 	// het plugin-proces, en dat is de enige die er is.
 	NewRuntime func(ctx context.Context, database *store.Store, appID string, options Options) (Runtime, error)

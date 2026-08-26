@@ -166,6 +166,12 @@ func (h *Host) Notification(excerpt string) error {
 	return h.write("notification", map[string]any{"excerpt": excerpt})
 }
 
+func (h *Host) SetHomeCapability(deviceID, capabilityID string, value any) error {
+	return h.write("home.capability.invoke", map[string]any{
+		"deviceId": deviceID, "capability": capabilityID, "value": value,
+	})
+}
+
 // write stuurt een request en wacht op de bevestiging.
 //
 // Dat antwoord is wat read-your-own-writes waar maakt: Stulp duwt de nieuwe

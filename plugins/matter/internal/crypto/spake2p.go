@@ -74,6 +74,27 @@ type Registration struct {
 	L  []byte // uncompressed P-256 point
 }
 
+// Serialize returns Matter's 97-byte PAKEPasscodeVerifier representation:
+// the 32-byte big-endian w0 scalar followed by the 65-byte uncompressed point
+// L. This is the form carried by Administrator Commissioning's
+// OpenCommissioningWindow command.
+func (r Registration) Serialize() ([]byte, error) {
+	if r.W0 == nil {
+		return nil, errors.New("SPAKE2+ registration has no w0")
+	}
+	if r.W0.Sign() < 0 || r.W0.BitLen() > scalarBytes*8 {
+		return nil, errors.New("SPAKE2+ registration w0 does not fit 32 bytes")
+	}
+	point, err := decodePoint(r.L)
+	if err != nil {
+		return nil, fmt.Errorf("SPAKE2+ registration L: %w", err)
+	}
+	out := make([]byte, scalarBytes+pointBytes)
+	r.W0.FillBytes(out[:scalarBytes])
+	copy(out[scalarBytes:], point.bytes())
+	return out, nil
+}
+
 // SessionKeys are the outputs of a completed PASE exchange.
 type SessionKeys struct {
 	// I2R encrypts messages from the initiator to the responder.

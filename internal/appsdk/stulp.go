@@ -15,11 +15,27 @@ import (
 type Stulp struct {
 	host *Host
 
-	mu       sync.Mutex
-	cards    map[string]*flowCard
-	handlers map[string]Handler
-	onChange func(changed map[string]any)
-	devices  map[string]*Device
+	mu           sync.Mutex
+	cards        map[string]*flowCard
+	handlers     map[string]Handler
+	onChange     func(changed map[string]any)
+	onHomeChange func(HomeDevice)
+	devices      map[string]*Device
+}
+
+// HomeDevice is a privacy-reduced, read-only view of a device owned by another
+// app. It contains only what a bridge needs to model and forward that device;
+// plugin data, settings and private store never cross this boundary.
+type HomeDevice struct {
+	ID                 string
+	AppID              string
+	Name               string
+	Class              string
+	Available          bool
+	UnavailableMessage string
+	Capabilities       []string
+	State              map[string]any
+	Removed            bool
 }
 
 // Handler beantwoordt een aanroep van de eigen settings-pagina van de app.
@@ -81,6 +97,63 @@ func (h *Stulp) Timezone() string         { return h.host.Timezone() }
 func (h *Stulp) ImageSources() ([]ImageRegistration, error) { return h.host.ImageSources() }
 func (h *Stulp) ImageURL(deviceID, slot string) (string, error) {
 	return h.host.ImageURL(deviceID, slot)
+}
+
+func (h *Stulp) HomeDevices() []HomeDevice {
+	ids := h.host.state.HomeDeviceIDs()
+	result := make([]HomeDevice, 0, len(ids))
+	for _, id := range ids {
+		if device, ok := h.homeDevice(id); ok {
+			result = append(result, device)
+		}
+	}
+	return result
+}
+
+func (h *Stulp) homeDevice(id string) (HomeDevice, bool) {
+	field := func(name string) any { value, _ := h.host.state.HomeDeviceField(id, name); return value }
+	name, exists := field("name").(string)
+	if !exists {
+		return HomeDevice{}, false
+	}
+	appID, _ := field("appId").(string)
+	class, _ := field("class").(string)
+	available, _ := field("available").(bool)
+	message, _ := field("unavailableMessage").(string)
+	rawCapabilities, _ := field("capabilities").([]any)
+	capabilities := make([]string, 0, len(rawCapabilities))
+	for _, raw := range rawCapabilities {
+		if capability, ok := raw.(string); ok {
+			capabilities = append(capabilities, capability)
+		}
+	}
+	state, _ := h.host.state.HomeDeviceMap(id, "state")
+	return HomeDevice{ID: id, AppID: appID, Name: name, Class: class, Available: available,
+		UnavailableMessage: message, Capabilities: capabilities, State: state}, true
+}
+
+func (h *Stulp) SetHomeCapability(deviceID, capabilityID string, value any) error {
+	return h.host.SetHomeCapability(deviceID, capabilityID, value)
+}
+
+func (h *Stulp) OnHomeDeviceChanged(fn func(HomeDevice)) {
+	h.mu.Lock()
+	h.onHomeChange = fn
+	h.mu.Unlock()
+}
+
+func (h *Stulp) homeDeviceChanged(deviceID string) {
+	h.mu.Lock()
+	fn := h.onHomeChange
+	h.mu.Unlock()
+	if fn == nil {
+		return
+	}
+	if device, ok := h.homeDevice(deviceID); ok {
+		fn(device)
+	} else {
+		fn(HomeDevice{ID: deviceID, Removed: true})
+	}
 }
 
 // Translate lost een sleutel uit locales/ op, met {{tag}}-vervanging.

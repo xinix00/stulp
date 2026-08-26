@@ -397,6 +397,35 @@ type nocIdentity struct {
 	nodeID, fabricID uint64
 }
 
+// ParseOperationalIdentity returns the public key and subject IDs carried by
+// a compact Matter NOC. Signature-chain validation belongs to the caller that
+// holds the fabric root.
+func ParseOperationalIdentity(encoded []byte) (*ecdsa.PublicKey, uint64, uint64, error) {
+	identity, err := parseNOCIdentity(encoded)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return identity.publicKey, identity.nodeID, identity.fabricID, nil
+}
+
+// ParseCertificatePublicKey extracts the P-256 key from any compact Matter
+// certificate, including a root certificate whose subject has no node ID.
+func ParseCertificatePublicKey(encoded []byte) (*ecdsa.PublicKey, error) {
+	root, err := decodeRoot(encoded)
+	if err != nil {
+		return nil, err
+	}
+	publicBytes, err := bytesField(root, 9, casePublicSize)
+	if err != nil {
+		return nil, err
+	}
+	x, y := elliptic.Unmarshal(elliptic.P256(), publicBytes)
+	if x == nil {
+		return nil, errors.New("Matter certificate contains an invalid P-256 key")
+	}
+	return &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, nil
+}
+
 func parseNOCIdentity(encoded []byte) (nocIdentity, error) {
 	root, err := decodeRoot(encoded)
 	if err != nil {

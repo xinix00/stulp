@@ -88,6 +88,7 @@ func New(database *store.Store, options plugin.Options) *Supervisor {
 	// afbeeldingsregister loopt over alle apps.
 	supervisor.options.ImageSources = supervisor.ImageSources
 	supervisor.options.ImageURL = supervisor.ImageURL
+	supervisor.options.HomeCapability = supervisor.InvokeCapability
 	return supervisor
 }
 

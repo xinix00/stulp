@@ -94,10 +94,126 @@ func (a *app) registerAPI(stulp *appsdk.Stulp) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{
+		result := map[string]any{
 			"generatedAt": time.Now().UTC().Format(time.RFC3339),
 			"fabric":      fabric, "nodes": statuses,
-		}, nil
+		}
+		if a.backing != nil {
+			result["sharingWindows"] = a.backing.sharingWindows()
+		}
+		return result, nil
+	})
+	stulp.OnRequest("bridge/devices", func(map[string]any, map[string]any) (any, error) {
+		if a.bridge == nil {
+			return nil, fmt.Errorf("Matter bridge is not running")
+		}
+		return map[string]any{"devices": a.bridge.Candidates(), "record": a.bridge.Record()}, nil
+	})
+	stulp.OnRequest("bridge/export", func(_, body map[string]any) (any, error) {
+		if a.bridge == nil {
+			return nil, fmt.Errorf("Matter bridge is not running")
+		}
+		deviceID, _ := body["deviceId"].(string)
+		exported, ok := body["exported"].(bool)
+		if deviceID == "" || !ok {
+			return nil, fmt.Errorf("deviceId en exported zijn nodig")
+		}
+		endpoint, err := a.bridge.SetExported(deviceID, exported)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"endpoint": endpoint, "devices": a.bridge.Candidates()}, nil
+	})
+
+	// Native Matter Multi-Admin. Opening and revoking can require CASE to a
+	// sleeping Thread node, so both use the same start/poll shape as
+	// diagnostics. Holding the app protocol request open would serialize every
+	// other settings call behind that sleepy device.
+	stulp.OnRequest("sharing/open", func(_, body map[string]any) (any, error) {
+		controller, err := a.running()
+		if err != nil {
+			return nil, err
+		}
+		deviceID, _ := body["deviceId"].(string)
+		if deviceID == "" {
+			return nil, fmt.Errorf("een apparaat-id is nodig")
+		}
+		duration, err := sharingDuration(body)
+		if err != nil {
+			return nil, err
+		}
+		job, err := a.shareJob(deviceID)
+		if err != nil {
+			return nil, err
+		}
+		if !job.begin() {
+			return job.snapshot(), nil
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			window, openErr := controller.OpenSharingWindow(ctx, deviceID, duration)
+			if openErr == nil {
+				if a.backing == nil {
+					openErr = fmt.Errorf("Matter state is not available")
+				} else if saveErr := a.backing.saveSharingWindow(window); saveErr != nil {
+					// The accessory has already opened the window. Preserve the
+					// usable code in this process even when durable storage failed.
+					job.put("window", window)
+					openErr = fmt.Errorf("window is open but its code could not be saved: %w", saveErr)
+				} else {
+					job.put("window", window)
+				}
+			}
+			job.done(openErr)
+		}()
+		return job.snapshot(), nil
+	})
+	stulp.OnRequest("sharing/revoke", func(_, body map[string]any) (any, error) {
+		controller, err := a.running()
+		if err != nil {
+			return nil, err
+		}
+		deviceID, _ := body["deviceId"].(string)
+		if deviceID == "" {
+			return nil, fmt.Errorf("een apparaat-id is nodig")
+		}
+		job, err := a.shareJob(deviceID)
+		if err != nil {
+			return nil, err
+		}
+		if !job.begin() {
+			return job.snapshot(), nil
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			revokeErr := controller.RevokeSharingWindow(ctx, deviceID)
+			if revokeErr == nil && a.backing != nil {
+				for _, window := range a.backing.sharingWindows() {
+					if window.DeviceID == deviceID {
+						revokeErr = a.backing.deleteSharingWindow(window.NodeID)
+						break
+					}
+				}
+			}
+			if revokeErr == nil {
+				job.put("revoked", true)
+			}
+			job.done(revokeErr)
+		}()
+		return job.snapshot(), nil
+	})
+	stulp.OnRequest("sharing/state", func(_, body map[string]any) (any, error) {
+		deviceID, _ := body["deviceId"].(string)
+		if deviceID == "" {
+			return nil, fmt.Errorf("een apparaat-id is nodig")
+		}
+		job, err := a.shareJob(deviceID)
+		if err != nil {
+			return nil, err
+		}
+		return job.snapshot(), nil
 	})
 
 	// Zoeken op het netwerk. Start hem en kijk daarna.
@@ -254,6 +370,23 @@ func (a *app) diagnosis(deviceID string) (*scan, error) {
 	return running, nil
 }
 
+func (a *app) shareJob(deviceID string) (*scan, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if running, ok := a.shares[deviceID]; ok {
+		return running, nil
+	}
+	if len(a.shares) >= maxDiagnoses {
+		return nil, fmt.Errorf("er staan al %d Matter-deelacties open; herlaad de pagina", maxDiagnoses)
+	}
+	if a.shares == nil {
+		a.shares = map[string]*scan{}
+	}
+	running := &scan{}
+	a.shares[deviceID] = running
+	return running, nil
+}
+
 func (a *app) running() (*mattercontroller.Controller, error) {
 	if a.controller == nil {
 		return nil, fmt.Errorf("Matter controller is not running")
@@ -269,6 +402,26 @@ func scanWindow(body map[string]any) time.Duration {
 		return 4 * time.Second
 	}
 	return time.Duration(seconds * float64(time.Second))
+}
+
+func sharingDuration(body map[string]any) (time.Duration, error) {
+	seconds := 900.0
+	if supplied, ok := body["seconds"]; ok {
+		var number float64
+		switch value := supplied.(type) {
+		case float64:
+			number = value
+		case int:
+			number = float64(value)
+		default:
+			return 0, fmt.Errorf("deelduur moet een aantal seconden zijn")
+		}
+		seconds = number
+	}
+	if seconds < 180 || seconds > 900 || seconds != float64(int(seconds)) {
+		return 0, fmt.Errorf("deelduur moet 180..900 hele seconden zijn")
+	}
+	return time.Duration(seconds) * time.Second, nil
 }
 
 func first(values ...any) any {

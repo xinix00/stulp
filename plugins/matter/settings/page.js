@@ -8,7 +8,7 @@
 // pushverbinding: het houdt de last bij de plugin, die een node één keer
 // bevraagt hoe vaak deze pagina ook kijkt.
 
-const state = { network: null, scan: null, mesh: null, diagnostics: new Map() };
+const state = { network: null, bridge: null, scan: null, mesh: null, diagnostics: new Map(), sharing: new Map() };
 
 // Wat er nu gevolgd wordt: sleutel -> {pad, body, wat er met het antwoord moet
 // gebeuren}. Eén klok voor allemaal, want een scan en een mesh kunnen tegelijk
@@ -94,6 +94,65 @@ function networkLine(label, detail, className = '') {
   return line;
 }
 
+// ---- Stulp als Matter Bridge -----------------------------------------------
+
+const bridgeKind = {
+	onoff: 'schakelaar/licht', dimmable_light: 'dimbaar licht', window_covering: 'gordijn/zonwering',
+	contact_sensor: 'contactsensor', occupancy_sensor: 'bewegingssensor',
+	temperature_sensor: 'temperatuursensor', humidity_sensor: 'luchtvochtigheidssensor',
+};
+
+async function loadBridge() {
+	try {
+		state.bridge = await Stulp.api('POST', 'bridge/devices', {});
+	} catch (error) {
+		state.bridge = { error: error.message || String(error) };
+	}
+	renderBridge();
+}
+
+function renderBridge() {
+	const container = $('bridge');
+	container.replaceChildren();
+	const bridge = state.bridge;
+	if (!bridge) return;
+	const heading = node('div', 'bridge-heading');
+	heading.append(node('div', '', 'Stulp Matter Bridge'));
+	heading.append(node('small', 'muted', 'Alleen apparaten die je hier kiest worden geëxporteerd.'));
+	container.append(heading);
+	if (bridge.error) return container.append(node('p', 'app-error', bridge.error));
+	const devices = bridge.devices || [];
+	if (!devices.length) return container.append(node('p', 'empty', 'Geen geschikte niet-Matter-apparaten gevonden.'));
+	for (const device of devices) {
+		const row = node('label', 'bridge-device');
+		const toggle = document.createElement('input');
+		toggle.type = 'checkbox';
+		toggle.checked = Boolean(device.selected);
+		toggle.addEventListener('change', () => setBridgeExport(device.deviceId, toggle.checked, toggle));
+		row.append(toggle);
+		const text = node('span', 'bridge-device-name');
+		text.append(node('strong', '', device.name));
+		text.append(node('small', 'muted',
+			`${bridgeKind[device.kind] || device.kind}${device.endpoint ? ` · endpoint ${device.endpoint}` : ''}${device.available ? '' : ' · niet bereikbaar'}`));
+		row.append(text);
+		container.append(row);
+	}
+}
+
+async function setBridgeExport(deviceID, exported, checkbox) {
+	checkbox.disabled = true;
+	try {
+		const result = await Stulp.api('POST', 'bridge/export', { deviceId: deviceID, exported });
+		state.bridge.devices = result.devices || [];
+		renderBridge();
+		say(exported ? 'Apparaat krijgt een vast Matter-endpoint.' : 'Apparaat is niet langer via de Matter Bridge zichtbaar.');
+	} catch (error) {
+		checkbox.checked = !exported;
+		checkbox.disabled = false;
+		say(error.message || String(error));
+	}
+}
+
 // ---- Het netwerk ------------------------------------------------------------
 
 async function loadNetwork() {
@@ -149,19 +208,99 @@ function renderNodeBranch(matterNode) {
   // Diagnostiek kost een round trip naar het apparaat zelf, dus die wordt per
   // node opgehaald en alleen als iemand erom vraagt.
   const deviceID = devices[0]?.id;
+	const sharing = deviceID ? state.sharing.get(deviceID) : null;
+	const window = (state.network?.sharingWindows || []).find(item => item.nodeId === matterNode.nodeId);
   const entry = deviceID ? state.diagnostics.get(deviceID) : null;
   if (deviceID) {
     const actions = node('div', 'card-actions');
+		if (window) {
+			const revokeButton = actionButton('Sluit deelvenster', () => changeSharing('revoke', deviceID));
+			revokeButton.disabled = Boolean(sharing?.running);
+			actions.append(revokeButton);
+		} else {
+			const shareButton = actionButton('Deel via Matter', () => changeSharing('open', deviceID));
+			shareButton.disabled = Boolean(sharing?.running);
+			actions.append(shareButton);
+		}
     actions.append(actionButton(entry ? 'Ververs diagnostiek' : 'Vraag diagnostiek op',
       () => loadDiagnostics(deviceID)));
     branch.append(actions);
   }
+	if (sharing?.running) branch.append(node('p', 'empty', 'Beveiligde Matter-deelverbinding openen…'));
+	if (sharing?.warning) branch.append(node('p', 'app-error', sharing.warning));
+	if (window) renderSharingWindow(branch, window);
   if (!entry) return branch;
   if (entry.loading) { branch.append(node('p', 'empty', 'Node bevragen…')); return branch; }
   if (entry.error) { branch.append(node('p', 'app-error', entry.error)); return branch; }
   if (!entry.data) { branch.append(node('p', 'empty', 'Geen antwoord van deze node.')); return branch; }
   renderDiagnostics(branch, entry.data);
   return branch;
+}
+
+function renderSharingWindow(branch, window) {
+	const expires = new Date(window.expiresAt);
+	branch.append(networkLine('Matter Multi-Admin', `open tot ${expires.toLocaleTimeString('nl-NL')}`, 'net-service'));
+	const code = node('div', 'matter-code');
+	code.append(node('strong', '', window.manualCode));
+	code.append(actionButton('Kopieer code', () => copyText(window.manualCode)));
+	branch.append(code);
+	const qr = node('details', 'matter-payload');
+	qr.append(node('summary', '', 'QR-payload tonen'));
+	qr.append(node('code', '', window.qrCode));
+	qr.append(actionButton('Kopieer payload', () => copyText(window.qrCode)));
+	branch.append(qr);
+	if (window.wholeBridge) {
+		branch.append(node('p', 'app-error',
+			'Dit is een Matter-bridge. De ontvangende controller krijgt alle apparaten van deze bridge te zien; één child los delen ondersteunt Matter niet.'));
+	}
+	const scope = (window.devices || []).map(device => device.name).filter(Boolean);
+	if (scope.length) branch.append(node('p', 'net-sub', `Omvang: ${scope.join(' · ')}`));
+}
+
+async function copyText(value) {
+	try {
+		await navigator.clipboard.writeText(value);
+		say('Gekopieerd.');
+	} catch (_) {
+		say('Kopiëren lukte niet; selecteer de code handmatig.');
+	}
+}
+
+function applySharing(deviceID, action, result) {
+	state.sharing.set(deviceID, result);
+	if (result.window && state.network) {
+		state.network.sharingWindows = (state.network.sharingWindows || [])
+			.filter(item => item.nodeId !== result.window.nodeId);
+		state.network.sharingWindows.push(result.window);
+	}
+	if (result.revoked && state.network) {
+		state.network.sharingWindows = (state.network.sharingWindows || []).filter(window =>
+			window.deviceId !== deviceID && !(window.devices || []).some(device => device.id === deviceID));
+	}
+	renderNetwork();
+	if (!result.running) {
+		if (result.warning) say(result.warning);
+		else say(action === 'open' ? 'Matter-deelvenster is open.' : 'Matter-deelvenster is gesloten.');
+	}
+}
+
+async function changeSharing(action, deviceID) {
+	state.sharing.set(deviceID, { running: true });
+	renderNetwork();
+	try {
+		const result = await Stulp.api('POST', `sharing/${action}`, {
+			deviceId: deviceID,
+			...(action === 'open' ? { seconds: 900 } : {}),
+		});
+		applySharing(deviceID, action, result);
+		if (result.running) {
+			watch(`sharing:${deviceID}`, 'sharing/state', { deviceId: deviceID },
+				update => applySharing(deviceID, action, update));
+		}
+	} catch (error) {
+		state.sharing.set(deviceID, { warning: error.message || String(error) });
+		renderNetwork();
+	}
 }
 
 // Diagnostiek loopt in de plugin en deze pagina kijkt hoe het gaat -- zelfde
@@ -392,6 +531,6 @@ $('mesh').addEventListener('click', drawMesh);
 window.addEventListener('unload', stopWatching);
 
 Stulp.ready();
-loadNetwork()
+Promise.all([loadNetwork(), loadBridge()])
   .then(() => resume('scan/state', applyScan))
   .then(() => resume('mesh/state', applyMesh));

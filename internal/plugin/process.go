@@ -508,6 +508,33 @@ func (p *Process) handle(ctx context.Context, method string, params json.RawMess
 			return nil, err
 		}
 		return map[string]any{"url": address}, nil
+
+	case "home.capability.invoke":
+		if !p.hasPermission("home.devices.control") {
+			return nil, fmt.Errorf("app %s has no home.devices.control permission", p.app.ID)
+		}
+		var q struct {
+			DeviceID   string `json:"deviceId"`
+			Capability string `json:"capability"`
+			Value      any    `json:"value"`
+		}
+		if err := json.Unmarshal(params, &q); err != nil {
+			return nil, err
+		}
+		device, err := p.store.Device(ctx, q.DeviceID)
+		if err != nil {
+			return nil, err
+		}
+		if device.AppID == p.app.ID {
+			return nil, errors.New("cross-app capability invocation cannot target the requesting app")
+		}
+		if !slices.Contains(device.Capabilities, q.Capability) {
+			return nil, fmt.Errorf("device %s has no capability %q", q.DeviceID, q.Capability)
+		}
+		if p.options.HomeCapability == nil {
+			return nil, errors.New("this Stulp does not allow cross-app device control")
+		}
+		return nil, p.options.HomeCapability(ctx, q.DeviceID, q.Capability, q.Value, map[string]any{"source": p.app.ID})
 	}
 	return nil, fmt.Errorf("app %s asked for unknown method %q", p.app.ID, method)
 }
@@ -530,13 +557,29 @@ func (p *Process) welcome(ctx context.Context) (any, error) {
 	for _, device := range devices {
 		table[device.ID] = deviceSnapshot(device)
 	}
+	home := map[string]map[string]any{}
+	if p.hasPermission("home.devices.read") {
+		all, listErr := p.store.Devices(ctx, "")
+		if listErr != nil {
+			return nil, listErr
+		}
+		for _, device := range all {
+			if device.AppID != p.app.ID {
+				home[device.ID] = homeDeviceSnapshot(device)
+			}
+		}
+	}
 	return map[string]any{
 		"protocol": ProtocolVersion, "appId": p.app.ID,
 		"stulpId": p.options.StulpID, "stulpVersion": p.options.StulpVersion,
 		"language": p.options.Language, "timezone": p.options.Timezone,
 		"manifest": p.app.Manifest, "env": map[string]any{}, "locale": map[string]any{},
-		"settings": settings, "devices": table, "appState": appState,
+		"settings": settings, "devices": table, "homeDevices": home, "appState": appState,
 	}, nil
+}
+
+func (p *Process) hasPermission(permission string) bool {
+	return slices.Contains(p.manifest.Permissions, permission)
 }
 
 // ProtocolVersion moet gelijk zijn aan appsdk.ProtocolVersion. Bij verschil
@@ -942,6 +985,15 @@ func (p *Process) follow(events <-chan store.Event) {
 						p.adopt(ctx, device)
 					}
 				}
+				if p.hasPermission("home.devices.read") {
+					if devices, err := p.store.Devices(ctx, ""); err == nil {
+						for _, device := range devices {
+							if device.AppID != p.app.ID {
+								p.notify("state.home_device", map[string]any{"deviceId": device.ID, "device": homeDeviceSnapshot(device)})
+							}
+						}
+					}
+				}
 			}
 		case "devices":
 			device, err := p.store.Device(ctx, event.ID)
@@ -951,10 +1003,15 @@ func (p *Process) follow(events <-chan store.Event) {
 				// iedereen die het aangaat -- een id dat de app niet kent laat
 				// hij vallen.
 				p.notify("state.device", map[string]any{"deviceId": event.ID, "device": nil})
+				if p.hasPermission("home.devices.read") {
+					p.notify("state.home_device", map[string]any{"deviceId": event.ID, "device": nil})
+				}
 				continue
 			}
 			if device.AppID == p.app.ID {
 				p.adopt(ctx, device)
+			} else if p.hasPermission("home.devices.read") {
+				p.notify("state.home_device", map[string]any{"deviceId": device.ID, "device": homeDeviceSnapshot(device)})
 			}
 		case "apps":
 			if event.Type == "app.settings" && event.ID == p.app.ID {
@@ -980,6 +1037,14 @@ func deviceSnapshot(device store.Device) map[string]any {
 		// nieuwe melding een oude moet vervangen.
 		"unavailableMessage": device.Message,
 		"data":               device.Data, "settings": device.Settings, "store": device.Store,
+		"state": device.State, "capabilities": device.Capabilities,
+	}
+}
+
+func homeDeviceSnapshot(device store.Device) map[string]any {
+	return map[string]any{
+		"appId": device.AppID, "name": device.Name, "class": device.Class,
+		"available": device.Available, "unavailableMessage": device.Message,
 		"state": device.State, "capabilities": device.Capabilities,
 	}
 }

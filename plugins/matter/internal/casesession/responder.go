@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/ecdh"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hkdf"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -21,32 +24,22 @@ import (
 // accepting CASE. It is primarily useful to native Matter servers and to
 // complete controller/device interoperability tests.
 type ResponderConfig struct {
-	Fabric      *credentials.Fabric
-	LocalNodeID uint64
-	PrivateKey  *ecdsa.PrivateKey
-	NOC         []byte
-	ICAC        []byte
+	Fabric        *credentials.Fabric
+	FabricIndex   uint8
+	FabricID      uint64
+	AdminNodeID   uint64
+	IPK           []byte
+	RootPublicKey *ecdsa.PublicKey
+	LocalNodeID   uint64
+	PrivateKey    *ecdsa.PrivateKey
+	NOC           []byte
+	ICAC          []byte
 }
 
 // Accept authenticates an incoming CASE initiator and installs the resulting
 // responder-side secure session in node. Resumption is intentionally not
 // implemented; every call accepts a fresh Sigma1/2/3 exchange.
 func Accept(ctx context.Context, node *transport.Node, config ResponderConfig) (*transport.SecureSession, error) {
-	if node == nil || config.Fabric == nil || config.PrivateKey == nil || config.LocalNodeID == 0 || len(config.NOC) == 0 {
-		return nil, errors.New("CASE responder needs a transport and operational identity")
-	}
-	if err := config.Fabric.Validate(); err != nil {
-		return nil, err
-	}
-	identity, err := parseNOCIdentity(config.NOC)
-	if err != nil {
-		return nil, fmt.Errorf("CASE responder NOC: %w", err)
-	}
-	if identity.nodeID != config.LocalNodeID || identity.fabricID != config.Fabric.ID ||
-		identity.publicKey.X.Cmp(config.PrivateKey.X) != 0 || identity.publicKey.Y.Cmp(config.PrivateKey.Y) != 0 {
-		return nil, errors.New("CASE responder key, NOC and fabric identity do not match")
-	}
-
 	exchange, err := node.Accept(ctx)
 	if err != nil {
 		return nil, err
@@ -59,6 +52,16 @@ func Accept(ctx context.Context, node *transport.Node, config ResponderConfig) (
 	if opcode != message.OpcodeCASESigma1 {
 		return nil, rejectCASE(exchange, pase.StatusInvalidParameter,
 			fmt.Errorf("expected CASE Sigma1, got opcode 0x%02x", opcode))
+	}
+	return AcceptSigma1(ctx, node, exchange, sigma1, config)
+}
+
+// AcceptSigma1 continues CASE after a server's central accept loop has already
+// consumed Sigma1. This is the server-side counterpart of PASE ServeRequest.
+func AcceptSigma1(ctx context.Context, node *transport.Node, exchange *transport.Exchange, sigma1 []byte, config ResponderConfig) (*transport.SecureSession, error) {
+	defer exchange.Close()
+	if err := validateResponderConfig(node, config); err != nil {
+		return nil, err
 	}
 	root, err := decodeRoot(sigma1)
 	if err != nil {
@@ -77,7 +80,7 @@ func Accept(ctx context.Context, node *transport.Node, config ResponderConfig) (
 	if err != nil {
 		return nil, rejectCASE(exchange, pase.StatusInvalidParameter, err)
 	}
-	expectedDestination, err := config.Fabric.DestinationID(initiatorRandom, config.LocalNodeID)
+	expectedDestination, err := responderDestinationID(config, initiatorRandom)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +131,7 @@ func Accept(ctx context.Context, node *transport.Node, config ResponderConfig) (
 	if err != nil {
 		return nil, err
 	}
-	operationalIPK, err := config.Fabric.OperationalIPK()
+	operationalIPK, err := responderOperationalIPK(config)
 	if err != nil {
 		return nil, err
 	}
@@ -187,19 +190,21 @@ func Accept(ctx context.Context, node *transport.Node, config ResponderConfig) (
 	if err != nil {
 		return nil, rejectCASE(exchange, pase.StatusInvalidParameter, err)
 	}
-	controllerNOC, err := config.Fabric.ControllerMatterCertificate()
-	if err != nil {
-		return nil, err
-	}
-	if !credentials.EqualBytes(tbe3.noc, controllerNOC) {
-		return nil, rejectCASE(exchange, pase.StatusNoSharedTrustRoots,
-			errors.New("CASE initiator presented an unknown operational certificate"))
-	}
 	controllerIdentity, err := parseNOCIdentity(tbe3.noc)
 	if err != nil {
 		return nil, rejectCASE(exchange, pase.StatusInvalidParameter, err)
 	}
-	if controllerIdentity.nodeID != config.Fabric.ControllerNodeID || controllerIdentity.fabricID != config.Fabric.ID {
+	if config.Fabric != nil {
+		controllerNOC, certErr := config.Fabric.ControllerMatterCertificate()
+		if certErr != nil {
+			return nil, certErr
+		}
+		if !credentials.EqualBytes(tbe3.noc, controllerNOC) {
+			return nil, rejectCASE(exchange, pase.StatusNoSharedTrustRoots,
+				errors.New("CASE initiator presented an unknown operational certificate"))
+		}
+	}
+	if controllerIdentity.nodeID != responderAdminNodeID(config) || controllerIdentity.fabricID != responderFabricID(config) {
 		return nil, rejectCASE(exchange, pase.StatusNoSharedTrustRoots,
 			errors.New("CASE initiator certificate has the wrong fabric or node ID"))
 	}
@@ -226,9 +231,127 @@ func Accept(ctx context.Context, node *transport.Node, config ResponderConfig) (
 	}
 	return node.RegisterSession(transport.SessionConfig{
 		LocalID: responderSessionID, PeerID: uint16(initiatorSession),
-		LocalNodeID: config.LocalNodeID, PeerNodeID: config.Fabric.ControllerNodeID,
+		LocalNodeID: config.LocalNodeID, PeerNodeID: controllerIdentity.nodeID, FabricIndex: config.FabricIndex,
 		OutboundKey: keyPack[16:32], InboundKey: keyPack[:16], Remote: exchange.Remote(),
 	})
+}
+
+// AcceptSigma1Any selects the fabric named by Sigma1's destination ID before
+// authenticating the controller. Multiple Matter ecosystems commonly reuse
+// controller node IDs, so fabric selection must happen before session routing.
+func AcceptSigma1Any(ctx context.Context, node *transport.Node, exchange *transport.Exchange, sigma1 []byte,
+	configs []ResponderConfig) (*transport.SecureSession, error) {
+	root, err := decodeRoot(sigma1)
+	if err != nil {
+		exchange.Close()
+		return nil, err
+	}
+	initiatorRandom, err := bytesField(root, 1, caseRandomSize)
+	if err != nil {
+		exchange.Close()
+		return nil, err
+	}
+	destination, err := bytesField(root, 3, sha256.Size)
+	if err != nil {
+		exchange.Close()
+		return nil, err
+	}
+	for _, config := range configs {
+		expected, destinationErr := responderDestinationID(config, initiatorRandom)
+		if destinationErr == nil && credentials.EqualBytes(destination, expected) {
+			return AcceptSigma1(ctx, node, exchange, sigma1, config)
+		}
+	}
+	defer exchange.Close()
+	return nil, rejectCASE(exchange, pase.StatusNoSharedTrustRoots, errors.New("CASE Sigma1 selects no commissioned bridge fabric"))
+}
+
+func validateResponderConfig(node *transport.Node, config ResponderConfig) error {
+	if node == nil || config.PrivateKey == nil || config.LocalNodeID == 0 || len(config.NOC) == 0 {
+		return errors.New("CASE responder needs a transport and operational identity")
+	}
+	if config.Fabric != nil {
+		if err := config.Fabric.Validate(); err != nil {
+			return err
+		}
+	} else if config.FabricIndex == 0 || config.FabricID == 0 || config.AdminNodeID == 0 || len(config.IPK) != 16 || config.RootPublicKey == nil {
+		return errors.New("CASE responder external fabric credentials are incomplete")
+	}
+	identity, err := parseNOCIdentity(config.NOC)
+	if err != nil {
+		return fmt.Errorf("CASE responder NOC: %w", err)
+	}
+	if identity.nodeID != config.LocalNodeID || identity.fabricID != responderFabricID(config) ||
+		identity.publicKey.X.Cmp(config.PrivateKey.X) != 0 || identity.publicKey.Y.Cmp(config.PrivateKey.Y) != 0 {
+		return errors.New("CASE responder key, NOC and fabric identity do not match")
+	}
+	return nil
+}
+
+func responderFabricID(config ResponderConfig) uint64 {
+	if config.Fabric != nil {
+		return config.Fabric.ID
+	}
+	return config.FabricID
+}
+
+func responderAdminNodeID(config ResponderConfig) uint64 {
+	if config.Fabric != nil {
+		return config.Fabric.ControllerNodeID
+	}
+	return config.AdminNodeID
+}
+
+func responderRootPublic(config ResponderConfig) *ecdsa.PublicKey {
+	if config.Fabric != nil {
+		return &config.Fabric.RootKey.PublicKey
+	}
+	return config.RootPublicKey
+}
+
+func responderOperationalIPK(config ResponderConfig) ([]byte, error) {
+	if config.Fabric != nil {
+		return config.Fabric.OperationalIPK()
+	}
+	compressed, err := compressedFabricID(responderRootPublic(config), config.FabricID)
+	if err != nil {
+		return nil, err
+	}
+	return hkdf.Key(sha256.New, config.IPK, compressed, "GroupKey v1.0", 16)
+}
+
+func responderDestinationID(config ResponderConfig, initiatorRandom []byte) ([]byte, error) {
+	if config.Fabric != nil {
+		return config.Fabric.DestinationID(initiatorRandom, config.LocalNodeID)
+	}
+	if len(initiatorRandom) != 32 {
+		return nil, errors.New("CASE initiator random must be 32 bytes")
+	}
+	key, err := responderOperationalIPK(config)
+	if err != nil {
+		return nil, err
+	}
+	root := responderRootPublic(config)
+	if root == nil {
+		return nil, errors.New("CASE fabric has no root public key")
+	}
+	messageBytes := append([]byte(nil), initiatorRandom...)
+	messageBytes = append(messageBytes, elliptic.Marshal(elliptic.P256(), root.X, root.Y)...)
+	messageBytes = binary.LittleEndian.AppendUint64(messageBytes, config.FabricID)
+	messageBytes = binary.LittleEndian.AppendUint64(messageBytes, config.LocalNodeID)
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(messageBytes)
+	return mac.Sum(nil), nil
+}
+
+func compressedFabricID(root *ecdsa.PublicKey, fabricID uint64) ([]byte, error) {
+	if root == nil || root.Curve != elliptic.P256() || fabricID == 0 {
+		return nil, errors.New("invalid CASE fabric root")
+	}
+	public := elliptic.Marshal(elliptic.P256(), root.X, root.Y)
+	var salt [8]byte
+	binary.BigEndian.PutUint64(salt[:], fabricID)
+	return hkdf.Key(sha256.New, public[1:], salt[:], "CompressedFabric", 8)
 }
 
 func encodeSigma2(randomValue []byte, sessionID uint16, publicKey, encrypted []byte) ([]byte, error) {

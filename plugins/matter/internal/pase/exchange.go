@@ -200,6 +200,14 @@ func (d *Device) Serve(ctx context.Context, exchange *transport.Exchange) (*Sess
 	if err != nil {
 		return nil, err
 	}
+	return d.ServeRequest(ctx, exchange, requestBytes)
+}
+
+// ServeRequest continues device-side PASE after a server's central accept
+// loop has already received PBKDFParamRequest. A Matter bridge must inspect the
+// first Secure Channel opcode to dispatch PASE versus CASE, so consuming that
+// message a second time is not possible.
+func (d *Device) ServeRequest(ctx context.Context, exchange *transport.Exchange, requestBytes []byte) (*Session, error) {
 	request, err := DecodePBKDFParamRequest(requestBytes)
 	if err != nil {
 		return nil, d.reject(exchange, StatusInvalidParameter, err)

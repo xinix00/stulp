@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/xinix00/stulp/internal/appsdk"
+	"github.com/xinix00/stulp/plugins/matter/internal/bridge"
 	mattercontroller "github.com/xinix00/stulp/plugins/matter/internal/controller"
 )
 
@@ -150,6 +151,8 @@ func (m *matterDevice) OnCapability(name string, value any) error {
 
 type app struct {
 	controller *mattercontroller.Controller
+	backing    *backing
+	bridge     *bridge.Manager
 
 	mu            sync.Mutex
 	found         []appsdk.PairedDevice
@@ -162,6 +165,7 @@ type app struct {
 	discovery scan
 	mesh      scan
 	diagnoses map[string]*scan
+	shares    map[string]*scan
 }
 
 // maxDiagnoses begrenst de diagnose-map. Boven het aantal Matter-apparaten dat
@@ -258,6 +262,17 @@ func plugin() appsdk.Plugin {
 				return fmt.Errorf("start Matter controller: %w", err)
 			}
 			instance.controller = controller
+			instance.backing = backing
+			bridgeManager, err := bridge.NewManager(backing.bridgeRecord(), stulp.HomeDevices(), backing.saveBridgeRecord,
+				func(deviceID, capability string, value any) error {
+					return stulp.SetHomeCapability(deviceID, capability, value)
+				})
+			if err != nil {
+				controller.Close()
+				return fmt.Errorf("start Matter bridge: %w", err)
+			}
+			instance.bridge = bridgeManager
+			stulp.OnHomeDeviceChanged(bridgeManager.UpdateDevice)
 			instance.registerAPI(stulp)
 			stulp.Log("Matter controller running")
 			return nil

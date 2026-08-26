@@ -175,6 +175,7 @@ func keyFor(remote *net.UDPAddr, sessionID, exchangeID uint16, weStarted bool) e
 type SessionConfig struct {
 	LocalID, PeerID         uint16
 	LocalNodeID, PeerNodeID uint64
+	FabricIndex             uint8
 	OutboundKey, InboundKey []byte
 	Remote                  *net.UDPAddr
 
@@ -207,6 +208,7 @@ type MRPTiming struct {
 type SecureSession struct {
 	LocalID, PeerID         uint16
 	LocalNodeID, PeerNodeID uint64
+	FabricIndex             uint8
 	Remote                  *net.UDPAddr
 	outboundKey             []byte
 	inboundKey              []byte
@@ -259,6 +261,7 @@ func (n *Node) RegisterSession(config SessionConfig) (*SecureSession, error) {
 	session := &SecureSession{
 		LocalID: config.LocalID, PeerID: config.PeerID,
 		LocalNodeID: config.LocalNodeID, PeerNodeID: config.PeerNodeID,
+		FabricIndex: config.FabricIndex,
 		Remote:      &remote,
 		outboundKey: append([]byte(nil), config.OutboundKey...),
 		inboundKey:  append([]byte(nil), config.InboundKey...),
@@ -635,6 +638,28 @@ func (e *Exchange) PeerNodeID() uint64 {
 		return 0
 	}
 	return e.session.PeerNodeID
+}
+
+// FabricIndex identifies the fabric that authenticated this CASE session.
+// PASE and legacy sessions return zero.
+func (e *Exchange) FabricIndex() uint8 {
+	if e.session == nil {
+		return 0
+	}
+	return e.session.FabricIndex
+}
+
+// Session returns the authenticated session carrying this exchange. Server
+// implementations use it to originate subscription reports. Callers must not
+// mutate the returned session.
+func (e *Exchange) Session() *SecureSession { return e.session }
+
+// SessionID is the local routing ID for the authenticated session.
+func (e *Exchange) SessionID() uint16 {
+	if e.session == nil {
+		return 0
+	}
+	return e.session.LocalID
 }
 
 // Remote reports the peer's address.

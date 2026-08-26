@@ -27,6 +27,7 @@ type State struct {
 
 	settings map[string]any
 	devices  map[string]map[string]any
+	home     map[string]map[string]any
 	appState json.RawMessage
 }
 
@@ -37,6 +38,7 @@ func NewState() *State {
 		locale:   map[string]any{},
 		settings: map[string]any{},
 		devices:  map[string]map[string]any{},
+		home:     map[string]map[string]any{},
 	}
 }
 
@@ -59,6 +61,7 @@ type Welcome struct {
 	Locale       map[string]any            `json:"locale"`
 	Settings     map[string]any            `json:"settings"`
 	Devices      map[string]map[string]any `json:"devices"`
+	HomeDevices  map[string]map[string]any `json:"homeDevices,omitempty"`
 	AppState     json.RawMessage           `json:"appState,omitempty"`
 }
 
@@ -78,6 +81,10 @@ func (s *State) Load(w Welcome) {
 	s.devices = map[string]map[string]any{}
 	for id, device := range w.Devices {
 		s.devices[id] = device
+	}
+	s.home = map[string]map[string]any{}
+	for id, device := range w.HomeDevices {
+		s.home[id] = device
 	}
 }
 
@@ -102,6 +109,20 @@ func (s *State) Apply(method string, params json.RawMessage) {
 				delete(s.devices, p.DeviceID)
 			} else {
 				s.devices[p.DeviceID] = p.Device
+			}
+			s.mu.Unlock()
+		}
+	case "state.home_device":
+		var p struct {
+			DeviceID string         `json:"deviceId"`
+			Device   map[string]any `json:"device"`
+		}
+		if json.Unmarshal(params, &p) == nil {
+			s.mu.Lock()
+			if p.Device == nil {
+				delete(s.home, p.DeviceID)
+			} else {
+				s.home[p.DeviceID] = p.Device
 			}
 			s.mu.Unlock()
 		}
@@ -222,6 +243,44 @@ func (s *State) DeviceIDs() []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+func (s *State) HomeDeviceIDs() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ids := make([]string, 0, len(s.home))
+	for id := range s.home {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func (s *State) HomeDeviceField(deviceID, field string) (any, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	device, ok := s.home[deviceID]
+	if !ok {
+		return nil, false
+	}
+	value, ok := device[field]
+	return value, ok
+}
+
+func (s *State) HomeDeviceMap(deviceID, field string) (map[string]any, bool) {
+	value, ok := s.HomeDeviceField(deviceID, field)
+	if !ok {
+		return nil, false
+	}
+	source, ok := value.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	out := make(map[string]any, len(source))
+	for key, item := range source {
+		out[key] = item
+	}
+	return out, true
 }
 
 func (s *State) Setting(key string) (any, bool) {

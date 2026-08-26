@@ -17,6 +17,10 @@
   "category": [
     "tools"
   ],
+  "permissions": [
+    "home.devices.read",
+    "home.devices.control"
+  ],
   "drivers": [
     {
       "id": "matter",
@@ -54,6 +58,11 @@
     "mesh": { "method": "POST", "path": "/mesh" },
     "mesh/state": { "method": "POST", "path": "/mesh/state" },
     "diagnostics": { "method": "POST", "path": "/diagnostics" },
-    "diagnostics/state": { "method": "POST", "path": "/diagnostics/state" }
+    "diagnostics/state": { "method": "POST", "path": "/diagnostics/state" },
+    "sharing/open": { "method": "POST", "path": "/sharing/open" },
+    "sharing/revoke": { "method": "POST", "path": "/sharing/revoke" },
+    "sharing/state": { "method": "POST", "path": "/sharing/state" },
+    "bridge/devices": { "method": "POST", "path": "/bridge/devices" },
+    "bridge/export": { "method": "POST", "path": "/bridge/export" }
   }
 }

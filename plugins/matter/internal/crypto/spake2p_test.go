@@ -4,10 +4,30 @@ import (
 	"bytes"
 	"crypto/elliptic"
 	"crypto/sha256"
+	"encoding/base64"
 	"math/big"
 	"slices"
 	"testing"
 )
+
+func TestRegistrationSerializeMatchesMatterReferenceVector(t *testing.T) {
+	salt := []byte("SPAKE2P Key Salt")
+	scalars, err := DeriveScalars(20202021, salt, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serialized, err := scalars.Register().Serialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := base64.StdEncoding.DecodeString("uWFwqugDNGiEck/po7KHwwMwwqZgN10XuyBajPGuyzUEV/iree4lOrao5GuwnlQ65CJzbeUB49s31EH+NEkg0JVI5MGCQGMMT/SRPFNRODm3wH/MBiehuFc6FJ/NH6Rmzw==")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(serialized, want) {
+		t.Fatalf("serialized verifier = %x, want %x", serialized, want)
+	}
+}
 
 const (
 	// The canonical Matter test device.

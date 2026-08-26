@@ -19,11 +19,13 @@ const (
 	StatusManualIsland    = 2
 	StatusGeneratorGrid   = 3
 
-	ManualIdle       = 0
-	ManualInProgress = 1
-	ManualConfirming = 2
-	ManualErrorFirst = 3
-	ManualErrorLast  = 5
+	ManualIdle          = 0
+	ManualOffGridActive = 1
+	ManualFollowUp      = 2
+	ManualStateFirst    = ManualIdle
+	ManualStateLast     = ManualFollowUp
+	ManualErrorFirst    = 3
+	ManualErrorLast     = 5
 )
 
 type flag bool
@@ -148,7 +150,7 @@ type pendingSwitch struct {
 
 var (
 	ErrConfirmation      = errors.New("de mySigen-schakeling is niet of niet meer bevestigd")
-	ErrTransitionBusy    = errors.New("de Sigenergy Gateway is al bezig met een netovergang")
+	ErrTransitionBusy    = errors.New("Stulp verwerkt nog een eerdere Gateway-schakeling")
 	ErrAutomaticOffGrid  = errors.New("de Gateway staat automatisch off-grid; opnieuw verbinden kan pas wanneer het net terug is")
 	ErrUnsupportedStatus = errors.New("de Gateway meldt een onbekende netstand")
 )
@@ -229,13 +231,14 @@ func validateSwitch(settings GatewaySettings, status GatewayStatus, stationID in
 	if !status.ButtonVisible() {
 		return fmt.Errorf("mySigen biedt de Go-Off-Grid-knop niet aan voor dit station")
 	}
-	if status.ManualOffGridStatus == ManualInProgress || status.ManualOffGridStatus == ManualConfirming {
-		return ErrTransitionBusy
-	}
 	if status.ManualOffGridStatus >= ManualErrorFirst && status.ManualOffGridStatus <= ManualErrorLast {
 		return fmt.Errorf("Gateway meldt foutstatus %d van de vorige handmatige overgang", status.ManualOffGridStatus)
 	}
-	if status.ManualOffGridStatus != ManualIdle {
+	// De officiele mySigen-client behandelt 1 als een handmatige-off-gridstand
+	// en gebruikt 2 voor een vervolgstap. Geen van beide betekent generiek
+	// "overgang bezig". De actuele netstand hierboven/onder is daarom leidend;
+	// alleen de expliciete foutwaarden 3..5 worden geweigerd.
+	if status.ManualOffGridStatus < ManualStateFirst || status.ManualOffGridStatus > ManualErrorLast {
 		return fmt.Errorf("Gateway meldt onbekende handmatige status %d", status.ManualOffGridStatus)
 	}
 	switch target {

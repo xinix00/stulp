@@ -30,7 +30,7 @@ func TestGatewaySwitchIsConfirmedOnceAndReadBackBoundedly(t *testing.T) {
 			statusCalls++
 			switch statusCalls {
 			case 1, 2, 3:
-				writeGatewayStatus(response, StatusOnGrid, map[int]int{3: ManualInProgress}[statusCalls], true, 0)
+				writeGatewayStatus(response, StatusOnGrid, map[int]int{3: ManualFollowUp}[statusCalls], true, 0)
 			default:
 				writeGatewayStatus(response, StatusManualIsland, ManualIdle, true, 0)
 			}
@@ -94,7 +94,11 @@ func TestReconnectSendsZero(t *testing.T) {
 			if statusCalls >= 3 {
 				status = StatusOnGrid
 			}
-			writeGatewayStatus(response, status, ManualIdle, true, 1)
+			manual := ManualOffGridActive
+			if status == StatusOnGrid {
+				manual = ManualIdle
+			}
+			writeGatewayStatus(response, status, manual, true, 1)
 		case "/device/gateway/ongrid-state/update":
 			postCalls++
 			var body map[string]any
@@ -136,7 +140,8 @@ func TestSwitchPreconditionsFailClosed(t *testing.T) {
 	}{
 		{"off-grid uitgezet", GatewaySettings{StationID: testStationID}, baseStatus, TargetOffGrid, nil},
 		{"knop verborgen", baseSettings, GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualIdle, ControlMode: 1}, TargetOffGrid, nil},
-		{"overgang bezig", baseSettings, GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualInProgress, ControlMode: 1, ShowButton: true}, TargetOffGrid, ErrTransitionBusy},
+		{"vorige overgang gaf fout", baseSettings, GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualErrorFirst, ControlMode: 1, ShowButton: true}, TargetOffGrid, nil},
+		{"onbekende handmatige status", baseSettings, GatewayStatus{OnOffGridStatus: StatusOnGrid, ManualOffGridStatus: ManualErrorLast + 1, ControlMode: 1, ShowButton: true}, TargetOffGrid, nil},
 		{"automatisch eiland niet reconnecten", baseSettings, GatewayStatus{OnOffGridStatus: StatusAutomaticIsland, ManualOffGridStatus: ManualIdle, ControlMode: 1, ShowButton: true}, TargetOnGrid, ErrAutomaticOffGrid},
 		{"generator niet als publiek net", baseSettings, GatewayStatus{OnOffGridStatus: StatusGeneratorGrid, ManualOffGridStatus: ManualIdle, ControlMode: 1, ShowButton: true}, TargetOnGrid, ErrUnsupportedStatus},
 	}
@@ -153,12 +158,22 @@ func TestSwitchPreconditionsFailClosed(t *testing.T) {
 	}
 	for _, allowed := range []struct {
 		status int
+		manual int
 		target GridTarget
-	}{{StatusOnGrid, TargetOffGrid}, {StatusGeneratorGrid, TargetOffGrid}, {StatusManualIsland, TargetOnGrid}} {
+	}{
+		{StatusOnGrid, ManualIdle, TargetOffGrid},
+		{StatusOnGrid, ManualOffGridActive, TargetOffGrid},
+		{StatusOnGrid, ManualFollowUp, TargetOffGrid},
+		{StatusGeneratorGrid, ManualIdle, TargetOffGrid},
+		{StatusManualIsland, ManualIdle, TargetOnGrid},
+		{StatusManualIsland, ManualOffGridActive, TargetOnGrid},
+		{StatusManualIsland, ManualFollowUp, TargetOnGrid},
+	} {
 		status := baseStatus
 		status.OnOffGridStatus = allowed.status
+		status.ManualOffGridStatus = allowed.manual
 		if err := validateSwitch(baseSettings, status, testStationID, allowed.target); err != nil {
-			t.Errorf("status %d naar %s: %v", allowed.status, allowed.target, err)
+			t.Errorf("status %d, handmatig %d naar %s: %v", allowed.status, allowed.manual, allowed.target, err)
 		}
 	}
 	for _, controlMode := range []int{0, 1} {

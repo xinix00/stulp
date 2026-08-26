@@ -81,6 +81,13 @@ func (s GatewayStatus) OffGrid() bool {
 
 func (s GatewayStatus) ButtonVisible() bool { return bool(s.ShowButton) }
 
+// KnownGridStatus zegt of mySigen een echte Gateway-netstand terugstuurde. Een
+// geslaagd statusantwoord met een van deze waarden bewijst de Gateway; of de
+// handmatige knop op dat moment zichtbaar is, zegt alleen iets over bediening.
+func (s GatewayStatus) KnownGridStatus() bool {
+	return s.OnOffGridStatus >= StatusOnGrid && s.OnOffGridStatus <= StatusGeneratorGrid
+}
+
 func (c *Client) GatewaySettings(ctx context.Context, stationID int64) (GatewaySettings, error) {
 	if stationID <= 0 {
 		return GatewaySettings{}, fmt.Errorf("ongeldig mySigen-station-id %d", stationID)

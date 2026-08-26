@@ -187,7 +187,7 @@ func TestPollerReadsAWholeSet(t *testing.T) {
 	}
 }
 
-func TestReadOnlyRegistersUseInputAndRWRegistersUseHolding(t *testing.T) {
+func TestAllSigenergyReadsUseFunction03WithoutCrossingLogicalSpaces(t *testing.T) {
 	charger := newFake(map[uint16]uint16{})
 	if _, err := NewPoller(2, ReadingSet(EvACCharger)).Read(charger); err != nil {
 		t.Fatal(err)
@@ -196,8 +196,8 @@ func TestReadOnlyRegistersUseInputAndRWRegistersUseHolding(t *testing.T) {
 		t.Fatal("de laadpaal leverde geen leesvragen op")
 	}
 	for _, call := range charger.reads {
-		if call.holding {
-			t.Fatalf("read-only laadpaalregister %d ging als holding-register de deur uit", call.start)
+		if !call.holding {
+			t.Fatalf("read-only laadpaalregister %d ging niet met functie 0x03 de deur uit", call.start)
 		}
 	}
 
@@ -212,10 +212,10 @@ func TestReadOnlyRegistersUseInputAndRWRegistersUseHolding(t *testing.T) {
 		if coversPhaseControl {
 			foundPhaseControl = true
 			if !call.holding {
-				t.Fatal("RW-register 40030 ging als input-register de deur uit")
+				t.Fatal("RW-register 40030 ging niet met functie 0x03 de deur uit")
 			}
-		} else if call.holding {
-			t.Fatalf("read-only registerbereik %d+%d ging als holding-register de deur uit", call.start, call.count)
+		} else if !call.holding {
+			t.Fatalf("read-only registerbereik %d+%d ging niet met functie 0x03 de deur uit", call.start, call.count)
 		}
 	}
 	if !foundPhaseControl {

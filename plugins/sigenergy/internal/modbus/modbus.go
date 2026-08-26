@@ -151,9 +151,10 @@ func (c *Client) ReadHolding(unit uint8, start, count uint16) ([]uint16, error) 
 	return c.readRegisters(unit, start, count, functionReadHolding, "holding")
 }
 
-// ReadInput leest count read-only input registers vanaf start met functiecode
-// 0x04. Sigenergy biedt zijn meetregisters in de 30000-reeks langs deze weg aan;
-// een 0x03-vraag naar hetzelfde adres kan stil worden genegeerd.
+// ReadInput leest count input registers vanaf start met de standaard
+// functiecode 0x04. De Sigenergy-registerkaart gebruikt deze route bewust niet:
+// de fabrikant schrijft voor zijn 30000- én leesbare 40000-registers 0x03 voor.
+// De methode blijft beschikbaar voor protocoltests en eventuele andere kaarten.
 func (c *Client) ReadInput(unit uint8, start, count uint16) ([]uint16, error) {
 	return c.readRegisters(unit, start, count, functionReadInput, "input")
 }

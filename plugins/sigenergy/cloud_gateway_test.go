@@ -175,7 +175,7 @@ func TestGatewayDoesNotExecuteWithoutAValidPreflight(t *testing.T) {
 	}
 }
 
-func TestGatewayPairingOnlyOffersOwnerControlledGateways(t *testing.T) {
+func TestGatewayPairingDoesNotConfuseHiddenManualButtonWithMissingGateway(t *testing.T) {
 	cloud := &fakeGatewayCloud{
 		stations: mysigen.StationList{Stations: []mysigen.Station{
 			{ID: 11, Name: "Thuis"}, {ID: 12, Name: "Schuur"},
@@ -199,8 +199,33 @@ func TestGatewayPairingOnlyOffersOwnerControlledGateways(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(found) != 1 || found[0].Name != "Thuis Gateway" || found[0].Data["stationId"] != "11" {
+	if len(found) != 2 || found[0].Name != "Thuis Gateway" || found[0].Data["stationId"] != "11" ||
+		found[1].Name != "Schuur Gateway" || found[1].Data["stationId"] != "12" {
 		t.Fatalf("pairing = %#v", found)
+	}
+	if _, dynamicStateWasPersisted := found[1].Store["manualControllable"]; dynamicStateWasPersisted {
+		t.Fatalf("tijdelijke knopstatus werd permanent opgeslagen: %#v", found[1].Store)
+	}
+}
+
+func TestCloudSummarySeparatesGatewayPresenceFromManualControl(t *testing.T) {
+	stations := mysigen.StationList{Stations: []mysigen.Station{
+		{ID: 11, Name: "Thuis"}, {ID: 12, Name: "Schuur"},
+	}}
+	cloud := &fakeGatewayCloud{status: map[int64]mysigen.GatewayStatus{
+		11: gatewayStatus(t, mysigen.StatusOnGrid, 0, mysigen.ControlModeOwner, true),
+		12: gatewayStatus(t, mysigen.StatusAutomaticIsland, 0, 0, false),
+	}}
+	summary := describeCloudStations(context.Background(), cloud, stations)
+	items, ok := summary["stations"].([]map[string]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("cloudsamenvatting = %#v", summary)
+	}
+	if items[0]["gateway"] != true || items[0]["gatewayControllable"] != true || items[0]["offGrid"] != false {
+		t.Fatalf("bedienbare Gateway = %#v", items[0])
+	}
+	if items[1]["gateway"] != true || items[1]["gatewayControllable"] != false || items[1]["offGrid"] != true {
+		t.Fatalf("Gateway zonder zichtbare knop = %#v", items[1])
 	}
 }
 

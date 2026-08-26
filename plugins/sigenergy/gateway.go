@@ -82,9 +82,11 @@ func stationIDOf(value any) (int64, error) {
 	return 0, fmt.Errorf("ongeldige waarde %v", value)
 }
 
-// ListDevices toont alleen stations waarvoor mySigen zelf de handmatige
-// Gateway-knop aanbiedt. Een installatie zonder Gateway krijgt zo niet een
-// schakelaar die bij iedere aanraking alleen maar kan weigeren.
+// ListDevices toont stations waarvoor mySigen een echte Gateway-netstand
+// terugstuurt. showButton en ControlMode bepalen alleen of een eigenaar op dat
+// moment handmatig mag schakelen; ze mogen een aanwezige noodstroom-Gateway niet
+// onzichtbaar maken. OnCapability doet vóór ieder commando nog steeds de strenge
+// bedienings-preflight.
 func (gatewayDriver) ListDevices() ([]appsdk.PairedDevice, error) {
 	client, err := instance.apiCloud()
 	if err != nil {
@@ -106,7 +108,7 @@ func (gatewayDriver) ListDevices() ([]appsdk.PairedDevice, error) {
 			}
 			continue
 		}
-		if !status.ButtonVisible() || status.ControlMode != mysigen.ControlModeOwner {
+		if !status.KnownGridStatus() {
 			continue
 		}
 		name := strings.TrimSpace(station.Name)
@@ -126,9 +128,9 @@ func (gatewayDriver) ListDevices() ([]appsdk.PairedDevice, error) {
 	}
 	if len(found) == 0 {
 		if firstFailure != nil {
-			return nil, fmt.Errorf("geen bedienbare Sigenergy Gateway gevonden: %w", firstFailure)
+			return nil, fmt.Errorf("geen Sigenergy Gateway-status gevonden: %w", firstFailure)
 		}
-		return nil, fmt.Errorf("dit mySigen-account heeft geen station met handmatige Gateway-bediening")
+		return nil, fmt.Errorf("mySigen gaf voor geen station een herkenbare Gateway-netstand terug")
 	}
 	return found, nil
 }

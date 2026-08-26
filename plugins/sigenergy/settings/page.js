@@ -35,7 +35,10 @@ function showCloudStations(result) {
   $('cloudFound').replaceChildren(...stations.map(station => {
     let state = 'station gevonden';
     if (station.gatewayError) state = station.gatewayError;
-    else if (station.gateway) state = station.offGrid ? 'Gateway · noodstroom' : 'Gateway · op het net';
+    else if (station.gateway) {
+      state = station.offGrid ? 'Gateway · noodstroom' : 'Gateway · op het net';
+      if (!station.gatewayControllable) state += ' · handmatige knop nu niet beschikbaar';
+    }
     return row(station.name || `Station ${station.id}`, state);
   }));
 }
@@ -108,7 +111,9 @@ $('cloudForm').addEventListener('submit', async event => {
     cloudLinked(true);
     showCloudStations(result);
     const count = (result.stations || []).length;
-    cloudSay(`Gekoppeld. ${count} station${count === 1 ? '' : 's'} gevonden — voeg de Gateway toe als apparaat.`, 'ok');
+    const gateways = (result.stations || []).filter(station => station.gateway).length;
+    const controllable = (result.stations || []).filter(station => station.gatewayControllable).length;
+    cloudSay(`Gekoppeld. ${count} station${count === 1 ? '' : 's'}, ${gateways} Gateway${gateways === 1 ? '' : 's'} gevonden, ${controllable} nu handmatig bedienbaar.`, 'ok');
   } catch (error) {
     cloudSay(error.message || String(error), 'bad');
   } finally {
@@ -123,7 +128,8 @@ $('cloudCheck').addEventListener('click', async () => {
     const result = await Stulp.api('POST', 'cloud/check', {});
     showCloudStations(result);
     const gateways = (result.stations || []).filter(station => station.gateway).length;
-    cloudSay(`Verbonden. ${gateways} bedienbare Gateway${gateways === 1 ? '' : 's'} gevonden.`, 'ok');
+    const controllable = (result.stations || []).filter(station => station.gatewayControllable).length;
+    cloudSay(`Verbonden. ${gateways} Gateway${gateways === 1 ? '' : 's'} gevonden, ${controllable} nu handmatig bedienbaar.`, 'ok');
   } catch (error) {
     showCloudStations({});
     cloudSay(error.message || String(error), 'bad');

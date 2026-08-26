@@ -324,7 +324,7 @@ func TestParseUnitsFallsBackToTheDefault(t *testing.T) {
 	}
 }
 
-func TestChargerScanUsesInputRegistersAndDoesNotSkipSparseUnits(t *testing.T) {
+func TestChargerScanUsesSigenergyFunction03AndDoesNotSkipSparseUnits(t *testing.T) {
 	reader := &scanReader{
 		present: map[uint8]bool{8: true},
 		refuse:  map[uint8]bool{247: true},
@@ -341,8 +341,8 @@ func TestChargerScanUsesInputRegistersAndDoesNotSkipSparseUnits(t *testing.T) {
 		t.Fatalf("%d van %d opgegeven units zijn afgetast", len(reader.reads), len(units))
 	}
 	for _, call := range reader.reads {
-		if call.holding {
-			t.Fatalf("probe op unit %d gebruikte holding-registerfunctie", call.unit)
+		if !call.holding {
+			t.Fatalf("probe op unit %d gebruikte niet de door Sigenergy voorgeschreven functie 0x03", call.unit)
 		}
 		if call.start != sigen.EvACCharger.Status.Addr {
 			t.Fatalf("probe-adres = %d", call.start)

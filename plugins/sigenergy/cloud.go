@@ -251,6 +251,22 @@ func stationSummary(list mysigen.StationList) []map[string]any {
 	return out
 }
 
+func describeCloudStations(ctx context.Context, client cloudClient, stations mysigen.StationList) map[string]any {
+	items := stationSummary(stations)
+	for index, station := range stations.Stations {
+		status, statusErr := client.GatewayStatus(ctx, station.ID)
+		if statusErr != nil {
+			items[index]["gatewayError"] = statusErr.Error()
+			continue
+		}
+		items[index]["gateway"] = status.KnownGridStatus()
+		items[index]["gatewayControllable"] = status.ButtonVisible() && status.ControlMode == mysigen.ControlModeOwner
+		items[index]["offGrid"] = status.OffGrid()
+		items[index]["gridStatus"] = status.OnOffGridStatus
+	}
+	return map[string]any{"linked": true, "stations": items}
+}
+
 func (a *app) describeCloud(ctx context.Context) (map[string]any, error) {
 	client, err := a.apiCloud()
 	if err != nil {
@@ -260,18 +276,7 @@ func (a *app) describeCloud(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	items := stationSummary(stations)
-	for index, station := range stations.Stations {
-		status, statusErr := client.GatewayStatus(ctx, station.ID)
-		if statusErr != nil {
-			items[index]["gatewayError"] = statusErr.Error()
-			continue
-		}
-		items[index]["gateway"] = status.ButtonVisible() && status.ControlMode == mysigen.ControlModeOwner
-		items[index]["offGrid"] = status.OffGrid()
-		items[index]["gridStatus"] = status.OnOffGridStatus
-	}
-	return map[string]any{"linked": true, "stations": items}, nil
+	return describeCloudStations(ctx, client, stations), nil
 }
 
 func (a *app) registerCloudAPI(stulp *appsdk.Stulp) {
@@ -289,7 +294,14 @@ func (a *app) registerCloudAPI(stulp *appsdk.Stulp) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"linked": true, "stations": stationSummary(stations)}, nil
+		// Meteen de Gateway-status meenemen. Alleen de stationlijst teruggeven
+		// liet de configuratiepagina na correct aanmelden ten onrechte twijfelen
+		// of er überhaupt een noodstroom-Gateway aanwezig was.
+		client, err := a.apiCloud()
+		if err != nil {
+			return nil, err
+		}
+		return describeCloudStations(ctx, client, stations), nil
 	})
 
 	stulp.OnRequest("cloud_check", func(map[string]any, map[string]any) (any, error) {

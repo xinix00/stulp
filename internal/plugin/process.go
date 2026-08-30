@@ -443,9 +443,13 @@ func (p *Process) handle(ctx context.Context, method string, params json.RawMess
 			ID     string `json:"id"`
 			Tokens any    `json:"tokens"`
 			State  any    `json:"state"`
+			System bool   `json:"system"`
 		}
 		if err := json.Unmarshal(params, &q); err != nil {
 			return nil, err
+		}
+		if q.System {
+			return nil, p.store.RecordSystemFlowEvent(ctx, q.Kind, q.ID, q.Tokens, q.State)
 		}
 		return nil, p.store.RecordFlowEvent(ctx, p.app.ID, q.Kind, q.ID, q.Tokens, q.State)
 

@@ -380,7 +380,7 @@ func (h *Stulp) DeviceField(id, field string) (any, bool) {
 // TriggerSystemFlow vuurt een kaart af die van Stulp zelf is in plaats van van
 // deze app. Bedoeld voor een app die een ingebouwde kaart voedt.
 func (h *Stulp) TriggerSystemFlow(cardType, cardID string, tokens, state any) error {
-	return h.host.TriggerFlow(cardType, cardID, tokens, state)
+	return h.host.TriggerSystemFlow(cardType, cardID, tokens, state)
 }
 
 // ReplaceDeviceReferences meldt dat een apparaat door een ander vervangen is,

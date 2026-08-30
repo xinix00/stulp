@@ -153,8 +153,19 @@ func (h *Host) SetCapabilityOptions(deviceID, capabilityID string, options map[s
 }
 
 func (h *Host) TriggerFlow(kind, id string, tokens, state any) error {
+	return h.triggerFlow(kind, id, tokens, state, false)
+}
+
+// TriggerSystemFlow marks a trigger as belonging to Stulp's built-in cards.
+// Most triggers belong to the app that emits them; Matter is the exception:
+// its controller feeds the built-in Matter and capability cards.
+func (h *Host) TriggerSystemFlow(kind, id string, tokens, state any) error {
+	return h.triggerFlow(kind, id, tokens, state, true)
+}
+
+func (h *Host) triggerFlow(kind, id string, tokens, state any, system bool) error {
 	return h.write("flow.trigger", map[string]any{
-		"kind": kind, "id": id, "tokens": tokens, "state": state,
+		"kind": kind, "id": id, "tokens": tokens, "state": state, "system": system,
 	})
 }
 

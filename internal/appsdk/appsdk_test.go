@@ -213,7 +213,31 @@ func TestCapabilityReportCommitsAsOneDeviceMerge(t *testing.T) {
 	}
 }
 
+func TestSystemFlowTriggerIsMarkedForStulp(t *testing.T) {
+	stulp := newFakeStulp(t, appsdk.Plugin{
+		OnInit: func(h *appsdk.Stulp) error {
+			return h.TriggerSystemFlow("trigger", "capability.button.on",
+				map[string]any{"value": true}, map[string]any{"deviceId": "dev-1"})
+		},
+	})
+	defer stulp.close()
+
+	stulp.call(t, "app.init", map[string]any{}, nil)
+	flows := stulp.flowTriggers()
+	if len(flows) != 1 || !flows[0].System || flows[0].Kind != "trigger" || flows[0].ID != "capability.button.on" {
+		t.Fatalf("system flow trigger = %#v", flows)
+	}
+}
+
 // ---------------------------------------------------------------------------
+
+type fakeFlowTrigger struct {
+	Kind   string `json:"kind"`
+	ID     string `json:"id"`
+	Tokens any    `json:"tokens"`
+	State  any    `json:"state"`
+	System bool   `json:"system"`
+}
 
 // fakeStulp is de kant van Stulp: hij beantwoordt de handshake en de
 // schrijfacties, en houdt bij wat de plugin gezet heeft.
@@ -227,6 +251,7 @@ type fakeStulp struct {
 	state    json.RawMessage
 	devices  map[string]map[string]any
 	merges   int
+	flows    []fakeFlowTrigger
 	done     chan struct{}
 }
 
@@ -327,6 +352,11 @@ func (s *fakeStulp) handle(_ context.Context, method string, params json.RawMess
 		json.Unmarshal(params, &p)
 		s.state = p.State
 		return nil, nil
+	case "flow.trigger":
+		var p fakeFlowTrigger
+		json.Unmarshal(params, &p)
+		s.flows = append(s.flows, p)
+		return nil, nil
 	}
 	return nil, nil
 }
@@ -365,6 +395,12 @@ func (s *fakeStulp) mergeCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.merges
+}
+
+func (s *fakeStulp) flowTriggers() []fakeFlowTrigger {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]fakeFlowTrigger(nil), s.flows...)
 }
 
 func (s *fakeStulp) appState() json.RawMessage {

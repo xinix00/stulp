@@ -74,6 +74,21 @@ func TestApplyReportsPersistsStateAndEmitsDeduplicatedMatterEvent(t *testing.T) 
 	if again := database.flowEvents(); len(again) != 1 {
 		t.Fatalf("een herhaald event startte de Flow opnieuw: %#v", again)
 	}
+
+	// Aqara H2 switches can emit another InitialPress without ever reporting a
+	// release. The state is already true, but a new Matter event number is a new
+	// physical press and must fire the semantic button card again.
+	eventReport.Number = 11
+	controller.applyReports(ctx, 0x10000, nil, []im.EventReport{eventReport})
+	repeated := database.flowEvents()
+	if len(repeated) != 3 || repeated[1].cardID != "capability.button.on" || repeated[2].cardID != "matter_event" {
+		t.Fatalf("een tweede InitialPress vuurde niet opnieuw: %#v", repeated)
+	}
+	repeatedTokens, _ := repeated[1].tokens.(map[string]any)
+	if repeatedTokens["deviceId"] != device.ID || repeatedTokens["capability"] != "button" ||
+		repeatedTokens["value"] != true || repeatedTokens["oldValue"] != true {
+		t.Fatalf("herhaalde knopkaart mist capability-state: %#v", repeatedTokens)
+	}
 }
 
 func uint32Pointer(value uint32) *uint32 { return &value }

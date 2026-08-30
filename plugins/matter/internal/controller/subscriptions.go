@@ -877,6 +877,7 @@ func (c *Controller) applyReports(ctx context.Context, nodeID uint64, attributes
 	changed := make(map[string]*Device)
 	type pendingEvent struct {
 		deviceID string
+		cardID   string
 		tokens   map[string]any
 		state    map[string]any
 	}
@@ -934,8 +935,28 @@ func (c *Controller) applyReports(ctx context.Context, nodeID uint64, attributes
 					device.State = make(map[string]any)
 				}
 				if capability := capabilityForEndpoint(*device, "button", *event.Path.Endpoint); capability != "" {
+					previous := device.State[capability]
 					device.State[capability] = pressed
 					eventCapability = capability
+					// Some switches, including Aqara H2 devices, emit a fresh
+					// InitialPress for every tap but no matching release. Their
+					// boolean state therefore remains true. The first false→true
+					// transition is turned into a capability card by Stulp's device
+					// state engine; subsequent InitialPress events need the same card
+					// explicitly or "Knop werd ingedrukt" only works once.
+					if cardID := repeatedSwitchCapabilityCard(capability, *event.Path.Event, previous, pressed); cardID != "" {
+						tokens := map[string]any{
+							"device": device.Name, "deviceId": device.ID, "capability": capability,
+							"value": pressed, "oldValue": previous,
+						}
+						state := map[string]any{
+							"deviceId": device.ID, "capability": capability,
+							"value": pressed, "oldValue": previous,
+						}
+						pendingEvents = append(pendingEvents, pendingEvent{
+							deviceID: device.ID, cardID: cardID, tokens: tokens, state: state,
+						})
+					}
 				}
 			}
 		}
@@ -957,7 +978,9 @@ func (c *Controller) applyReports(ctx context.Context, nodeID uint64, attributes
 		if switchState != nil {
 			tokens["pressed"], state["pressed"] = switchState, switchState
 		}
-		pendingEvents = append(pendingEvents, pendingEvent{deviceID: device.ID, tokens: tokens, state: state})
+		pendingEvents = append(pendingEvents, pendingEvent{
+			deviceID: device.ID, cardID: "matter_event", tokens: tokens, state: state,
+		})
 	}
 	updated := make(map[string]bool, len(changed))
 	for _, device := range changed {
@@ -974,9 +997,28 @@ func (c *Controller) applyReports(ctx context.Context, nodeID uint64, attributes
 		if !updated[event.deviceID] {
 			continue
 		}
-		if err := c.store.RecordSystemFlowEvent(ctx, "trigger", "matter_event", event.tokens, event.state); err != nil {
-			c.logger.Warn("cannot persist Matter event", "device", event.deviceID, "error", err)
+		if err := c.store.RecordSystemFlowEvent(ctx, "trigger", event.cardID, event.tokens, event.state); err != nil {
+			c.logger.Warn("cannot publish Matter event", "device", event.deviceID, "card", event.cardID, "error", err)
 		}
+	}
+}
+
+// repeatedSwitchCapabilityCard bridges stateless Switch implementations into
+// the boolean capability cards. It deliberately covers only explicit press and
+// release edges: LongPress follows InitialPress and must not fire "ingedrukt"
+// a second time merely because the hold was recognised.
+func repeatedSwitchCapabilityCard(capability string, event uint32, previous any, pressed bool) string {
+	wasPressed, known := previous.(bool)
+	if !known || wasPressed != pressed {
+		return ""
+	}
+	switch event {
+	case 1: // InitialPress
+		return "capability." + capability + ".on"
+	case 3, 4, 6: // ShortRelease, LongRelease, MultiPressComplete
+		return "capability." + capability + ".off"
+	default:
+		return ""
 	}
 }
 

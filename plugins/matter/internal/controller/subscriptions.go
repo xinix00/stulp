@@ -24,9 +24,10 @@ const (
 	switchCluster uint32 = 0x003B
 	// Automations are latency-sensitive: this subscription also carries motion,
 	// contact and button events, so asking the publisher to batch for a second
-	// makes a healthy Flow feel intermittent. Zero lets a node report an urgent
-	// change immediately. The controller still coalesces every report into one
-	// device update, and a device remains free to apply its own reporting policy.
+	// makes a healthy Flow feel intermittent. Zero removes the interval floor;
+	// the event path's IsUrgent bit below asks the publisher not to leave a button
+	// event queued until another endpoint happens to produce a report. The
+	// controller still coalesces every report into one device update.
 	subscriptionMinInterval = 0
 	subscriptionMaxInterval = 300
 )
@@ -695,6 +696,7 @@ func subscriptionPaths(devices []Device) ([]im.AttributePath, []im.EventPath) {
 	events := make([]im.EventPath, 0, len(devices))
 	seenAttributes := make(map[string]bool)
 	seenEndpoints := make(map[uint16]bool)
+	urgent := true
 	for _, device := range devices {
 		info, err := deviceConnection(device)
 		if err != nil {
@@ -703,7 +705,7 @@ func subscriptionPaths(devices []Device) ([]im.AttributePath, []im.EventPath) {
 		for _, deviceEndpoint := range deviceEndpoints(device) {
 			if !seenEndpoints[deviceEndpoint] {
 				endpoint := deviceEndpoint
-				events = append(events, im.EventPath{Endpoint: &endpoint})
+				events = append(events, im.EventPath{Endpoint: &endpoint, Urgent: &urgent})
 				seenEndpoints[endpoint] = true
 			}
 		}

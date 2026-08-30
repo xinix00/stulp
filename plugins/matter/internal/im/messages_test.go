@@ -72,16 +72,18 @@ func TestWriteMessagesRoundTrip(t *testing.T) {
 
 func TestSubscribeMessagesAndEventReportRoundTrip(t *testing.T) {
 	endpoint := uint16(1)
+	urgent := true
 	requestBytes, err := EncodeSubscribeRequest(
 		[]AttributePath{ConcreteAttributePath(endpoint, 6, 0)},
-		[]EventPath{{Endpoint: &endpoint}}, 0, 300, false, true)
+		[]EventPath{{Endpoint: &endpoint, Urgent: &urgent}}, 0, 300, false, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	request, err := DecodeSubscribeRequest(requestBytes)
 	if err != nil || request.MinInterval != 0 || request.MaxInterval != 300 || request.KeepSubscriptions ||
 		!request.FabricFiltered || len(request.Attributes) != 1 || len(request.Events) != 1 ||
-		request.Events[0].Endpoint == nil || *request.Events[0].Endpoint != endpoint {
+		request.Events[0].Endpoint == nil || *request.Events[0].Endpoint != endpoint ||
+		request.Events[0].Urgent == nil || !*request.Events[0].Urgent {
 		t.Fatalf("SubscribeRequest = %#v, %v", request, err)
 	}
 

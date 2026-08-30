@@ -93,6 +93,46 @@ func TestCombinedEndpointSubscriptionPathsUseCapabilityEndpoint(t *testing.T) {
 			t.Fatalf("subscription omitted %s", key)
 		}
 	}
+	eventEndpoints := map[uint16]bool{1: false, 2: false}
+	for _, path := range events {
+		if path.Endpoint == nil || path.Urgent == nil || !*path.Urgent {
+			t.Fatalf("automation event path is not urgent: %#v", path)
+		}
+		if _, expected := eventEndpoints[*path.Endpoint]; !expected {
+			t.Fatalf("unexpected event endpoint %d", *path.Endpoint)
+		}
+		eventEndpoints[*path.Endpoint] = true
+	}
+	for endpoint, seen := range eventEndpoints {
+		if !seen {
+			t.Fatalf("subscription omitted event endpoint %d", endpoint)
+		}
+	}
+}
+
+func TestFourButtonSwitchRequestsUrgentReportsForWirelessButtons(t *testing.T) {
+	capabilityEndpoints := map[string]uint16{
+		"onoff.1": 1, "onoff.2": 2,
+		"button.1": 4, "button.2": 5, "button.3": 6, "button.4": 7,
+	}
+	device := Device{
+		ID: "aqara-h2", DriverID: "matter", Name: "Aqara H2", Class: "light",
+		Capabilities: []string{"onoff.1", "onoff.2", "button.1", "button.2", "button.3", "button.4"},
+		Store:        testMatterStore(1, capabilityEndpoints, onOffCluster, switchCluster),
+	}
+	device.Store["matter.endpoints"] = []uint16{1, 2, 4, 5, 6, 7}
+	_, events := subscriptionPaths([]Device{device})
+	urgentEndpoints := make(map[uint16]bool, len(events))
+	for _, path := range events {
+		if path.Endpoint != nil && path.Urgent != nil && *path.Urgent {
+			urgentEndpoints[*path.Endpoint] = true
+		}
+	}
+	for _, endpoint := range []uint16{4, 5, 6, 7} {
+		if !urgentEndpoints[endpoint] {
+			t.Fatalf("wireless button endpoint %d is not subscribed as urgent: %#v", endpoint, events)
+		}
+	}
 }
 
 func TestExistingMotionSensorGainsIlluminanceWithoutRecommissioning(t *testing.T) {

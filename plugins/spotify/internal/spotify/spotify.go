@@ -1,8 +1,8 @@
 // Package spotify praat met de Spotify Web API: welke Connect-apparaten er zijn,
 // wat er speelt, en wat er moet gaan spelen.
 //
-// Bewust klein gehouden. Deze app doet één ding -- een nummer op een apparaat
-// afspelen en dat apparaat bedienen -- en alles wat daar niet voor nodig is
+// Bewust klein gehouden. Deze app speelt een nummer of playlist op een apparaat
+// af en bedient dat apparaat; alles wat daar niet voor nodig is
 // staat er niet in. Wat er wél is, is afgelezen van de API en niet geraden;
 // PORTED.md zegt per eindpunt wat er getoetst is.
 package spotify
@@ -54,6 +54,12 @@ type Device struct {
 	VolumePercent *int `json:"volume_percent"`
 }
 
+type Image struct {
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
 // Devices levert de apparaten die dit account nu ziet.
 //
 // De lijst is vluchtig: een telefoon staat erin zolang de Spotify-app open is,
@@ -79,12 +85,8 @@ type Track struct {
 		Name string `json:"name"`
 	} `json:"artists"`
 	Album struct {
-		Name   string `json:"name"`
-		Images []struct {
-			URL    string `json:"url"`
-			Width  int    `json:"width"`
-			Height int    `json:"height"`
-		} `json:"images"`
+		Name   string  `json:"name"`
+		Images []Image `json:"images"`
 	} `json:"album"`
 	DurationMs int `json:"duration_ms"`
 }
@@ -103,9 +105,34 @@ func (t Track) By() string {
 // Het kleinste, want dit gaat naar een keuzelijst in een Flow-kaart: daar past
 // geen hoesje van 640 bij 640.
 func (t Track) Cover() string {
+	return smallestImage(t.Album.Images)
+}
+
+// Playlist is one searchable Spotify playback context.
+type Playlist struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	URI         string  `json:"uri"`
+	Description string  `json:"description"`
+	Images      []Image `json:"images"`
+	Owner       struct {
+		DisplayName string `json:"display_name"`
+	} `json:"owner"`
+}
+
+func (p Playlist) By() string {
+	if strings.TrimSpace(p.Owner.DisplayName) != "" {
+		return p.Owner.DisplayName
+	}
+	return p.Description
+}
+
+func (p Playlist) Cover() string { return smallestImage(p.Images) }
+
+func smallestImage(images []Image) string {
 	best := ""
 	size := 0
-	for _, image := range t.Album.Images {
+	for _, image := range images {
 		if best == "" || (image.Width > 0 && image.Width < size) {
 			best, size = image.URL, image.Width
 		}
@@ -145,6 +172,36 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Track, 
 		return nil, err
 	}
 	return answer.Tracks.Items, nil
+}
+
+// SearchPlaylists searches Spotify's catalog for playlist contexts. Public
+// catalog search needs no playlist-reading scope, so existing links keep
+// working without asking the user to reconnect the app.
+func (c *Client) SearchPlaylists(ctx context.Context, query string, limit int) ([]Playlist, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > maxSearchLimit {
+		limit = maxSearchLimit
+	}
+	var answer struct {
+		Playlists struct {
+			Items []*Playlist `json:"items"`
+		} `json:"playlists"`
+	}
+	err := c.getJSON(ctx, "/search", url.Values{
+		"q": {query}, "type": {"playlist"}, "limit": {strconv.Itoa(limit)},
+	}, &answer)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Playlist, 0, len(answer.Playlists.Items))
+	for _, playlist := range answer.Playlists.Items {
+		if playlist != nil && playlist.URI != "" {
+			result = append(result, *playlist)
+		}
+	}
+	return result, nil
 }
 
 // Playback is wat er nu speelt, op welk apparaat.
@@ -187,6 +244,18 @@ func (c *Client) Play(ctx context.Context, deviceID string, uris ...string) erro
 		body["uris"] = uris
 	}
 	_, err := c.do(ctx, http.MethodPut, "/me/player/play", deviceQuery(deviceID), body)
+	return err
+}
+
+// PlayContext starts an album, artist or playlist context. Stulp currently
+// exposes playlists; keeping the API method generic mirrors Spotify's request.
+func (c *Client) PlayContext(ctx context.Context, deviceID, contextURI string) error {
+	if strings.TrimSpace(contextURI) == "" {
+		return fmt.Errorf("er is geen Spotify-context om af te spelen")
+	}
+	_, err := c.do(ctx, http.MethodPut, "/me/player/play", deviceQuery(deviceID), map[string]any{
+		"context_uri": contextURI,
+	})
 	return err
 }
 

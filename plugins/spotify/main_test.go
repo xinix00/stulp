@@ -34,3 +34,24 @@ func TestTheNameSurvivesARefusal(t *testing.T) {
 		t.Errorf("de naam is %q", name)
 	}
 }
+
+func TestOnlyARealPlaylistGetsThrough(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		value   any
+		wantURI string
+	}{
+		{"gekozen uit de lijst", map[string]any{"id": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", "name": "Today's Top Hits"},
+			"spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"},
+		{"kaal id", "37i9dQZF1DXcBWIGoYBM5M", "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"},
+		{"volledige uri", "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"},
+		{"gedeelde link", "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=abc123", "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"},
+		{"alleen zoektekst", "today's top hits", ""},
+		{"track is geen playlist", "spotify:track:11dFghVXANMlKmJXsNCbNl", ""},
+	} {
+		uri, _ := playlistArgument(test.value)
+		if uri != test.wantURI {
+			t.Errorf("%s: uri is %q, wil %q", test.name, uri, test.wantURI)
+		}
+	}
+}

@@ -176,6 +176,7 @@ func TestDevicesAndPlay(t *testing.T) {
 		case "/me/player/play":
 			played.path = r.URL.Path
 			played.device = r.URL.Query().Get("device_id")
+			played.body = nil
 			json.NewDecoder(r.Body).Decode(&played.body)
 			w.WriteHeader(http.StatusNoContent)
 		default:
@@ -201,6 +202,19 @@ func TestDevicesAndPlay(t *testing.T) {
 	uris, _ := played.body["uris"].([]any)
 	if len(uris) != 1 || uris[0] != "spotify:track:xyz" {
 		t.Errorf("het nummer ging niet mee: %v", played.body)
+	}
+
+	if err := client.PlayContext(context.Background(), "d1", "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"); err != nil {
+		t.Fatal(err)
+	}
+	if played.device != "d1" {
+		t.Errorf("de playlist ging niet naar het apparaat: %q", played.device)
+	}
+	if played.body["context_uri"] != "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M" {
+		t.Errorf("de playlist ging niet mee: %v", played.body)
+	}
+	if _, ok := played.body["uris"]; ok {
+		t.Errorf("de playlist werd ook als nummer verstuurd: %v", played.body)
 	}
 }
 
@@ -268,6 +282,48 @@ func TestSearchBuildsTheQueryAndReadsTheTracks(t *testing.T) {
 	}
 }
 
+func TestSearchBuildsTheQueryAndReadsPlaylists(t *testing.T) {
+	var query url.Values
+	client, server := fakeAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		json.NewEncoder(w).Encode(map[string]any{"playlists": map[string]any{"items": []any{
+			nil,
+			map[string]any{
+				"id":          "37i9dQZF1DXcBWIGoYBM5M",
+				"name":        "Today's Top Hits",
+				"uri":         "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+				"description": "The biggest songs",
+				"owner":       map[string]any{"display_name": "Spotify"},
+				"images": []map[string]any{
+					{"url": "groot", "width": 640},
+					{"url": "klein", "width": 64},
+				},
+			},
+		}}})
+	})
+	defer server.Close()
+
+	playlists, err := client.SearchPlaylists(context.Background(), "top hits", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.Get("type") != "playlist" || query.Get("q") != "top hits" || query.Get("limit") != "10" {
+		t.Errorf("de zoekvraag was %v", query)
+	}
+	if len(playlists) != 1 {
+		t.Fatalf("treffers: %+v", playlists)
+	}
+	if playlists[0].URI != "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M" {
+		t.Errorf("playlist-uri is %q", playlists[0].URI)
+	}
+	if playlists[0].By() != "Spotify" {
+		t.Errorf("eigenaar is %q", playlists[0].By())
+	}
+	if playlists[0].Cover() != "klein" {
+		t.Errorf("hoes is %q, wil het kleinste plaatje", playlists[0].Cover())
+	}
+}
+
 // Zoeken zonder tekst hoort geen aanroep te doen: een leeg zoekveld is geen
 // vraag, en Spotify zou er een fout op geven.
 func TestAnEmptySearchAsksNothing(t *testing.T) {
@@ -279,6 +335,11 @@ func TestAnEmptySearchAsksNothing(t *testing.T) {
 	tracks, err := client.Search(context.Background(), "   ", 20)
 	if err != nil || len(tracks) != 0 {
 		t.Errorf("kreeg %v %v", tracks, err)
+	}
+
+	playlists, err := client.SearchPlaylists(context.Background(), "\t", 20)
+	if err != nil || len(playlists) != 0 {
+		t.Errorf("kreeg %v %v", playlists, err)
 	}
 }
 

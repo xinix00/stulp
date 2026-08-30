@@ -1,5 +1,5 @@
 // Command spotify bedient Spotify Connect: welke apparaten er zijn, wat erop
-// speelt, en welk nummer erop moet gaan spelen.
+// speelt, en welk nummer of welke playlist erop moet gaan spelen.
 //
 // Wat deze app níet is: een speler. Spotify speelt zelf af, op een apparaat dat
 // al met je account verbonden is -- een speaker, een telefoon, een computer.
@@ -258,11 +258,11 @@ func (a *app) refreshSoon() {
 	}()
 }
 
-// registerFlow hangt de kaart op waar deze app om begonnen is.
+// registerFlow hangs the two Spotify-specific playback cards on this app.
 //
-// Twee argumenten en geen meer: wélk nummer, en op wélke speler. De keuzelijst
-// voor het nummer zoekt live bij Spotify, dus er hoeft nergens een id
-// overgetypt te worden.
+// Each has two arguments: what should play, and on which Spotify Connect
+// player. Both choice lists search Spotify live; WiiM has its own local cards
+// and never enters this process.
 func (a *app) registerFlow(stulp *appsdk.Stulp) {
 	stulp.OnFlowAction("play_track", func(args, state map[string]any) (any, error) {
 		target, err := a.playerFor(args["device"])
@@ -285,6 +285,27 @@ func (a *app) registerFlow(stulp *appsdk.Stulp) {
 		return map[string]any{"track": name}, nil
 	})
 
+	stulp.OnFlowAction("play_playlist", func(args, _ map[string]any) (any, error) {
+		target, err := a.playerFor(args["device"])
+		if err != nil {
+			return nil, err
+		}
+		uri, name := playlistArgument(args["playlist"])
+		if uri == "" {
+			if name != "" {
+				return nil, fmt.Errorf("%q is geen playlist maar een zoekterm; kies er een uit de lijst", name)
+			}
+			return nil, fmt.Errorf("kies eerst een playlist")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		defer cancel()
+		if err := cloud.PlayContext(ctx, target.spotifyID(), uri); err != nil {
+			return nil, err
+		}
+		a.refreshSoon()
+		return map[string]any{"playlist": name}, nil
+	})
+
 	stulp.OnFlowAutocomplete("action", "play_track", "track", func(query string, args map[string]any) ([]appsdk.AutocompleteItem, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 		defer cancel()
@@ -299,6 +320,25 @@ func (a *app) registerFlow(stulp *appsdk.Stulp) {
 				Name:        track.Name,
 				Description: track.By(),
 				Image:       track.Cover(),
+			})
+		}
+		return items, nil
+	})
+
+	stulp.OnFlowAutocomplete("action", "play_playlist", "playlist", func(query string, args map[string]any) ([]appsdk.AutocompleteItem, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		defer cancel()
+		playlists, err := cloud.SearchPlaylists(ctx, query, 0)
+		if err != nil {
+			return nil, err
+		}
+		items := make([]appsdk.AutocompleteItem, 0, len(playlists))
+		for _, playlist := range playlists {
+			items = append(items, appsdk.AutocompleteItem{
+				ID:          playlist.URI,
+				Name:        playlist.Name,
+				Description: playlist.By(),
+				Image:       playlist.Cover(),
 			})
 		}
 		return items, nil
@@ -357,6 +397,40 @@ func trackURI(value string) string {
 		return value
 	case len(value) == 22 && isBase62(value):
 		return "spotify:track:" + value
+	}
+	return ""
+}
+
+func playlistArgument(value any) (uri, name string) {
+	switch typed := value.(type) {
+	case string:
+		return playlistURI(typed), typed
+	case map[string]any:
+		id, _ := typed["id"].(string)
+		name, _ = typed["name"].(string)
+		if name == "" {
+			name = id
+		}
+		return playlistURI(id), name
+	}
+	return "", ""
+}
+
+func playlistURI(value string) string {
+	value = strings.TrimSpace(value)
+	switch {
+	case strings.HasPrefix(value, "spotify:playlist:"):
+		return value
+	case strings.HasPrefix(value, "https://open.spotify.com/playlist/"):
+		id := strings.TrimPrefix(value, "https://open.spotify.com/playlist/")
+		if before, _, found := strings.Cut(id, "?"); found {
+			id = before
+		}
+		if len(id) == 22 && isBase62(id) {
+			return "spotify:playlist:" + id
+		}
+	case len(value) == 22 && isBase62(value):
+		return "spotify:playlist:" + value
 	}
 	return ""
 }

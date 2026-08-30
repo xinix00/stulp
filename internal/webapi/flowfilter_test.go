@@ -68,6 +68,21 @@ func TestDeviceFilterMatchesSubCapabilities(t *testing.T) {
 	}
 }
 
+func TestAppFilterSeparatesSameNamedDrivers(t *testing.T) {
+	spotify := testDevice("player", "speaker_playing")
+	spotify.AppID = "com.stulp.spotify"
+	wiim := testDevice("player", "speaker_playing")
+	wiim.AppID = "com.stulp.wiim"
+
+	filter := parseDeviceFilter("app_id=com.stulp.spotify&driver_id=player")
+	if !filter.matches(spotify) {
+		t.Fatal("Spotify's own player was excluded")
+	}
+	if filter.matches(wiim) {
+		t.Fatal("WiiM's same-named player leaked into a Spotify card")
+	}
+}
+
 // An unknown condition key must not silently hide a card: erring towards
 // offering it is recoverable, hiding it looks like the card does not exist.
 func TestUnknownFilterKeysDoNotHideCards(t *testing.T) {

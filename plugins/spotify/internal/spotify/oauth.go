@@ -31,9 +31,9 @@ const (
 	tokenURL     = "https://accounts.spotify.com/api/token"
 )
 
-// scopes zijn de twee die het doel vragen: zien welke apparaten er zijn, en
-// zeggen wat er moet spelen. Meer niet -- geen bibliotheek, geen playlists,
-// geen luistergeschiedenis.
+// scopes zijn de twee die het doel vraagt: zien welke apparaten er zijn, en
+// zeggen wat er moet spelen. Tracks en publieke playlists zoeken vraagt geen
+// extra scope; we vragen dus geen bibliotheek- of playlistbeheer.
 const scopes = "user-read-playback-state user-modify-playback-state"
 
 // Config is de registratie van deze installatie bij Spotify.

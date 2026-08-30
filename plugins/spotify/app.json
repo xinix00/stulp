@@ -5,8 +5,8 @@
   "compatibility": ">=12.0.0",
   "name": { "en": "Spotify", "nl": "Spotify" },
   "description": {
-    "en": "Play a track on a Spotify Connect device, and control what is playing.",
-    "nl": "Speel een nummer af op een Spotify Connect-apparaat, en bedien wat er speelt."
+    "en": "Play a track or playlist on a Spotify Connect device, and control what is playing.",
+    "nl": "Speel een nummer of playlist af op een Spotify Connect-apparaat, en bedien wat er speelt."
   },
   "author": { "name": "Stulp" },
   "category": ["music"],
@@ -58,12 +58,33 @@
           "nl": "Zoekt bij Spotify terwijl je typt. Bedienen op afstand vraagt Spotify Premium."
         },
         "args": [
-          { "name": "device", "type": "device", "filter": "driver_id=player" },
+          { "name": "device", "type": "device", "filter": "app_id=com.stulp.spotify&driver_id=player" },
           {
             "name": "track",
             "type": "autocomplete",
             "title": { "en": "Track", "nl": "Nummer" },
             "placeholder": { "en": "Search for a track…", "nl": "Zoek een nummer…" }
+          }
+        ]
+      },
+      {
+        "id": "play_playlist",
+        "title": { "en": "Play a playlist", "nl": "Speel een playlist af" },
+        "titleFormatted": {
+          "en": "Play playlist [[playlist]]",
+          "nl": "Speel playlist [[playlist]] af"
+        },
+        "hint": {
+          "en": "Search Spotify or paste a playlist link. Remote control requires Spotify Premium.",
+          "nl": "Zoek bij Spotify of plak een playlistlink. Bedienen op afstand vraagt Spotify Premium."
+        },
+        "args": [
+          { "name": "device", "type": "device", "filter": "app_id=com.stulp.spotify&driver_id=player" },
+          {
+            "name": "playlist",
+            "type": "autocomplete",
+            "title": { "en": "Playlist", "nl": "Playlist" },
+            "placeholder": { "en": "Search or paste a playlist link…", "nl": "Zoek of plak een playlistlink…" }
           }
         ]
       }

@@ -14,6 +14,7 @@ import (
 //
 //	driver_id=protectdoorbell                     one driver
 //	driver_id=protectdoorbell|protectcamera       either driver
+//	app_id=com.stulp.spotify&driver_id=player      one app's driver
 //	driver_id=protectchime&capabilities=onoff     driver and capability
 //	{"driver_id": "protectcamera"}                the same thing as an object
 //
@@ -74,6 +75,10 @@ func (f deviceFilter) add(key string, values []string) {
 func (f deviceFilter) matches(device store.Device) bool {
 	for key, values := range f.conditions {
 		switch key {
+		case "app_id":
+			if !containsValue(values, device.AppID) {
+				return false
+			}
 		case "driver_id":
 			if !containsValue(values, driverName(device.DriverID)) {
 				return false

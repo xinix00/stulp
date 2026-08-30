@@ -2,6 +2,21 @@ package main
 
 import "testing"
 
+func TestSpotifyPlayerComesFromTheFlowDeviceProperty(t *testing.T) {
+	want := &player{}
+	a := &app{devices: map[string]*player{"woonkamer": want}}
+
+	got, err := a.playerFor(map[string]any{
+		"device": map[string]any{"$device": "woonkamer"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatal("de Flow-deviceverwijzing wees niet naar de Spotify-speler")
+	}
+}
+
 // De kaart bewaart wat er gekozen is, en dat is het hele item -- niet de tekst
 // die iemand typte. Wie wel typt maar niet kiest hoort een zin te krijgen die
 // zegt wat er moet gebeuren, in plaats van een fout van Spotify over een uri die

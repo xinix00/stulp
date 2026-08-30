@@ -265,7 +265,7 @@ func (a *app) refreshSoon() {
 // and never enters this process.
 func (a *app) registerFlow(stulp *appsdk.Stulp) {
 	stulp.OnFlowAction("play_track", func(args, state map[string]any) (any, error) {
-		target, err := a.playerFor(args["device"])
+		target, err := a.playerFor(args)
 		if err != nil {
 			return nil, err
 		}
@@ -286,7 +286,7 @@ func (a *app) registerFlow(stulp *appsdk.Stulp) {
 	})
 
 	stulp.OnFlowAction("play_playlist", func(args, _ map[string]any) (any, error) {
-		target, err := a.playerFor(args["device"])
+		target, err := a.playerFor(args)
 		if err != nil {
 			return nil, err
 		}
@@ -345,12 +345,11 @@ func (a *app) registerFlow(stulp *appsdk.Stulp) {
 	})
 }
 
-// playerFor zoekt het apparaat op dat een Flow-kaart aanwijst.
-func (a *app) playerFor(value any) (*player, error) {
-	id, _ := value.(string)
-	if wrapped, ok := value.(map[string]any); ok {
-		id, _ = wrapped["id"].(string)
-	}
+// playerFor zoekt het apparaat op dat een Flow-kaart aanwijst. Een device is
+// geen autocomplete-keuze met "id", maar een blijvende {"$device": id}
+// verwijzing; DeviceArg leest precies dat Flow-formaat.
+func (a *app) playerFor(args map[string]any) (*player, error) {
+	id := appsdk.DeviceArg(args, "device")
 	if id == "" {
 		return nil, fmt.Errorf("kies eerst een speler")
 	}

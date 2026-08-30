@@ -31,11 +31,12 @@ const (
 	// unit antwoordt op het lokale netwerk binnen milliseconden; een halve
 	// seconde per stille unit houdt een volledige, ook sparse scan hanteerbaar.
 	scanTimeout = 500 * time.Millisecond
-	// chargerScanTimeout is korter omdat een EVAC zonder ingevuld unit-id het
-	// volledige, door Sigenergy voorgeschreven bereik 1-246 moet proberen. De
-	// verbinding zelf wordt eerst apart op unit 247 gecontroleerd; hier wachten
-	// we dus alleen nog op een stille slave achter een bereikbare omvormer.
-	chargerScanTimeout = 100 * time.Millisecond
+	// Sigenergy schrijft voor dat een Modbus-slave maximaal 1000 ms over een
+	// antwoord mag doen. De waarschijnlijke EVAC-units krijgen die hele tijd plus
+	// een kleine netwerkmarge. Alleen de resterende 1-246-fallback blijft kort;
+	// anders kan automatisch toevoegen ruim vier minuten duren.
+	chargerScanTimeout     = 1100 * time.Millisecond
+	chargerFallbackTimeout = 100 * time.Millisecond
 	// minInterval houdt het pollen bij een omvormer vandaan die er niet tegen
 	// kan. De bron staat vijf seconden als ondergrens toe en dat is hier
 	// overgenomen.
@@ -307,25 +308,46 @@ func (a *app) scan(card sigen.Card) ([]uint8, error) {
 // een AC-lader kan in mySigen ieder uniek adres van 1 tot en met 246 krijgen en
 // hoeft dus niet binnen de historische algemene scan 1-32 te vallen.
 func (a *app) scanCharger() ([]uint8, error) {
-	units, exact, err := chargerUnits(a.settings().SettingText("units"), a.settings().SettingText("chargerUnit"))
+	plan, err := planChargerScan(a.settings().SettingText("units"), a.settings().SettingText("chargerUnit"))
 	if err != nil {
 		return nil, err
 	}
-	timeout := chargerScanTimeout
-	if exact {
-		timeout = scanTimeout
-	}
-	found, err := a.scanAt(sigen.EvACCharger, units, timeout)
+	found, err := a.scanFirstAt(sigen.EvACCharger, plan.reliable, chargerScanTimeout)
 	if err != nil {
 		return nil, err
 	}
-	if exact && len(found) == 0 {
-		return nil, fmt.Errorf("op unit %d zijn geen Sigenergy AC-laadpaalregisters gevonden; controleer het EVAC-unit-id in mySigen", units[0])
+	if len(found) > 0 {
+		return found, nil
+	}
+	if plan.exact {
+		return nil, fmt.Errorf("op unit %d zijn geen Sigenergy AC-laadpaalregisters gevonden; controleer het EVAC-unit-id in mySigen", plan.reliable[0])
+	}
+
+	found, err = a.scanFirstAt(sigen.EvACCharger, plan.fallback, chargerFallbackTimeout)
+	if err != nil {
+		return nil, err
+	}
+	if len(found) == 0 {
+		return nil, fmt.Errorf("geen Sigenergy AC-laadpaal gevonden; vul het Modbus unit-id van de EVAC in de app-instellingen in voor een gerichte controle van een volle seconde")
 	}
 	return found, nil
 }
 
 func (a *app) scanAt(card sigen.Card, units []uint8, timeout time.Duration) ([]uint8, error) {
+	return a.scanAtUsing(card, units, timeout, scanUnits)
+}
+
+// scanFirstAt stopt zodra één unit het herkenningsregister aanbiedt. Dat is bij
+// toevoegen precies wat nodig is en voorkomt dat een gevonden EVAC alsnog moet
+// wachten op honderden stille adressen voordat de tegel verschijnt.
+func (a *app) scanFirstAt(card sigen.Card, units []uint8, timeout time.Duration) ([]uint8, error) {
+	return a.scanAtUsing(card, units, timeout, scanFirstUnit)
+}
+
+func (a *app) scanAtUsing(card sigen.Card, units []uint8, timeout time.Duration, scan func(sigen.Reader, sigen.Card, []uint8) ([]uint8, error)) ([]uint8, error) {
+	if len(units) == 0 {
+		return nil, nil
+	}
 	// Een eigen verbinding met een korte wachttijd.
 	//
 	// Getoetst tegen een echt systeem: een unit die bestaat antwoordt binnen
@@ -342,7 +364,11 @@ func (a *app) scanAt(card sigen.Card, units []uint8, timeout time.Duration) ([]u
 	// slave-adres opnieuw zijn timeout te krijgen. Unit 247 is het verplichte
 	// plantadres; één vraag daar maakt onderscheid tussen een kapotte verbinding
 	// en een bereikbare omvormer waar alleen deze apparaatsoort ontbreekt.
-	check := modbus.New(host, port, scanTimeout)
+	checkTimeout := scanTimeout
+	if timeout > checkTimeout {
+		checkTimeout = timeout
+	}
+	check := modbus.New(host, port, checkTimeout)
 	_, checkErr := sigen.Plant.Probe().Read(check, sigen.SystemUnit)
 	_ = check.Close()
 	if checkErr != nil {
@@ -351,7 +377,7 @@ func (a *app) scanAt(card sigen.Card, units []uint8, timeout time.Duration) ([]u
 
 	client := modbus.New(host, port, timeout)
 	defer client.Close()
-	found, err := scanUnits(client, card, units)
+	found, err := scan(client, card, units)
 	if err == nil {
 		return found, nil
 	}
@@ -361,7 +387,7 @@ func (a *app) scanAt(card sigen.Card, units []uint8, timeout time.Duration) ([]u
 	// toets hem na de ronde nogmaals. Antwoordt hij nog, dan is "geen apparaat"
 	// de juiste uitkomst. Is hij intussen weggevallen, behoud dan de echte
 	// transportfout uit de scan.
-	recheck := modbus.New(host, port, scanTimeout)
+	recheck := modbus.New(host, port, checkTimeout)
 	_, stillReachable := sigen.Plant.Probe().Read(recheck, sigen.SystemUnit)
 	_ = recheck.Close()
 	if stillReachable == nil {
@@ -370,38 +396,44 @@ func (a *app) scanAt(card sigen.Card, units []uint8, timeout time.Duration) ([]u
 	return nil, err
 }
 
-// chargerUnits zet eerst de al gekozen units neer: die zijn de meest
-// waarschijnlijke en antwoorden dus snel. Daarna volgen alle nog niet genoemde
-// device-adressen. 247 is het plantadres en kan nooit een EVAC zijn.
-func chargerUnits(configured, exactText string) ([]uint8, bool, error) {
+type chargerScanPlan struct {
+	reliable []uint8
+	fallback []uint8
+	exact    bool
+}
+
+// planChargerScan geeft de al gekozen units de officiële antwoordtijd. Daarna
+// volgen alle nog niet genoemde device-adressen als snelle vangnetronde. Unit
+// 247 is het plantadres en kan nooit een EVAC zijn.
+func planChargerScan(configured, exactText string) (chargerScanPlan, error) {
 	exactText = strings.TrimSpace(exactText)
 	if exactText != "" {
 		exact, err := strconv.Atoi(exactText)
 		if err != nil || exact < 1 || exact > 246 {
-			return nil, false, fmt.Errorf("het Modbus unit-id van de AC-laadpaal moet een getal van 1 tot en met 246 zijn")
+			return chargerScanPlan{}, fmt.Errorf("het Modbus unit-id van de AC-laadpaal moet een getal van 1 tot en met 246 zijn")
 		}
-		return []uint8{uint8(exact)}, true, nil
+		return chargerScanPlan{reliable: []uint8{uint8(exact)}, exact: true}, nil
 	}
 
 	preferred, err := parseUnits(configured)
 	if err != nil {
-		return nil, false, err
+		return chargerScanPlan{}, err
 	}
 	seen := map[uint8]bool{}
-	units := make([]uint8, 0, 246)
+	plan := chargerScanPlan{reliable: make([]uint8, 0, len(preferred))}
 	for _, unit := range preferred {
 		if unit <= 246 && !seen[unit] {
 			seen[unit] = true
-			units = append(units, unit)
+			plan.reliable = append(plan.reliable, unit)
 		}
 	}
 	for unit := 1; unit <= 246; unit++ {
 		value := uint8(unit)
 		if !seen[value] {
-			units = append(units, value)
+			plan.fallback = append(plan.fallback, value)
 		}
 	}
-	return units, false, nil
+	return plan, nil
 }
 
 // scanUnits tast iedere opgegeven unit af. De lijst kan bewust gaten bevatten:
@@ -436,6 +468,32 @@ func scanUnits(reader sigen.Reader, card sigen.Card, units []uint8) ([]uint8, er
 		return nil, firstFailure
 	}
 	return found, nil
+}
+
+// scanFirstUnit heeft dezelfde foutbetekenis als scanUnits, maar levert de
+// eerste echte treffer meteen op. Weigeringen bewijzen nog steeds dat het
+// systeem antwoordt; alleen stilte zonder enig antwoord wordt een fout.
+func scanFirstUnit(reader sigen.Reader, card sigen.Card, units []uint8) ([]uint8, error) {
+	probe := card.Probe()
+	var firstFailure error
+	answered := false
+	for _, unit := range units {
+		_, err := probe.Read(reader, unit)
+		switch {
+		case err == nil:
+			return []uint8{unit}, nil
+		case isRefusal(err):
+			answered = true
+		default:
+			if firstFailure == nil {
+				firstFailure = err
+			}
+		}
+	}
+	if !answered && firstFailure != nil {
+		return nil, firstFailure
+	}
+	return nil, nil
 }
 
 func isRefusal(err error) bool {

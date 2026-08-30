@@ -324,14 +324,18 @@ func TestParseUnitsFallsBackToTheDefault(t *testing.T) {
 	}
 }
 
-func TestChargerUnitsPreferConfiguredRangeThenCoverOfficialDeviceRange(t *testing.T) {
-	units, exact, err := chargerUnits("1-4,100,247", "")
+func TestChargerScanPlanGivesConfiguredRangeReliableTimeThenCoversOfficialDeviceRange(t *testing.T) {
+	plan, err := planChargerScan("1-4,100,247", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if exact {
+	if plan.exact {
 		t.Fatal("een lege laadpaalunit werd als expliciet behandeld")
 	}
+	if want := []uint8{1, 2, 3, 4, 100}; !reflect.DeepEqual(plan.reliable, want) {
+		t.Fatalf("betrouwbare units = %v, wil %v", plan.reliable, want)
+	}
+	units := append(append([]uint8(nil), plan.reliable...), plan.fallback...)
 	if len(units) != 246 {
 		t.Fatalf("%d laadpaalunits, wil 246", len(units))
 	}
@@ -348,25 +352,26 @@ func TestChargerUnitsPreferConfiguredRangeThenCoverOfficialDeviceRange(t *testin
 }
 
 func TestExplicitChargerUnitAvoidsTheFullScan(t *testing.T) {
-	units, exact, err := chargerUnits("1-32,247", "203")
+	plan, err := planChargerScan("1-32,247", "203")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !exact || !reflect.DeepEqual(units, []uint8{203}) {
-		t.Fatalf("laadpaalunits = %v, exact=%v", units, exact)
+	if !plan.exact || !reflect.DeepEqual(plan.reliable, []uint8{203}) || len(plan.fallback) != 0 {
+		t.Fatalf("laadpaalplan = %+v", plan)
 	}
 	for _, value := range []string{"0", "247", "abc"} {
-		if _, _, err := chargerUnits("1-32,247", value); err == nil {
+		if _, err := planChargerScan("1-32,247", value); err == nil {
 			t.Errorf("expliciete laadpaalunit %q werd geaccepteerd", value)
 		}
 	}
 }
 
 func TestAutomaticChargerScanCanFindAUnitOutsideTheLegacyRange(t *testing.T) {
-	units, _, err := chargerUnits("1-32,247", "")
+	plan, err := planChargerScan("1-32,247", "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	units := append(append([]uint8(nil), plan.reliable...), plan.fallback...)
 	reader := &scanReader{present: map[uint8]bool{203: true}}
 	found, err := scanUnits(reader, sigen.EvACCharger, units)
 	if err != nil {
@@ -377,6 +382,20 @@ func TestAutomaticChargerScanCanFindAUnitOutsideTheLegacyRange(t *testing.T) {
 	}
 	if len(reader.reads) != 246 {
 		t.Fatalf("%d van 246 officiële device-units zijn afgetast", len(reader.reads))
+	}
+}
+
+func TestChargerScanStopsAsSoonAsItFindsTheFirstUnit(t *testing.T) {
+	reader := &scanReader{present: map[uint8]bool{3: true, 8: true}}
+	found, err := scanFirstUnit(reader, sigen.EvACCharger, []uint8{1, 2, 3, 4, 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(found, []uint8{3}) {
+		t.Fatalf("gevonden laadpaalunits = %v, wil [3]", found)
+	}
+	if len(reader.reads) != 3 {
+		t.Fatalf("na de treffer werden nog units gelezen: %v", reader.reads)
 	}
 }
 

@@ -65,15 +65,15 @@ func (a *app) registerAPI(stulp *appsdk.Stulp) {
 			return nil, err
 		}
 		chargerUnit, _ := body["chargerUnit"].(string)
-		if extra, exact, err := chargerUnits(unitText, chargerUnit); err != nil {
+		if plan, err := planChargerScan(unitText, chargerUnit); err != nil {
 			return nil, err
-		} else if exact {
+		} else if plan.exact {
 			known := false
 			for _, unit := range units {
-				known = known || unit == extra[0]
+				known = known || unit == plan.reliable[0]
 			}
 			if !known {
-				units = append(units, extra[0])
+				units = append(units, plan.reliable[0])
 			}
 		}
 

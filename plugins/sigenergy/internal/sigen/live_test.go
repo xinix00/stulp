@@ -1,6 +1,7 @@
 package sigen
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"testing"
@@ -154,4 +155,68 @@ func TestScanLikeThePluginDoes(t *testing.T) {
 		t.Logf("  %-9s probe %-5d op units %v  (%v)",
 			card.name, card.reg.Addr, found, time.Since(start).Round(time.Millisecond))
 	}
+}
+
+// Vindt het werkelijke EVAC-unit-id zonder iets aan de installatie te
+// schrijven. Dit is bewust een trage diagnosetest: Sigenergy geeft een slave
+// officieel maximaal 1000 ms om te antwoorden. Met 100 ms lijkt toevoegen
+// vlot, maar kan een geldige laadpaal stilletjes worden overgeslagen.
+//
+// STULP_SIGEN_SCAN_FROM en STULP_SIGEN_SCAN_TO kunnen de ronde opdelen. Zonder
+// die variabelen wordt het volledige officiële devicebereik 1-246 gelezen.
+func TestFindEVACAgainstARealSystem(t *testing.T) {
+	host := os.Getenv("STULP_SIGEN_HOST")
+	if host == "" {
+		t.Skip("geen STULP_SIGEN_HOST")
+	}
+	port := 502
+	if text := os.Getenv("STULP_SIGEN_PORT"); text != "" {
+		port, _ = strconv.Atoi(text)
+	}
+	from := liveScanBound(t, "STULP_SIGEN_SCAN_FROM", 1)
+	to := liveScanBound(t, "STULP_SIGEN_SCAN_TO", 246)
+	if from > to {
+		t.Fatalf("scan begint op unit %d maar eindigt op %d", from, to)
+	}
+
+	client := modbus.New(host, port, 1200*time.Millisecond)
+	defer client.Close()
+	if _, err := Plant.Probe().Read(client, SystemUnit); err != nil {
+		t.Fatalf("systeem-unit 247 op %s:%d antwoordt niet: %v", host, port, err)
+	}
+
+	found := 0
+	for unit := from; unit <= to; unit++ {
+		started := time.Now()
+		words, err := client.ReadHolding(uint8(unit), EvACCharger.Status.Addr, 5)
+		elapsed := time.Since(started).Round(time.Millisecond)
+		if err == nil {
+			found++
+			status := words[0]
+			total := uint32(words[1])<<16 | uint32(words[2])
+			power := int32(uint32(words[3])<<16 | uint32(words[4]))
+			t.Logf("EVAC GEVONDEN op unit %d: status=%d, totaal=%.2f kWh, vermogen=%.3f kW (%v)",
+				unit, status, float64(total)/100, float64(power)/1000, elapsed)
+		} else if unit == from || unit == to || unit%10 == 0 {
+			// Een voortgangsregel per tien adressen houdt een volledige ronde
+			// controleerbaar zonder 246 vrijwel identieke timeouts te tonen.
+			fmt.Fprintf(os.Stderr, "EVAC-scan unit %d/%d (%v)\n", unit, to, elapsed)
+		}
+	}
+	if found == 0 {
+		t.Fatalf("geen EVAC-registers op units %d-%d", from, to)
+	}
+}
+
+func liveScanBound(t *testing.T, name string, fallback int) int {
+	t.Helper()
+	text := os.Getenv(name)
+	if text == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(text)
+	if err != nil || value < 1 || value > 246 {
+		t.Fatalf("%s moet een getal van 1 tot en met 246 zijn", name)
+	}
+	return value
 }

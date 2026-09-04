@@ -13,7 +13,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/xinix00/HopOS/metal/app/applib/appnet"
+	"github.com/xinix00/HopOS/metal/v2/app/applib/appnet"
 )
 
 // De join is éénmalig en blijft: een matter-controller is een permanente

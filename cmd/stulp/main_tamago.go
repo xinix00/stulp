@@ -42,8 +42,8 @@ import (
 
 	"github.com/xinix00/lean/leanhttp"
 
-	"github.com/xinix00/HopOS/metal/app/applib"
-	"github.com/xinix00/HopOS/metal/app/applib/appnet"
+	"github.com/xinix00/HopOS/metal/v2/app/applib"
+	"github.com/xinix00/HopOS/metal/v2/app/applib/appnet"
 
 	"github.com/xinix00/stulp/internal/imageshare"
 	"github.com/xinix00/stulp/internal/plugin"

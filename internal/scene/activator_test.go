@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -89,6 +90,23 @@ func storedScene(t *testing.T, database *store.Store, id string) store.Scene {
 		t.Fatal(err)
 	}
 	return definition
+}
+
+// reportState plays the integration: the device says what it did after a
+// command. Without it a restore has nothing to put back, because every value
+// still reads as it did before the scene.
+func reportState(t *testing.T, database *store.Store, deviceID string, values map[string]any) {
+	t.Helper()
+	device, err := database.Device(context.Background(), deviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for capability, value := range values {
+		device.State[capability] = value
+	}
+	if err := database.UpdateDevice(context.Background(), device); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSetOnSnapshotsCurrentStateAndActivatesDesiredState(t *testing.T) {
@@ -196,6 +214,7 @@ func TestSetOrdersPowerAroundOtherCapabilitiesPerDevice(t *testing.T) {
 		t.Fatalf("ON result order = %#v, want %#v", on.States, wantResults)
 	}
 
+	reportState(t, database, "lamp", map[string]any{"onoff": true, "dim": 0.6})
 	invoked = nil
 	off, err := activator.Set(context.Background(), definition.ID, false)
 	if err != nil || !off.Success {
@@ -252,6 +271,8 @@ func TestSetOffRestoresBaselineAndMakesSceneInactive(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	reportState(t, database, "lamp", map[string]any{"onoff": true, "dim": 0.3})
+
 	var restored []any
 	restorer := New(database, func(_ context.Context, _ string, _ string, value any, _ map[string]any) error {
 		restored = append(restored, value)
@@ -293,6 +314,8 @@ func TestPartialOnShrinksBaselineAndOffCanBeRetried(t *testing.T) {
 	if !stored.Active || !reflect.DeepEqual(stored.Previous, wantRemaining) {
 		t.Fatalf("partial ON baseline = %#v", stored.Previous)
 	}
+
+	reportState(t, database, "lamp", map[string]any{"dim": 0.3})
 
 	offFailure := errors.New("dimmer is offline")
 	failOff := New(database, func(context.Context, string, string, any, map[string]any) error { return offFailure })
@@ -431,6 +454,8 @@ func TestCancelledOffRetainsUnattemptedStatesForRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	reportState(t, database, "lamp", map[string]any{"onoff": true, "dim": 0.3})
+
 	ctx, cancel := context.WithCancel(context.Background())
 	var invoked atomic.Int32
 	cancelling := New(database, func(context.Context, string, string, any, map[string]any) error {
@@ -463,6 +488,8 @@ func TestSetSerializesAcrossActivatorsAndNormalizedIDs(t *testing.T) {
 		context.Background(), definition.ID, true); err != nil {
 		t.Fatal(err)
 	}
+
+	reportState(t, database, "lamp", map[string]any{"onoff": true})
 
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
@@ -644,5 +671,140 @@ func TestSetMissingSceneDoesNotInvokeCapabilities(t *testing.T) {
 	result, err := activator.Set(context.Background(), "missing", true)
 	if err == nil || result.SceneID != "missing" || result.Attempted != 0 || invoked.Load() != 0 {
 		t.Fatalf("missing activation = %#v, error %v, invocations %d", result, err, invoked.Load())
+	}
+}
+
+func TestSetOffSkipsValuesTheDeviceAlreadyReports(t *testing.T) {
+	database := sceneStore(t, store.InMemoryPath)
+	addSceneDevice(t, database, "lamp", []string{"onoff", "dim", "light_saturation"},
+		map[string]any{"onoff": true, "dim": 0.9, "light_saturation": 0.5})
+	definition := createScene(t, database,
+		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: false},
+		store.SceneState{DeviceID: "lamp", CapabilityID: "dim", Value: 0.3},
+		store.SceneState{DeviceID: "lamp", CapabilityID: "light_saturation", Value: 0.5},
+	)
+	if _, err := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(
+		context.Background(), definition.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	// The lamp reports in the steps its radio allows: 0.3 comes back as 76/254,
+	// and the saturation the scene left alone drifts by one step as well.
+	reportState(t, database, "lamp", map[string]any{"onoff": false, "dim": 0.2992, "light_saturation": 0.5039})
+
+	type invocation struct {
+		capability string
+		value      any
+	}
+	var invoked []invocation
+	result, err := New(database, func(_ context.Context, _ string, capability string, value any, _ map[string]any) error {
+		invoked = append(invoked, invocation{capability: capability, value: value})
+		return nil
+	}).Set(context.Background(), definition.ID, false)
+	if err != nil || !result.Success || result.Active || result.Attempted != 3 || result.Succeeded != 3 || result.Failed != 0 {
+		t.Fatalf("OFF = %#v, error %v", result, err)
+	}
+	// Power first, then the level. The saturation is not sent at all: it is
+	// already there, and a lamp that just powered off ignores it anyway.
+	wantInvoked := []invocation{{capability: "onoff", value: true}, {capability: "dim", value: 0.9}}
+	if !reflect.DeepEqual(invoked, wantInvoked) {
+		t.Fatalf("restore invocations = %#v, want %#v", invoked, wantInvoked)
+	}
+	wantStates := []StateResult{
+		{DeviceID: "lamp", CapabilityID: "onoff", Value: true, Success: true},
+		{DeviceID: "lamp", CapabilityID: "dim", Value: 0.9, Success: true},
+		{DeviceID: "lamp", CapabilityID: "light_saturation", Value: 0.5, Success: true, Unchanged: true},
+	}
+	if !reflect.DeepEqual(result.States, wantStates) {
+		t.Fatalf("restore states = %#v, want %#v", result.States, wantStates)
+	}
+	if stored := storedScene(t, database, definition.ID); stored.Active || len(stored.Previous) != 0 {
+		t.Fatalf("scene after OFF = %#v", stored)
+	}
+}
+
+func TestSetOffStillRestoresWhenTheCurrentValueIsUnknown(t *testing.T) {
+	database := sceneStore(t, store.InMemoryPath)
+	addSceneDevice(t, database, "lamp", []string{"onoff"}, map[string]any{"onoff": false})
+	definition := createScene(t, database, store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true})
+	if _, err := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(
+		context.Background(), definition.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	// The lamp stopped reporting. Unknown is not "already there".
+	reportState(t, database, "lamp", map[string]any{"onoff": nil})
+
+	var invoked []any
+	result, err := New(database, func(_ context.Context, _ string, _ string, value any, _ map[string]any) error {
+		invoked = append(invoked, value)
+		return nil
+	}).Set(context.Background(), definition.ID, false)
+	if err != nil || !result.Success || result.Active || result.Attempted != 1 || result.States[0].Unchanged {
+		t.Fatalf("OFF with unknown current value = %#v, error %v", result, err)
+	}
+	if want := []any{false}; !reflect.DeepEqual(invoked, want) {
+		t.Fatalf("restore invocations = %#v, want %#v", invoked, want)
+	}
+}
+
+func TestButtonSceneIsPressedWithoutSnapshotAndCannotBeTurnedOff(t *testing.T) {
+	database := sceneStore(t, store.InMemoryPath)
+	addSceneDevice(t, database, "lamp", []string{"onoff", "dim"}, map[string]any{"onoff": true, "dim": 0.8})
+	// A value nobody has read yet is no obstacle: a button needs no restore point.
+	addSceneDevice(t, database, "blind", []string{"windowcoverings_set"}, map[string]any{"windowcoverings_set": nil})
+	definition, err := database.CreateScene(context.Background(), store.Scene{
+		Name: "Tuin uit", Kind: store.SceneKindButton, States: []store.SceneState{
+			{DeviceID: "lamp", CapabilityID: "onoff", Value: false},
+			{DeviceID: "lamp", CapabilityID: "dim", Value: 0.2},
+			{DeviceID: "blind", CapabilityID: "windowcoverings_set", Value: 0.0},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var invoked []store.SceneState
+	activator := New(database, func(_ context.Context, device, capability string, value any, _ map[string]any) error {
+		mu.Lock()
+		invoked = append(invoked, store.SceneState{DeviceID: device, CapabilityID: capability, Value: value})
+		mu.Unlock()
+		return nil
+	})
+	for press := 1; press <= 2; press++ {
+		result, err := activator.Set(context.Background(), definition.ID, true)
+		if err != nil || !result.Success || !result.Momentary || result.Active || !result.RequestedOn ||
+			result.Attempted != 3 || result.Succeeded != 3 || result.Failed != 0 {
+			t.Fatalf("press %d = %#v, error %v", press, result, err)
+		}
+		if stored := storedScene(t, database, definition.ID); stored.Active || stored.Previous != nil {
+			t.Fatalf("press %d left restore state behind: %#v", press, stored)
+		}
+	}
+	mu.Lock()
+	var lamp, blind []store.SceneState
+	for _, call := range invoked {
+		if call.DeviceID == "lamp" {
+			lamp = append(lamp, call)
+		} else {
+			blind = append(blind, call)
+		}
+	}
+	mu.Unlock()
+	// Devices run in parallel; within the lamp, power still goes last.
+	wantLamp := []store.SceneState{
+		{DeviceID: "lamp", CapabilityID: "dim", Value: 0.2}, {DeviceID: "lamp", CapabilityID: "onoff", Value: false},
+		{DeviceID: "lamp", CapabilityID: "dim", Value: 0.2}, {DeviceID: "lamp", CapabilityID: "onoff", Value: false},
+	}
+	if !reflect.DeepEqual(lamp, wantLamp) || len(blind) != 2 || blind[0].Value != 0.0 {
+		t.Fatalf("press invocations: lamp=%#v blind=%#v", lamp, blind)
+	}
+
+	result, err := activator.Set(context.Background(), definition.ID, false)
+	if err == nil || !strings.Contains(err.Error(), "button") || result.Success || !result.Momentary || result.Active || result.Attempted != 0 {
+		t.Fatalf("OFF on a button scene = %#v, error %v", result, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(invoked) != 6 {
+		t.Fatalf("OFF on a button scene sent commands: %#v", invoked)
 	}
 }

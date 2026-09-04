@@ -78,7 +78,8 @@ func buildMCPToolCatalog() []map[string]any {
 		mcpTool("devices_write", "Set a device capability", mcpAct,
 			"Request one writable capability change. Read devices_list first and use only setable=true. "+
 				"Values use household units; accepted does not mean the device has already reported the new state. "+
-				"For a device with class=scene, the first onoff=true saves current target states and applies it; repeated true keeps that snapshot, and false restores it. "+
+				"For a class=scene device with onoff, the first onoff=true saves current target states and applies it; repeated true keeps that snapshot, false restores it (values a device already reports are skipped), and the scene turns itself off when a value it set is changed elsewhere. "+
+				"For a class=scene device with button, button=true applies it once; it has no state and cannot be turned off. "+
 				"Scene writes include sceneActivation; its active field is durable, and a partial restore with active=true may safely be retried.",
 			mcpRequired(mcpObject(map[string]any{
 				"deviceId":     mcpID("Exact device id"),

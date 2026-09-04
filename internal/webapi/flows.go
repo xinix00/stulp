@@ -230,6 +230,10 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 		definition        map[string]any
 		readableDeviceIDs []string
 		setableDeviceIDs  []string
+		// stateful is set once any device can both read and write the
+		// capability. A capability that is only ever pressed gets a single
+		// "uitvoeren" card, and that must not depend on which device came first.
+		stateful bool
 	}
 	byCapability := make(map[string]*entry)
 	order := make([]string, 0, 16)
@@ -242,11 +246,16 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 				byCapability[capability] = existing
 				order = append(order, capability)
 			}
-			if getable, _ := definition["getable"].(bool); getable {
+			getable, _ := definition["getable"].(bool)
+			setable, _ := definition["setable"].(bool)
+			if getable {
 				existing.readableDeviceIDs = append(existing.readableDeviceIDs, device.ID)
 			}
-			if setable, _ := definition["setable"].(bool); setable {
+			if setable {
 				existing.setableDeviceIDs = append(existing.setableDeviceIDs, device.ID)
+			}
+			if getable && setable {
+				existing.stateful = true
 			}
 		}
 	}
@@ -360,8 +369,7 @@ func (s *Server) capabilityCards(devices []store.Device) map[string][]map[string
 			}
 		}
 		if len(found.setableDeviceIDs) > 0 {
-			getable, _ := found.definition["getable"].(bool)
-			if !getable {
+			if !found.stateful {
 				card("actions", "run", title+" uitvoeren")
 			} else if valueType == "boolean" {
 				// Keep the generic set card for existing Flows and offer the

@@ -88,6 +88,7 @@ func TestMCPDiscoversAndControlsSceneAsNormalOnOffDevice(t *testing.T) {
 	if reportedOnOff["value"] != true {
 		t.Fatalf("MCP did not read the active scene state: %#v", reportedOnOff)
 	}
+	reportDeviceState(t, server, physical.ID, map[string]any{"onoff": true, "mode": "movie"})
 
 	turnedOff := mcpStructured(t, mcpToolCall(t, handler, "devices_write", map[string]any{
 		"deviceId": deviceID, "capabilityId": "onoff", "value": false,
@@ -211,6 +212,7 @@ func TestMCPReportsPartialSceneRestoreAndKeepsItRetryable(t *testing.T) {
 	mcpStructured(t, mcpToolCall(t, handler, "devices_write", map[string]any{
 		"deviceId": deviceID, "capabilityId": "onoff", "value": true,
 	}))
+	reportDeviceState(t, server, physical.ID, map[string]any{"onoff": true, "mode": "movie"})
 
 	server.scenes = scenerunner.New(server.store, func(_ context.Context, _ string, capabilityID string, _ any, _ map[string]any) error {
 		if capabilityID == "mode" {
@@ -337,7 +339,65 @@ func assertMCPSceneActive(t *testing.T, server *Server, sceneID string, want boo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if definition.Active != want || device.State["onoff"] != want {
-		t.Fatalf("scene active=%t device onoff=%#v, want %t", definition.Active, device.State["onoff"], want)
+	if definition.Active != want {
+		t.Fatalf("scene active=%t, want %t", definition.Active, want)
+	}
+	// A button scene device has no onoff to mirror; a switch scene must.
+	if definition.Momentary() {
+		if len(device.State) != 0 {
+			t.Fatalf("button scene device reports state %#v", device.State)
+		}
+		return
+	}
+	if device.State["onoff"] != want {
+		t.Fatalf("scene device onoff=%#v, want %t", device.State["onoff"], want)
+	}
+}
+
+func TestMCPPressesAButtonSceneWithoutARestoreSession(t *testing.T) {
+	server, physical := sceneServer(t)
+	created := createAPISceneOfKind(t, server, "Tuin uit", "button",
+		store.SceneState{DeviceID: physical.ID, CapabilityID: "onoff", Value: false})
+	server.options.Token = "secret"
+	calls := 0
+	server.scenes = scenerunner.New(server.store, func(context.Context, string, string, any, map[string]any) error {
+		calls++
+		return nil
+	})
+	handler := server.Handler()
+	deviceID := store.SceneDeviceID(created.ID)
+
+	listed := mcpStructured(t, mcpToolCall(t, handler, "devices_list", map[string]any{"deviceId": deviceID}))
+	devices, _ := listed["devices"].([]any)
+	if len(devices) != 1 {
+		t.Fatalf("button scene lookup = %#v", listed)
+	}
+	device, _ := devices[0].(map[string]any)
+	capabilities, _ := device["capabilities"].(map[string]any)
+	button, _ := capabilities["button"].(map[string]any)
+	if _, hasOnOff := capabilities["onoff"]; hasOnOff || device["class"] != "scene" ||
+		button["type"] != "boolean" || button["getable"] != false || button["setable"] != true {
+		t.Fatalf("MCP button scene metadata = %#v", device)
+	}
+
+	raw := mcpToolCall(t, handler, "devices_write", map[string]any{
+		"deviceId": deviceID, "capabilityId": "button", "value": true,
+	})
+	pressed := mcpStructured(t, raw)
+	activation := mcpSceneActivation(t, pressed)
+	if activation["momentary"] != true || activation["active"] != false || activation["success"] != true ||
+		activation["attempted"] != float64(1) || activation["succeeded"] != float64(1) || calls != 1 {
+		t.Fatalf("MCP button press = %#v calls=%d", activation, calls)
+	}
+	if text := mcpToolText(raw); !strings.Contains(text, "was pressed") || !strings.Contains(text, "nothing to restore") {
+		t.Fatalf("MCP button press summary = %q", text)
+	}
+	assertMCPSceneActive(t, server, created.ID, false)
+
+	refused := mcpToolCall(t, handler, "devices_write", map[string]any{
+		"deviceId": deviceID, "capabilityId": "button", "value": false,
+	})
+	if refused["isError"] != true || !strings.Contains(mcpToolText(refused), "button") || calls != 1 {
+		t.Fatalf("MCP button off = %#v calls=%d", refused, calls)
 	}
 }

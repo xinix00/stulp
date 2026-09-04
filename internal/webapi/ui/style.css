@@ -140,8 +140,8 @@ form label { display: block; margin: 12px 0; font-size: 13px; }.actions { displa
 .scene-dialog[open] { display: block; }.settings-shell .scene-editor { height: 100%; display: flex; flex-direction: column; min-height: 0; padding: 0; }
 .settings-shell .scene-editor > .dialog-title { flex: none; margin: 0; }
 .scene-mark { color: var(--pink); background: #30203c; }
-.scene-editor-toolbar { flex: none; display: grid; grid-template-columns: minmax(220px, 1fr) auto; align-items: end; gap: 0 18px; padding: 0 18px 13px; border-bottom: 1px solid var(--border); }
-.scene-name-field { margin-bottom: 0 !important; }.scene-name-field input { font-weight: 650; }
+.scene-editor-toolbar { flex: none; display: grid; grid-template-columns: minmax(220px, 1fr) minmax(200px, auto) auto; align-items: end; gap: 0 18px; padding: 0 18px 13px; border-bottom: 1px solid var(--border); }
+.scene-name-field, .scene-kind-field { margin-bottom: 0 !important; }.scene-name-field input { font-weight: 650; }
 .scene-capture-actions { display: flex; align-items: center; gap: 7px; }.scene-capture-actions .material-symbols-rounded { font-size: 18px; }
 .scene-selection-summary { grid-column: 1 / -1; min-height: 17px; margin: 9px 0 0; color: var(--muted); font-size: 11px; }
 .scene-devices { flex: 1; min-height: 0; overflow: auto; display: grid; align-content: start; gap: 18px; padding: 17px 18px 22px; background: var(--bg-raised); }

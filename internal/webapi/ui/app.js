@@ -660,6 +660,19 @@ function deviceQuickControl(device) {
     button.addEventListener('click', () => setCapability(device, capability, wanted));
     return button;
   }
+  // Een drukknop heeft geen stand: hij doet iets. Bij een scene is dat
+  // afspelen, en zo ziet de knop er ook uit.
+  if (base === 'button' && capability.setable) {
+    const scene = isSceneDevice(device);
+    const label = scene ? 'Scene activeren' : `${title} indrukken`;
+    const button = node('button', 'device-quick quick-action quick-run');
+    button.type = 'button'; button.disabled = !device.available;
+    button.title = label;
+    button.setAttribute('aria-label', `${device.name} ${scene ? 'activeren' : 'indrukken'}`);
+    button.append(materialIcon(scene ? 'play_arrow' : 'touch_app'));
+    button.addEventListener('click', () => setCapability(device, capability, true));
+    return button;
+  }
   if (capability.type === 'boolean') {
     if (capability.setable) {
       const button = node('button', `device-quick quick-action ${capability.value ? 'active' : ''}`);
@@ -1146,6 +1159,13 @@ function capabilityControl(device, capability) {
       input.title = label;
       input.setAttribute('aria-label', label);
       input.append(materialIcon(mediaCommandIcons[base]), node('span', 'sr-only', label));
+    } else if (base === 'button') {
+      const scene = isSceneDevice(device);
+      const label = scene ? 'Activeren' : localized(capability.title) || 'Indrukken';
+      input = node('button', 'capability-icon-toggle icon-button');
+      input.title = label;
+      input.setAttribute('aria-label', label);
+      input.append(materialIcon(scene ? 'play_arrow' : 'touch_app'), node('span', 'sr-only', label));
     } else if (base === 'speaker_playing') {
       const playing = Boolean(capability.value);
       const label = playing ? 'Pauzeren' : 'Afspelen';
@@ -1165,7 +1185,7 @@ function capabilityControl(device, capability) {
     } else {
       input = node('button', '', capability.value ? 'Aan' : 'Uit');
     }
-    input.addEventListener('click', () => setCapability(device, capability, mediaCommandIcons[base] ? true : !capability.value));
+    input.addEventListener('click', () => setCapability(device, capability, mediaCommandIcons[base] || base === 'button' ? true : !capability.value));
     row.append(input, node('span'));
     return row;
   }
@@ -1588,6 +1608,22 @@ function formatSceneValue(capability, value) {
   return formatValue(value, capability?.units);
 }
 
+// Een scene is een schakelaar of een knop. De schakelaar onthoudt wat hij
+// veranderde en zet dat bij uit terug; de knop past alleen toe. "Tuinlichten
+// uit" is een knop: die uitzetten zou de lichten weer aandoen.
+function sceneIsButton(scene) { return scene?.kind === 'button'; }
+
+function describeSceneKind(kind) {
+  return kind === 'button'
+    ? 'Deze knop zet gekozen standen; hij onthoudt niets en kent geen uit.'
+    : 'Dit apparaat zet gekozen standen aan en herstelt ze bij uitzetten.';
+}
+
+function updateSceneKindDescription() {
+  const status = $('scene-dialog').querySelector('.settings-status');
+  if (status) status.textContent = describeSceneKind($('scene-kind').value);
+}
+
 function sceneStateDescription(wanted) {
   const device = state.devices.find(candidate => candidate.id === wanted.deviceId);
   const capability = device?.capabilitiesObj?.[wanted.capabilityId];
@@ -1604,6 +1640,8 @@ async function openScene(existing = null) {
     : { name: '', states: [] };
   state.editingScene.states ||= [];
   $('scene-name').value = state.editingScene.name || '';
+  $('scene-kind').value = sceneIsButton(state.editingScene) ? 'button' : 'switch';
+  updateSceneKindDescription();
   $('scene-title').textContent = existing ? 'Scene laden…' : 'Scene toevoegen';
   $('scene-devices').replaceChildren(node('p', 'empty', 'Apparaten laden…'));
   openModal($('scene-dialog'));
@@ -1801,6 +1839,7 @@ async function saveScene(event) {
   event.preventDefault();
   const scene = state.editingScene;
   scene.name = $('scene-name').value.trim();
+  scene.kind = $('scene-kind').value === 'button' ? 'button' : 'switch';
   if (!scene.states?.length) return toast('Kies ten minste één stand voor deze scene.', true);
   if (!$('scene-form').reportValidity()) return;
   try {
@@ -2794,8 +2833,10 @@ function renderSceneConfiguration(form, device) {
   }
 
   const deviceCount = new Set((scene.states || []).map(wanted => wanted.deviceId)).size;
-  form.append(node('p', 'settings-hint scene-config-explanation',
-    `Bij aan worden ${scene.states.length} ${scene.states.length === 1 ? 'stand' : 'standen'} op ${deviceCount} ${deviceCount === 1 ? 'apparaat' : 'apparaten'} gezet. Bij uit herstelt Stulp de standen die het vlak voor aan heeft onthouden.`));
+  const count = `${scene.states.length} ${scene.states.length === 1 ? 'stand' : 'standen'} op ${deviceCount} ${deviceCount === 1 ? 'apparaat' : 'apparaten'}`;
+  form.append(node('p', 'settings-hint scene-config-explanation', sceneIsButton(scene)
+    ? `Bij indrukken worden ${count} gezet. Deze knop onthoudt niets en kent geen uit.`
+    : `Bij aan worden ${count} gezet. Bij uit herstelt Stulp de standen die het vlak voor aan heeft onthouden; zodra iemand zo'n stand tussendoor verandert, gaat de scene vanzelf uit.`));
 
   const preview = node('div', 'scene-config-preview');
   for (const wanted of (scene.states || []).slice(0, 8)) {
@@ -2804,7 +2845,7 @@ function renderSceneConfiguration(form, device) {
   if (scene.states.length > 8) preview.append(node('div', 'scene-config-more', `en nog ${scene.states.length - 8}…`));
   form.append(preview);
 
-  const active = Boolean(device.capabilitiesObj?.onoff?.value ?? scene.active);
+  const active = !sceneIsButton(scene) && Boolean(device.capabilitiesObj?.onoff?.value ?? scene.active);
   const edit = actionButton('Standen configureren', () => openScene(scene));
   edit.classList.add('button-with-icon');
   edit.prepend(materialIcon('tune'));
@@ -2819,9 +2860,9 @@ function renderSceneConfiguration(form, device) {
 function renderDeviceConfiguration(device, driver) {
   const isScene = isSceneDevice(device);
   const scene = sceneForDevice(device);
-  const sceneActive = Boolean(device.capabilitiesObj?.onoff?.value ?? scene?.active);
+  const sceneActive = isScene && !sceneIsButton(scene) && Boolean(device.capabilitiesObj?.onoff?.value ?? scene?.active);
   $('device-settings-status').textContent = isScene
-    ? 'Ingebouwd scene-apparaat · aan onthoudt de vorige standen'
+    ? (sceneIsButton(scene) ? 'Ingebouwde scene-knop · past standen toe' : 'Ingebouwd scene-apparaat · aan onthoudt de vorige standen')
     : `Hardware: ${device.hardwareName || device.name}`;
   const form = $('device-settings');
   form.replaceChildren();
@@ -2957,7 +2998,7 @@ async function chooseDriver() {
   // Een Scene is óók een apparaat, maar niet hetzelfde als de vrije virtuele
   // schakelaar uit de Virtual devices-plugin: deze voert opgeslagen standen
   // van andere apparaten uit. Benoem dat verschil al bij Device toevoegen.
-  scene.append(node('strong', '', 'Scene'), node('small', 'muted', 'Schakelt opgeslagen apparaatstanden'));
+  scene.append(node('strong', '', 'Scene'), node('small', 'muted', 'Schakelt of activeert opgeslagen apparaatstanden'));
   scene.addEventListener('click', () => openScene());
   builtInChoices.append(scene); builtIn.append(builtInTitle, builtInChoices); groups.append(builtIn);
 
@@ -3588,6 +3629,7 @@ $('group-delete').addEventListener('click', deleteGroup);
 $('group-dialog').addEventListener('close', () => { state.editingGroup = null; $('group-form').reset(); });
 $('scene-form').addEventListener('submit', saveScene);
 $('scene-capture').addEventListener('click', captureWholeScene);
+$('scene-kind').addEventListener('change', updateSceneKindDescription);
 $('scene-clear').addEventListener('click', () => { state.editingScene.states = []; renderSceneEditor(); });
 $('scene-dialog').addEventListener('close', () => { state.editingScene = null; $('scene-form').reset(); });
 $('add-flow').addEventListener('click', () => openFlow());

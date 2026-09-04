@@ -45,7 +45,8 @@ const (
 		"Then narrow with devices_list (groupId, capabilityId, search), read one exact device with devices_list(deviceId), and pass that deviceId to flow_cards_list before changing anything. " +
 		"Capability-derived Flow cards include boolean edges, continuous seconds, numeric threshold crossings and enum transitions; prefer those semantic cards over a generic value-changed card. Only set capabilities marked setable. " +
 		"When a Flow needs durable boolean memory, devices_create can add a virtual_switch; use its returned device id in Flow cards. " +
-		"A device with class=scene is a normal on/off scene device: the first on saves the current target states and applies the scene, repeated on keeps that original snapshot, and off restores it."
+		"A device with class=scene is a scene device. With capability onoff it is a switch scene: the first on saves the current target states and applies the scene, repeated on keeps that original snapshot, off restores it, and the scene turns itself off when a value it set is changed elsewhere. " +
+		"With capability button it is a one-shot scene: write button=true to apply it; it has no state and nothing to restore."
 )
 
 const (
@@ -928,6 +929,7 @@ func mcpSceneActivationObject(activation scene.ActivationResult) map[string]any 
 		"sceneId":     mcpTrimString(activation.SceneID, mcpIDLimit),
 		"sceneName":   mcpTrimString(activation.SceneName, mcpNameLimit),
 		"requestedOn": activation.RequestedOn,
+		"momentary":   activation.Momentary,
 		"active":      activation.Active,
 		"success":     activation.Success,
 		"attempted":   activation.Attempted,
@@ -944,6 +946,9 @@ func mcpSceneActivationObject(activation scene.ActivationResult) map[string]any 
 		}
 		if state.Error != "" {
 			projected["error"] = mcpTrimString(state.Error, mcpErrorLimit)
+		}
+		if state.Unchanged {
+			projected["unchanged"] = true
 		}
 		if value, ok := mcpCapabilityValue(state.Value); ok {
 			projected["value"] = value
@@ -963,6 +968,10 @@ func mcpSceneActivationObject(activation scene.ActivationResult) map[string]any 
 }
 
 func mcpSceneActivationSummary(activation scene.ActivationResult) string {
+	if activation.Momentary {
+		return mcpTrimString(fmt.Sprintf("Button scene %q was pressed; %d of %d attempted states succeeded and %d failed. It has no on state and nothing to restore.",
+			mcpTrimString(activation.SceneName, mcpNameLimit), activation.Succeeded, activation.Attempted, activation.Failed), mcpErrorLimit)
+	}
 	direction := "on"
 	if !activation.RequestedOn {
 		direction = "off"

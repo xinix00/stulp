@@ -29,18 +29,42 @@ func SceneIDFromDeviceID(deviceID string) (string, bool) {
 	return sceneID, found && sceneID != ""
 }
 
+// Scene kinds. A switch remembers what it changed and puts that back when it
+// is turned off. A button only applies its states: "garden lights off" has no
+// meaningful off, so it must never restore anything.
+const (
+	SceneKindSwitch = "switch"
+	SceneKindButton = "button"
+)
+
 // Scene is a user-owned desired state spanning one or more devices. Values are
 // configuration rather than live device state, so they are persisted with the
 // rest of the document.
 type Scene struct {
-	ID        string       `json:"id"`
-	Name      string       `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Kind is SceneKindSwitch or SceneKindButton. Documents written before
+	// kinds existed carry no value; they are switches.
+	Kind      string       `json:"kind,omitempty"`
 	States    []SceneState `json:"states"`
 	Active    bool         `json:"active,omitempty"`
 	Previous  []SceneState `json:"previous,omitempty"`
 	CreatedAt string       `json:"createdAt"`
 	UpdatedAt string       `json:"updatedAt"`
 	Revision  uint64       `json:"revision"`
+}
+
+// Momentary reports whether the Scene is a button: applied on press, never
+// active and never restored.
+func (scene Scene) Momentary() bool { return scene.Kind == SceneKindButton }
+
+// CapabilityID is the single capability of the Scene's synthetic device: onoff
+// for a switch, button for a momentary scene.
+func (scene Scene) CapabilityID() string {
+	if scene.Momentary() {
+		return "button"
+	}
+	return "onoff"
 }
 
 // SceneState is one capability value a Scene requests when it is activated.
@@ -57,6 +81,8 @@ var (
 	ErrSceneActive = errors.New("active scene cannot be edited or deleted")
 	// ErrSceneInUse protects a Scene device referenced by a persisted Flow.
 	ErrSceneInUse = errors.New("scene is used by a flow")
+	// ErrSceneMomentary rejects a restore session on a button scene.
+	ErrSceneMomentary = errors.New("button scene has no restore state")
 )
 
 func (scene *Scene) normalize() error {
@@ -67,6 +93,13 @@ func (scene *Scene) normalize() error {
 	}
 	if len(scene.Name) > maxSceneNameLength {
 		return errors.New("scene name is too long")
+	}
+	switch scene.Kind = strings.TrimSpace(scene.Kind); scene.Kind {
+	case "":
+		scene.Kind = SceneKindSwitch
+	case SceneKindSwitch, SceneKindButton:
+	default:
+		return fmt.Errorf("scene kind %q must be %q or %q", scene.Kind, SceneKindSwitch, SceneKindButton)
 	}
 	if len(scene.States) == 0 {
 		return errors.New("scene needs at least one state")
@@ -197,7 +230,7 @@ func newSceneDeviceRecord(scene Scene, previous *deviceRecord, sortOrder int) de
 	record := deviceRecord{
 		ID: SceneDeviceID(scene.ID), AppID: NativeSceneAppID, DriverID: "scene",
 		Name: scene.Name, Class: "scene", Data: map[string]any{"sceneId": scene.ID},
-		Capabilities: []string{"onoff"}, Available: true,
+		Capabilities: []string{scene.CapabilityID()}, Available: true,
 		SortOrder: sortOrder, CreatedAt: scene.CreatedAt, UpdatedAt: scene.UpdatedAt,
 	}
 	if previous != nil {
@@ -211,7 +244,14 @@ func newSceneDeviceRecord(scene Scene, previous *deviceRecord, sortOrder int) de
 	return record
 }
 
-func sceneDeviceState(scene Scene) map[string]any { return map[string]any{"onoff": scene.Active} }
+// sceneDeviceState is the live state of the synthetic device. A button has no
+// value to report: it is pressed, not read.
+func sceneDeviceState(scene Scene) map[string]any {
+	if scene.Momentary() {
+		return map[string]any{}
+	}
+	return map[string]any{"onoff": scene.Active}
+}
 
 func indexOfDeviceRecord(devices []deviceRecord, id string) int {
 	for index, device := range devices {
@@ -564,6 +604,10 @@ func (s *Store) BeginScene(ctx context.Context, id string, previous []SceneState
 		s.mu.Unlock()
 		return Scene{}, false, fmt.Errorf("scene %q does not exist", id)
 	}
+	if s.doc.Scenes[index].Momentary() {
+		s.mu.Unlock()
+		return Scene{}, false, fmt.Errorf("scene %q: %w", id, ErrSceneMomentary)
+	}
 	if s.doc.Scenes[index].Active {
 		definition := cloneScene(s.doc.Scenes[index])
 		s.mu.Unlock()
@@ -630,6 +674,10 @@ func (s *Store) SetScenePrevious(ctx context.Context, id string, remaining []Sce
 	if index < 0 {
 		s.mu.Unlock()
 		return Scene{}, fmt.Errorf("scene %q does not exist", id)
+	}
+	if s.doc.Scenes[index].Momentary() && len(remaining) > 0 {
+		s.mu.Unlock()
+		return Scene{}, fmt.Errorf("scene %q: %w", id, ErrSceneMomentary)
 	}
 	scenes := append([]Scene(nil), s.doc.Scenes...)
 	scenes[index] = cloneScene(scenes[index])

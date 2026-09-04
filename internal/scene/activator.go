@@ -15,21 +15,26 @@ import (
 // StateResult describes the outcome of logically processing one scene state.
 // A state whose current value is unavailable is a failed attempt without an
 // invocation: changing it would create a state that cannot safely be restored.
+// A restore whose device already reports the value is a successful attempt
+// without an invocation, marked Unchanged.
 type StateResult struct {
 	DeviceID     string `json:"deviceId"`
 	CapabilityID string `json:"capabilityId"`
 	Value        any    `json:"value"`
 	Success      bool   `json:"success"`
+	Unchanged    bool   `json:"unchanged,omitempty"`
 	Error        string `json:"error,omitempty"`
 }
 
 // ActivationResult is the complete, ordered account of changing a scene's
 // on/off state. Active is the state that was durably retained by the store, not
-// an optimistic reflection of what was requested.
+// an optimistic reflection of what was requested. A Momentary scene is pressed
+// rather than switched, so its Active is always false.
 type ActivationResult struct {
 	SceneID     string        `json:"sceneId"`
 	SceneName   string        `json:"sceneName"`
 	RequestedOn bool          `json:"requestedOn"`
+	Momentary   bool          `json:"momentary,omitempty"`
 	Active      bool          `json:"active"`
 	Success     bool          `json:"success"`
 	Attempted   int           `json:"attempted"`
@@ -54,6 +59,10 @@ func New(database *store.Store, invoker func(context.Context, string, string, an
 type statePlan struct {
 	state        store.SceneState
 	preflightErr error
+	// unchanged marks a restore the device already satisfies. It counts as
+	// done without a command: a device that just went to sleep after its
+	// power-off would otherwise receive a burst of no-op writes it ignores.
+	unchanged bool
 }
 
 type stateOutcome struct {
@@ -73,13 +82,15 @@ func (a *Activator) Activate(ctx context.Context, id string) (ActivationResult, 
 	return a.Set(ctx, id, true)
 }
 
-// Set turns a scene on or off.
+// Set turns a scene on or off, or presses a button scene.
 //
 // The first ON snapshots every known current value before issuing a command.
 // Only successfully changed states remain in that persisted restore set. A
 // repeated ON uses the existing restore set and can therefore never overwrite
-// the original baseline. OFF applies that baseline best-effort and retains
-// failed or unattempted states, making another OFF a safe retry.
+// the original baseline. OFF applies that baseline best-effort, skipping values
+// the device already reports, and retains failed or unattempted states, making
+// another OFF a safe retry. A button scene takes no snapshot: ON applies its
+// states and OFF is refused, because there is nothing to put back.
 func (a *Activator) Set(ctx context.Context, id string, on bool) (ActivationResult, error) {
 	id = strings.TrimSpace(id)
 	result := ActivationResult{SceneID: id, RequestedOn: on, States: []StateResult{}}
@@ -104,19 +115,52 @@ func (a *Activator) Set(ctx context.Context, id string, on bool) (ActivationResu
 		return a.persistedResult(result), err
 	}
 	result.SceneID, result.SceneName, result.Active = definition.ID, definition.Name, definition.Active
+	if definition.Momentary() {
+		result.Momentary = true
+		if !on {
+			return result, fmt.Errorf("scene %q is a button: write true to press it, it cannot be turned off", definition.Name)
+		}
+		return a.press(ctx, definition, result)
+	}
 	if on {
 		return a.setOn(ctx, definition, result)
 	}
 	return a.setOff(ctx, definition, result)
 }
 
+// press applies a button scene. Nothing is remembered, so no current value has
+// to be readable first and the store is not involved beyond the definition.
+func (a *Activator) press(ctx context.Context, definition store.Scene, result ActivationResult) (ActivationResult, error) {
+	plans := make([]statePlan, len(definition.States))
+	for index, desired := range definition.States {
+		plans[index].state = desired
+	}
+	outcomes := a.apply(ctx, plans)
+	result, failures := collectResults(result, outcomes)
+	operationErrors := append([]error(nil), failures...)
+	if err := ctx.Err(); err != nil {
+		operationErrors = append(operationErrors, err)
+	}
+	result.Active = false
+	result.Success = result.Attempted == len(plans) && result.Failed == 0 && len(operationErrors) == 0
+	return finish(result, operationErrors)
+}
+
 func (a *Activator) setOn(ctx context.Context, definition store.Scene, result ActivationResult) (ActivationResult, error) {
 	// Always prepare a candidate baseline. BeginScene ignores it when another
 	// caller already made the scene active and returns that caller's persisted
 	// baseline instead. This closes the race between the initial read and begin.
-	previous, snapshotErrors, err := a.snapshot(ctx, definition)
+	current, snapshotErrors, err := a.currentValues(ctx, definition.States)
 	if err != nil {
 		return result, err
+	}
+	previous := make([]store.SceneState, 0, len(current))
+	for _, desired := range definition.States {
+		if value, known := current[stateKey(desired)]; known {
+			previous = append(previous, store.SceneState{
+				DeviceID: desired.DeviceID, CapabilityID: desired.CapabilityID, Value: value,
+			})
+		}
 	}
 	active, first, err := a.database.BeginScene(ctx, definition.ID, previous)
 	if err != nil {
@@ -180,9 +224,18 @@ func (a *Activator) setOff(ctx context.Context, definition store.Scene, result A
 		return result, nil
 	}
 
+	// A value the device already reports is not sent again. An unreadable
+	// current value is no reason to skip: then the restore is simply sent.
+	current, _, err := a.currentValues(ctx, definition.Previous)
+	if err != nil {
+		return result, err
+	}
 	plans := make([]statePlan, len(definition.Previous))
 	for index, previous := range definition.Previous {
 		plans[index].state = previous
+		if value, known := current[stateKey(previous)]; known && sameValue(value, previous.Value) {
+			plans[index].unchanged = true
+		}
 	}
 	outcomes := a.apply(ctx, plans)
 	result, failures := collectResults(result, outcomes)
@@ -208,45 +261,44 @@ func (a *Activator) setOff(ctx context.Context, definition store.Scene, result A
 	return finish(result, operationErrors)
 }
 
-// snapshot returns the candidate restore set and a reason for every desired
-// state it had to omit. Presence plus a non-nil value is the boundary between a
-// known false/zero/empty state and an unavailable reading.
-func (a *Activator) snapshot(ctx context.Context, definition store.Scene) ([]store.SceneState, map[sceneStateKey]error, error) {
-	previous := make([]store.SceneState, 0, len(definition.States))
+// currentValues reads each device once and returns the value it reports for
+// every requested state, plus a reason for every state it could not read.
+// Presence plus a non-nil value is the boundary between a known
+// false/zero/empty state and an unavailable reading.
+func (a *Activator) currentValues(ctx context.Context, states []store.SceneState) (map[sceneStateKey]any, map[sceneStateKey]error, error) {
+	values := make(map[sceneStateKey]any, len(states))
 	stateErrors := make(map[sceneStateKey]error)
 	devices := make(map[string]store.Device)
 	deviceErrors := make(map[string]error)
-	for _, desired := range definition.States {
+	for _, wanted := range states {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		device, loaded := devices[desired.DeviceID]
-		deviceErr, failed := deviceErrors[desired.DeviceID]
+		device, loaded := devices[wanted.DeviceID]
+		deviceErr, failed := deviceErrors[wanted.DeviceID]
 		if !loaded && !failed {
-			device, deviceErr = a.database.Device(ctx, desired.DeviceID)
+			device, deviceErr = a.database.Device(ctx, wanted.DeviceID)
 			if deviceErr != nil {
-				deviceErrors[desired.DeviceID] = deviceErr
+				deviceErrors[wanted.DeviceID] = deviceErr
 			} else {
-				devices[desired.DeviceID] = device
+				devices[wanted.DeviceID] = device
 			}
 		}
-		key := stateKey(desired)
+		key := stateKey(wanted)
 		if deviceErr != nil {
 			stateErrors[key] = fmt.Errorf("read current value for %s/%s: %w",
-				desired.DeviceID, desired.CapabilityID, deviceErr)
+				wanted.DeviceID, wanted.CapabilityID, deviceErr)
 			continue
 		}
-		value, exists := device.State[desired.CapabilityID]
+		value, exists := device.State[wanted.CapabilityID]
 		if !exists || value == nil {
 			stateErrors[key] = fmt.Errorf("current value for %s/%s is unavailable",
-				desired.DeviceID, desired.CapabilityID)
+				wanted.DeviceID, wanted.CapabilityID)
 			continue
 		}
-		previous = append(previous, store.SceneState{
-			DeviceID: desired.DeviceID, CapabilityID: desired.CapabilityID, Value: value,
-		})
+		values[key] = value
 	}
-	return previous, stateErrors, nil
+	return values, stateErrors, nil
 }
 
 // apply runs one sequential worker per device. Each worker owns disjoint
@@ -262,6 +314,12 @@ func (a *Activator) apply(ctx context.Context, plans []statePlan) []stateOutcome
 			outcomes[index].attempted = true
 			outcomes[index].err = plan.preflightErr
 			outcomes[index].result.Error = plan.preflightErr.Error()
+			continue
+		}
+		if plan.unchanged {
+			outcomes[index].attempted = true
+			outcomes[index].result.Success = true
+			outcomes[index].result.Unchanged = true
 			continue
 		}
 		byDevice[plan.state.DeviceID] = append(byDevice[plan.state.DeviceID], index)

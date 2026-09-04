@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -68,10 +69,32 @@ func sceneServer(t *testing.T) (*Server, store.Device) {
 	return server, device
 }
 
+// reportDeviceState plays the integration: a command was accepted earlier, and
+// now the hardware says what it actually did. Without this a restore has
+// nothing to put back, because every value still reads as before the scene.
+func reportDeviceState(t *testing.T, server *Server, deviceID string, values map[string]any) {
+	t.Helper()
+	device, err := server.store.Device(context.Background(), deviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for capability, value := range values {
+		device.State[capability] = value
+	}
+	if err := server.store.UpdateDevice(context.Background(), device); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func createAPIScene(t *testing.T, server *Server, name string, states ...store.SceneState) store.Scene {
 	t.Helper()
+	return createAPISceneOfKind(t, server, name, "", states...)
+}
+
+func createAPISceneOfKind(t *testing.T, server *Server, name, kind string, states ...store.SceneState) store.Scene {
+	t.Helper()
 	response := request(t, server.Handler(), http.MethodPost, "/api/stulp/scenes", map[string]any{
-		"name": name, "states": states,
+		"name": name, "kind": kind, "states": states,
 	}, "")
 	if response.Code != http.StatusCreated {
 		t.Fatalf("create scene returned %d: %s", response.Code, response.Body.String())
@@ -161,6 +184,7 @@ func TestSceneAPICreatesListsUpdatesAndActsAsAnOnOffDevice(t *testing.T) {
 	if err != nil || virtual.State["onoff"] != true {
 		t.Fatalf("scene device did not report on: %#v err=%v", virtual, err)
 	}
+	reportDeviceState(t, server, device.ID, map[string]any{"onoff": true, "mode": "movie"})
 
 	// Runtime restore state is protected: changing the definition while it is on
 	// could otherwise make "uit" restore an unrelated set of properties.
@@ -189,6 +213,7 @@ func TestSceneAPICreatesListsUpdatesAndActsAsAnOnOffDevice(t *testing.T) {
 
 	// A DAN-step takes exactly the normal onoff path; there is no scene-only
 	// Flow card or callback in the engine.
+	reportDeviceState(t, server, device.ID, map[string]any{"onoff": false, "mode": "day"})
 	for _, on := range []bool{true, false} {
 		result, runErr := server.flows.RunAction(context.Background(), store.FlowStep{
 			AppID: "stulp", CardID: "capability.onoff.set", CardType: "action",
@@ -196,6 +221,9 @@ func TestSceneAPICreatesListsUpdatesAndActsAsAnOnOffDevice(t *testing.T) {
 		})
 		if runErr != nil || result.Result != true {
 			t.Fatalf("generic onoff DAN=%t result=%#v err=%v", on, result, runErr)
+		}
+		if on {
+			reportDeviceState(t, server, device.ID, map[string]any{"onoff": true, "mode": "movie"})
 		}
 	}
 	if len(calls) != 8 {
@@ -372,5 +400,118 @@ func TestSceneDeviceAddConfigurationAndRealtimeWiringAreServed(t *testing.T) {
 		if strings.Contains(page, stale) || strings.Contains(stylesheet, stale) || strings.Contains(asset, stale) {
 			t.Errorf("management UI still contains obsolete styling %q", stale)
 		}
+	}
+}
+
+func TestButtonSceneIsPressedThroughItsOwnCapability(t *testing.T) {
+	server, device := sceneServer(t)
+	ctx := context.Background()
+	// A wall switch exposes button as something to read, and it is listed
+	// first. The scene's button must still get its own "uitvoeren" card.
+	wall, err := server.store.AddDevice(ctx, store.Device{
+		AppID: device.AppID, DriverID: "room", Name: "Wandschakelaar", Class: "other", Data: map[string]any{"id": "wall"},
+		Capabilities: []string{"button"}, State: map[string]any{"button": false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := createAPISceneOfKind(t, server, "Tuin uit", "button",
+		store.SceneState{DeviceID: device.ID, CapabilityID: "onoff", Value: false})
+	if created.Kind != store.SceneKindButton {
+		t.Fatalf("created scene = %#v", created)
+	}
+	virtualID := store.SceneDeviceID(created.ID)
+	virtual, err := server.store.Device(ctx, virtualID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(virtual.Capabilities, []string{"button"}) || len(virtual.State) != 0 {
+		t.Fatalf("button scene device = %#v", virtual)
+	}
+	if button := server.capabilityObject(virtual, "button", nil); button["getable"] != false || button["setable"] != true || button["type"] != "boolean" {
+		t.Fatalf("scene button capability = %#v", button)
+	}
+	if wallButton := server.capabilityObject(wall, "button", false); wallButton["getable"] != true || wallButton["setable"] != false {
+		t.Fatalf("fixture wall button capability = %#v", wallButton)
+	}
+
+	cards, err := server.flowCards(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var run map[string]any
+	for _, card := range cards["actions"] {
+		switch card["id"] {
+		case "capability.button.run":
+			run = card
+		case "capability.button.turn_on", "capability.button.set", "capability.button.toggle":
+			t.Fatalf("a button that is only pressed got a stateful card: %#v", card)
+		}
+	}
+	if run == nil || run["title"] != "Knop uitvoeren" || !reflect.DeepEqual(run["deviceIds"], []string{virtualID}) {
+		t.Fatalf("button run card = %#v", run)
+	}
+
+	var calls []store.SceneState
+	server.scenes = scenerunner.New(server.store, func(_ context.Context, deviceID, capabilityID string, value any, _ map[string]any) error {
+		calls = append(calls, store.SceneState{DeviceID: deviceID, CapabilityID: capabilityID, Value: value})
+		return nil
+	})
+	response := request(t, server.Handler(), http.MethodPut, "/api/manager/devices/device/"+virtualID+"/capability/button", map[string]any{"value": true}, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("press returned %d: %s", response.Code, response.Body.String())
+	}
+	if len(calls) != 1 || calls[0].DeviceID != device.ID || calls[0].CapabilityID != "onoff" || calls[0].Value != false {
+		t.Fatalf("press calls = %#v", calls)
+	}
+	if definition, err := server.store.Scene(ctx, created.ID); err != nil || definition.Active || definition.Previous != nil {
+		t.Fatalf("pressed button scene = %#v, %v", definition, err)
+	}
+	// A button has no off, and no onoff at all.
+	response = request(t, server.Handler(), http.MethodPut, "/api/manager/devices/device/"+virtualID+"/capability/button", map[string]any{"value": false}, "")
+	if response.Code == http.StatusOK || !strings.Contains(response.Body.String(), "button") {
+		t.Fatalf("button off returned %d: %s", response.Code, response.Body.String())
+	}
+	response = request(t, server.Handler(), http.MethodPut, "/api/manager/devices/device/"+virtualID+"/capability/onoff", map[string]any{"value": true}, "")
+	if response.Code == http.StatusOK {
+		t.Fatalf("onoff on a button scene returned %d: %s", response.Code, response.Body.String())
+	}
+	if len(calls) != 1 {
+		t.Fatalf("refused writes still sent commands: %#v", calls)
+	}
+	// The Flow engine presses it through the ordinary run card.
+	result, runErr := server.flows.RunAction(ctx, store.FlowStep{
+		AppID: "stulp", CardID: "capability.button.run", CardType: "action",
+		Args: map[string]any{"device": map[string]any{"$device": virtualID}},
+	})
+	if runErr != nil || result.Result != true || len(calls) != 2 {
+		t.Fatalf("run card result=%#v err=%v calls=%#v", result, runErr, calls)
+	}
+
+	// Switching the kind would swap the capability under that Flow, so it is
+	// refused while a Flow uses the device.
+	flow, err := server.store.CreateFlow(ctx, store.Flow{
+		Name: "Tuin", Nodes: []store.FlowNode{{ID: "press", Step: store.FlowStep{
+			AppID: "stulp", CardID: "capability.button.run", CardType: "action",
+			Args: map[string]any{"device": map[string]any{"$device": virtualID}},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created.Kind = store.SceneKindSwitch
+	response = request(t, server.Handler(), http.MethodPut, "/api/stulp/scenes/"+created.ID, created, "")
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), flow.Name) {
+		t.Fatalf("kind change under a Flow returned %d: %s", response.Code, response.Body.String())
+	}
+	if err := server.store.DeleteFlow(ctx, flow.ID); err != nil {
+		t.Fatal(err)
+	}
+	response = request(t, server.Handler(), http.MethodPut, "/api/stulp/scenes/"+created.ID, created, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("kind change returned %d: %s", response.Code, response.Body.String())
+	}
+	if virtual, err = server.store.Device(ctx, virtualID); err != nil || !reflect.DeepEqual(virtual.Capabilities, []string{"onoff"}) || virtual.State["onoff"] != false {
+		t.Fatalf("scene device after kind change = %#v, %v", virtual, err)
 	}
 }

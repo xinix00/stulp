@@ -50,6 +50,7 @@
       <div class="dialog-title settings-title scene-dialog-title"><div><span class="settings-mark scene-mark"><span class="material-symbols-rounded" aria-hidden="true">auto_awesome</span></span><div><h2 id="scene-title">Scene toevoegen</h2><p class="settings-status">Dit apparaat zet gekozen standen aan en herstelt ze bij uitzetten.</p></div></div><button class="icon-button dialog-close" type="button" data-close="scene-dialog" aria-label="Sluiten"><span class="material-symbols-rounded" aria-hidden="true">close</span></button></div>
       <div class="scene-editor-toolbar">
         <label class="settings-field scene-name-field"><span>Naam</span><input id="scene-name" type="text" maxlength="160" placeholder="Bijvoorbeeld: Film kijken" required></label>
+        <label class="settings-field scene-kind-field"><span>Soort</span><select id="scene-kind"><option value="switch">Schakelaar · uit herstelt de vorige standen</option><option value="button">Knop · alleen toepassen</option></select></label>
         <div class="scene-capture-actions"><button id="scene-capture" class="button-with-icon" type="button"><span class="material-symbols-rounded" aria-hidden="true">photo_camera</span>Alle huidige standen</button><button id="scene-clear" type="button">Wis selectie</button></div>
         <p id="scene-selection-summary" class="scene-selection-summary" aria-live="polite"></p>
       </div>

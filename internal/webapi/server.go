@@ -52,6 +52,7 @@ type Server struct {
 	mux        *stulphttp.Mux
 	flows      *flowengine.Engine
 	scenes     *scene.Activator
+	watcher    *scene.Watcher
 	stats      *stats.Collector
 	images     *imageshare.Store
 	mcpLimit   mcpLimiter
@@ -99,6 +100,7 @@ func New(database *store.Store, apps *supervisor.Supervisor, options Options) *S
 		s.unitsSet = system.Units
 	}
 	s.scenes = scene.New(database, s.invokeCapability)
+	s.watcher = scene.NewWatcher(database, options.Logger)
 	s.flows = flowengine.NewWithOptions(database, apps, flowengine.Options{
 		Timezone: options.Timezone, InvokeCapability: s.invokeCapability,
 		// Een token in een pushbericht leest in de eenheid van dit huis; een token
@@ -230,12 +232,14 @@ func (s *Server) invokeCapabilityDetailed(ctx context.Context, deviceID, capabil
 		return nil, err
 	}
 	if sceneID, sceneDevice := store.SceneIDFromDeviceID(device.ID); sceneDevice && device.AppID == store.NativeSceneAppID {
-		if capabilityID != "onoff" {
+		// A switch scene has onoff, a button scene has button. The activator
+		// decides what the value means for the scene's kind.
+		if !deviceHasCapability(device, capabilityID) {
 			return nil, fmt.Errorf("scene-apparaat heeft geen capability %q", capabilityID)
 		}
 		on, ok := value.(bool)
 		if !ok {
-			return nil, errors.New("de onoff-status van een scene moet true of false zijn")
+			return nil, fmt.Errorf("de %s-waarde van een scene moet true of false zijn", capabilityID)
 		}
 		result, activationErr := s.scenes.Set(ctx, sceneID, on)
 		return &result, activationErr
@@ -250,6 +254,7 @@ func (s *Server) UseStatistics(collector *stats.Collector) { s.stats = collector
 
 func (s *Server) Close() {
 	s.flows.Close()
+	s.watcher.Close()
 	s.pairMu.Lock()
 	pairs := s.pairs
 	s.pairs = make(map[string]pairSession)
@@ -1373,6 +1378,12 @@ func (s *Server) capabilityObject(device store.Device, id string, value any) map
 		"getable": true, "setable": defaultCapabilitySetable(id), "title": capabilityDisplayTitle(id, nil, s.options.Language),
 	}
 	applyDefaultCapabilityMetadata(result, id)
+	if device.AppID == store.NativeSceneAppID && capabilityBaseID(id) == "button" {
+		// The button of a scene is Homey's momentary capability: written, never
+		// read. Matter wall switches expose button the other way around, so
+		// this cannot be a default by id.
+		result["getable"], result["setable"] = false, true
+	}
 	app, err := s.store.App(context.Background(), device.AppID)
 	if err != nil {
 		// De eenheid van de kern is er ook zonder app -- een tegel hoort niet in

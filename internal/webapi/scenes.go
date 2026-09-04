@@ -69,6 +69,13 @@ func (s *Server) handleScenes() {
 			writeError(response, stulphttp.StatusBadRequest, err)
 			return
 		}
+		// A kind change swaps the device's capability from onoff to button or
+		// back. A Flow card holding the old capability would silently stop
+		// working, so it is refused the same way a delete is.
+		if err := s.sceneKindChangeAllowed(stulphttp.Context(request), previous, canonical); err != nil {
+			writeError(response, stulphttp.StatusConflict, err)
+			return
+		}
 		updated, err := s.store.UpdateScene(stulphttp.Context(request), canonical)
 		if err != nil {
 			status := stulphttp.StatusBadRequest
@@ -112,6 +119,25 @@ func (s *Server) deleteScene(ctx context.Context, id string) error {
 			store.ErrSceneInUse, definition.Name, strings.Join(names, ", "))
 	}
 	return s.store.DeleteScene(ctx, id)
+}
+
+func (s *Server) sceneKindChangeAllowed(ctx context.Context, previous, wanted store.Scene) error {
+	if previous.CapabilityID() == wanted.CapabilityID() {
+		return nil
+	}
+	usedBy, err := s.flowsUsingScene(ctx, previous.ID)
+	if err != nil {
+		return err
+	}
+	if len(usedBy) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(usedBy))
+	for _, flow := range usedBy {
+		names = append(names, flow.Name)
+	}
+	return fmt.Errorf("%w: scene %q wordt gebruikt door %s; verwijder die apparaatstap eerst voordat je de soort wijzigt",
+		store.ErrSceneInUse, previous.Name, strings.Join(names, ", "))
 }
 
 func (s *Server) flowsUsingScene(ctx context.Context, sceneID string) ([]store.Flow, error) {

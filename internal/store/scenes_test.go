@@ -779,3 +779,71 @@ func assertRejectedSceneMutation(t *testing.T, database *Store, events <-chan Ev
 	}
 	assertNoSceneEvent(t, events)
 }
+
+func TestButtonSceneIsMomentaryAndHasNoRestoreSession(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stulp.json")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	states := []SceneState{{DeviceID: "lamp", CapabilityID: "onoff", Value: false}}
+	if _, err := database.CreateScene(ctx, Scene{Name: "Fout", Kind: "toggle", States: states}); err == nil ||
+		!strings.Contains(err.Error(), "kind") {
+		t.Fatalf("unknown scene kind accepted: %v", err)
+	}
+	plain, err := database.CreateScene(ctx, Scene{ID: "movie", Name: "Film", States: states})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.Kind != SceneKindSwitch || plain.Momentary() || plain.CapabilityID() != "onoff" {
+		t.Fatalf("default scene kind = %#v", plain)
+	}
+	button, err := database.CreateScene(ctx, Scene{ID: "garden-off", Name: "Tuin uit", Kind: " button ", States: states})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if button.Kind != SceneKindButton || !button.Momentary() || button.CapabilityID() != "button" {
+		t.Fatalf("button scene = %#v", button)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The kind is what the document says, and the device follows it after a restart.
+	database, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	device, err := database.Device(ctx, SceneDeviceID(button.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(device.Capabilities, []string{"button"}) || len(device.State) != 0 {
+		t.Fatalf("button scene device = %#v", device)
+	}
+	if _, _, err := database.BeginScene(ctx, button.ID, states); !errors.Is(err, ErrSceneMomentary) {
+		t.Fatalf("BeginScene on a button scene: %v", err)
+	}
+	if _, err := database.SetScenePrevious(ctx, button.ID, states); !errors.Is(err, ErrSceneMomentary) {
+		t.Fatalf("SetScenePrevious with states on a button scene: %v", err)
+	}
+	if cleared, err := database.SetScenePrevious(ctx, button.ID, nil); err != nil || cleared.Active {
+		t.Fatalf("SetScenePrevious(nil) on a button scene = %#v, %v", cleared, err)
+	}
+
+	// Changing the kind swaps the device capability along with it.
+	stored, err := database.Scene(ctx, button.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Kind = SceneKindSwitch
+	if _, err := database.UpdateScene(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	device, err = database.Device(ctx, SceneDeviceID(button.ID))
+	if err != nil || !reflect.DeepEqual(device.Capabilities, []string{"onoff"}) || device.State["onoff"] != false {
+		t.Fatalf("scene device after kind change = %#v, %v", device, err)
+	}
+}

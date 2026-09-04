@@ -580,7 +580,7 @@ const quickCapabilityPriority = [
   'alarm_motion', 'alarm_contact', 'alarm_glassbreak', 'alarm_vibration', 'alarm_generic', 'alarm_pressure', 'alarm_night',
   'speaker_playing', 'volume_mute', 'vacuumcleaner_state', 'dim',
   'target_temperature', 'measure_temperature', 'thermostat_mode',
-  'measure_humidity', 'measure_co2', 'measure_co', 'measure_pm25', 'measure_luminance', 'measure_pressure', 'measure_noise',
+  'measure_humidity', 'measure_co2', 'measure_co', 'measure_pm25', 'air_quality_state', 'measure_luminance', 'measure_pressure', 'measure_noise',
   'measure_rain', 'measure_water', 'measure_wind_strength', 'measure_gust_strength', 'measure_wind_angle', 'measure_ultraviolet',
   'measure_battery', 'alarm_battery', 'alarm_tamper',
   'measure_power', 'meter_power', 'measure_current', 'measure_voltage', 'meter_water', 'meter_gas',
@@ -699,7 +699,7 @@ function deviceQuickControl(device) {
     return status;
   }
   const value = node('span', 'device-quick quick-value', formatQuickValue(capability));
-  value.title = `${title}: ${formatValue(capability.value, capability.units)}`;
+  value.title = `${title}: ${displayValue(capability)}`;
   return value;
 }
 
@@ -733,7 +733,7 @@ function formatQuickValue(capability) {
   if (unknownCapabilityValue(capability.value)) return '—';
   const base = baseCapabilityID(capability.id);
   const numeric = Number(capability.value);
-  if (!Number.isFinite(numeric)) return String(capability.value);
+  if (!Number.isFinite(numeric)) return displayValue(capability);
   if (base === 'dim' || base === 'windowcoverings_set') return `${Math.round(numeric * 100)}%`;
   const decimals = base === 'measure_temperature' || base === 'target_temperature' || base === 'measure_humidity' || base === 'measure_pressure' ? 1 : 0;
   const formatted = (Math.round(numeric * (10 ** decimals)) / (10 ** decimals)).toFixed(decimals).replace('.', ',').replace(/,0$/, '');
@@ -1093,7 +1093,7 @@ function capabilityControl(device, capability) {
     return row;
   }
   if (!capability.setable) {
-    row.append(node('span', 'value', formatValue(capability.value, capability.units)), node('span'));
+    row.append(node('span', 'value', displayValue(capability)), node('span'));
     return row;
 	}
 	// Een schuif voor elk bedienbaar getal met een begin en een eind. Dat was
@@ -1193,6 +1193,15 @@ function capabilityControl(device, capability) {
 function formatValue(value, units) {
   if (unknownCapabilityValue(value)) return '—';
   return `${value}${units ? ` ${localized(units)}` : ''}`;
+}
+// Een keuzewaarde leest als haar naam en niet als haar id: "Goed", niet "good".
+// Alleen voor echte keuzelijsten; een aan/uit-waarde houdt zijn eigen woorden.
+function displayValue(capability) {
+  if (Array.isArray(capability.values)) {
+    const choice = capabilityChoices(capability)?.find(candidate => String(candidate.id) === String(capability.value));
+    if (choice) return choice.title;
+  }
+  return formatValue(capability.value, capability.units);
 }
 function actionButton(label, handler, className = '') {
   const button = node('button', className, label);

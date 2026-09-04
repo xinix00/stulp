@@ -40,6 +40,7 @@ var standardCapabilityTitles = map[string]string{
 	"measure_gust_strength": "Windstoten",
 	"measure_water":         "Waterdoorstroming",
 	"measure_ultraviolet":   "UV-index",
+	"air_quality_state":     "Luchtkwaliteit",
 
 	"meter_power": "Energieverbruik",
 	"meter_water": "Waterverbruik",

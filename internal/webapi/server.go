@@ -1221,7 +1221,7 @@ var quickCapabilityPriority = []string{
 	"alarm_motion", "alarm_contact", "alarm_glassbreak", "alarm_vibration", "alarm_generic", "alarm_pressure", "alarm_night",
 	"speaker_playing", "volume_mute", "vacuumcleaner_state", "dim",
 	"target_temperature", "measure_temperature", "thermostat_mode",
-	"measure_humidity", "measure_co2", "measure_co", "measure_pm25", "measure_luminance", "measure_pressure", "measure_noise",
+	"measure_humidity", "measure_co2", "measure_co", "measure_pm25", "air_quality_state", "measure_luminance", "measure_pressure", "measure_noise",
 	"measure_rain", "measure_water", "measure_wind_strength", "measure_gust_strength", "measure_wind_angle", "measure_ultraviolet",
 	"measure_battery", "alarm_battery", "alarm_tamper",
 	"measure_power", "meter_power", "measure_current", "measure_voltage", "meter_water", "meter_gas",
@@ -1444,6 +1444,24 @@ func applyDefaultCapabilityMetadata(result map[string]any, id string) {
 		result["type"], result["min"], result["max"], result["step"], result["units"] = "number", 0.0, 100.0, 0.01, "%"
 	case "measure_pressure":
 		result["type"], result["step"], result["units"] = "number", 0.1, "hPa"
+	case "measure_co2", "measure_co":
+		result["type"], result["min"], result["step"], result["units"] = "number", 0.0, 1.0, "ppm"
+	case "measure_pm25":
+		result["type"], result["min"], result["step"], result["units"] = "number", 0.0, 0.1, "µg/m³"
+	case "air_quality_state":
+		// Het oordeel van een luchtkwaliteitssensor, in de zes trappen die
+		// Matter kent. Zonder deze lijst toont de interface "good" in plaats van
+		// "Goed", en weet een Flow-kaart niet welke overgangen er te kiezen zijn.
+		result["type"] = "enum"
+		result["values"] = []any{
+			map[string]any{"id": "unknown", "title": map[string]any{"nl": "Onbekend", "en": "Unknown"}},
+			map[string]any{"id": "good", "title": map[string]any{"nl": "Goed", "en": "Good"}},
+			map[string]any{"id": "fair", "title": map[string]any{"nl": "Redelijk", "en": "Fair"}},
+			map[string]any{"id": "moderate", "title": map[string]any{"nl": "Matig", "en": "Moderate"}},
+			map[string]any{"id": "poor", "title": map[string]any{"nl": "Slecht", "en": "Poor"}},
+			map[string]any{"id": "very_poor", "title": map[string]any{"nl": "Zeer slecht", "en": "Very poor"}},
+			map[string]any{"id": "extremely_poor", "title": map[string]any{"nl": "Extreem slecht", "en": "Extremely poor"}},
+		}
 	case "measure_luminance":
 		result["type"], result["min"], result["step"], result["units"] = "number", 0.0, 1.0, "lx"
 	case "measure_power":

@@ -66,6 +66,9 @@ var capabilityMappings = []capabilityMapping{
 	{Capability: "alarm_smoke", Cluster: smokeCOAlarmCluster, Attribute: 0x0001, Optional: true, Decode: decodeEnumAlarm},
 	{Capability: "alarm_co", Cluster: smokeCOAlarmCluster, Attribute: 0x0002, Optional: true, Decode: decodeEnumAlarm},
 	{Capability: "alarm_battery", Cluster: smokeCOAlarmCluster, Attribute: 0x0003, Decode: decodeEnumAlarm},
+	{Capability: "measure_co2", Cluster: carbonDioxideCluster, Attribute: 0, Optional: true, Decode: decodeConcentration},
+	{Capability: "measure_pm25", Cluster: pm25Cluster, Attribute: 0, Optional: true, Decode: decodeConcentration},
+	{Capability: "air_quality_state", Cluster: airQualityCluster, Attribute: 0, Decode: decodeAirQuality},
 }
 
 func commandForCapability(deviceTypes, servers []uint32, endpoint uint16, capability string, value any) (im.Command, bool, error) {
@@ -336,6 +339,43 @@ func decodeEnergy(value im.Value) (any, bool) {
 func decodeEnumAlarm(value im.Value) (any, bool) {
 	if value.Type == tlv.TypeUint && value.Uint <= 2 {
 		return value.Uint != 0, true
+	}
+	return nil, false
+}
+
+// The concentration measurement clusters (Carbon Dioxide 0x040D, PM2.5 0x042A)
+// share one shape: MeasuredValue is a nullable single-precision float that only
+// exists with the NumericMeasurement feature, which is why the mapping is
+// optional and AttributeList decides whether it is read at all. The value is
+// reported in the unit the specification designates for the cluster (ppm for
+// CO2, µg/m³ for PM2.5); MeasurementUnit 0x0008 is not consulted. Two decimals
+// are kept because a float32 of 3.1 would otherwise surface as 3.0999999046.
+func decodeConcentration(value im.Value) (any, bool) {
+	var measured float64
+	switch value.Type {
+	case tlv.TypeFloat:
+		measured = value.Float
+	case tlv.TypeUint:
+		measured = float64(value.Uint)
+	case tlv.TypeInt:
+		measured = float64(value.Int)
+	default:
+		return nil, false
+	}
+	if math.IsNaN(measured) || math.IsInf(measured, 0) || measured < 0 {
+		return nil, false
+	}
+	return math.Round(measured*100) / 100, true
+}
+
+// Air Quality 0x005B grades the air with AirQualityEnum; Unknown (0) means the
+// accessory has no verdict yet, which is a state of its own and not a missing
+// value.
+var airQualityLevels = []string{"unknown", "good", "fair", "moderate", "poor", "very_poor", "extremely_poor"}
+
+func decodeAirQuality(value im.Value) (any, bool) {
+	if value.Type == tlv.TypeUint && value.Uint < uint64(len(airQualityLevels)) {
+		return airQualityLevels[value.Uint], true
 	}
 	return nil, false
 }

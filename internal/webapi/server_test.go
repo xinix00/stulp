@@ -884,6 +884,48 @@ func TestManagerFilterNeverHidesTheReloadMarker(t *testing.T) {
 	}
 }
 
+// Luchtkwaliteit is een oordeel, geen getal.
+//
+// Een luchtkwaliteitssensor zegt "goed" of "slecht"; dat leest de interface
+// alleen als ze de trappen kent, en een Flow-kaart kan alleen dan een overgang
+// aanbieden. De concentraties eronder krijgen hun eenheid van de kern, zodat
+// een tegel "812 ppm" toont en niet een kaal getal.
+func TestAirQualityIsAGradedReadingWithNamedLevels(t *testing.T) {
+	if defaultCapabilitySetable("air_quality_state") {
+		t.Error("air_quality_state geldt als bedienbaar, maar een oordeel stel je niet in")
+	}
+	metadata := map[string]any{}
+	applyDefaultCapabilityMetadata(metadata, "air_quality_state")
+	if metadata["type"] != "enum" {
+		t.Fatalf("air_quality_state is van type %v, wil enum", metadata["type"])
+	}
+	values, _ := metadata["values"].([]any)
+	want := []string{"unknown", "good", "fair", "moderate", "poor", "very_poor", "extremely_poor"}
+	if len(values) != len(want) {
+		t.Fatalf("air_quality_state biedt %d trappen aan, wil %d", len(values), len(want))
+	}
+	for index, value := range values {
+		entry, _ := value.(map[string]any)
+		if entry["id"] != want[index] {
+			t.Errorf("trap %d is %v, wil %q", index, entry["id"], want[index])
+		}
+		if localized(entry["title"], "nl") == "" {
+			t.Errorf("trap %q heeft geen naam", want[index])
+		}
+	}
+	if got := capabilityDisplayTitle("air_quality_state", nil, "nl"); got != "Luchtkwaliteit" {
+		t.Errorf("titel = %q, wil Luchtkwaliteit", got)
+	}
+
+	for capability, units := range map[string]string{"measure_co2": "ppm", "measure_co": "ppm", "measure_pm25": "µg/m³"} {
+		metadata := map[string]any{}
+		applyDefaultCapabilityMetadata(metadata, capability)
+		if metadata["type"] != "number" || metadata["units"] != units || metadata["min"] != 0.0 {
+			t.Errorf("%s = %v, wil een getal vanaf 0 in %s", capability, metadata, units)
+		}
+	}
+}
+
 // Een zonwering hoort te bedienen te zijn.
 //
 // windowcoverings_state eindigt op _state en niet op _set, en viel daarmee door

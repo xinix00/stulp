@@ -149,6 +149,15 @@ func (b *backing) UpdateDevice(_ context.Context, updated controller.Device) err
 			return err
 		}
 	}
+	// Een modelverversing kan een apparaat een andere soort geven: het
+	// luchtkwaliteitsstation dat als lamp gekoppeld was omdat On/Off het enige
+	// bekende houvast was. De capabilities gingen hierboven al mee; zonder deze
+	// regel bleef de soort van de koppeldag staan.
+	if updated.Class != "" && updated.Class != current.Class {
+		if err := device.SetClass(updated.Class); err != nil {
+			return err
+		}
+	}
 	// Ook een nieuwe reden bij een apparaat dat al onbereikbaar wás moet door:
 	// wie de eerste reden laat staan terwijl de echte fout inmiddels bekend
 	// is, laat de gebruiker naar een verouderde melding kijken.

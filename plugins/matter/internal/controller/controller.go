@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	matterModelVersion                       = 3
+	matterModelVersion                       = 4
 	descriptorCluster                 uint32 = 0x001D
 	basicCluster                      uint32 = 0x0028
 	bridgedBasicCluster               uint32 = 0x0039
@@ -51,6 +51,9 @@ const (
 	powerSourceCluster                uint32 = 0x002F
 	electricalPowerCluster            uint32 = 0x0090
 	electricalEnergyCluster           uint32 = 0x0091
+	airQualityCluster                 uint32 = 0x005B
+	carbonDioxideCluster              uint32 = 0x040D
+	pm25Cluster                       uint32 = 0x042A
 	activePowerAttribute              uint32 = 0x0008
 	cumulativeEnergyImportedAttribute uint32 = 0x0001
 )

@@ -260,11 +260,12 @@ func endpointClass(deviceTypes, servers []uint32) string {
 			return "lock"
 		case 0x0301:
 			return "thermostat"
-		case 0x0302:
-			return "sensor"
-		case 0x0307:
-			return "sensor"
-		case 0x0015:
+		// Sensor device types come before the server-cluster fallback below: an
+		// air quality monitor also serves On/Off for its display, and that
+		// server alone would make it a lamp.
+		case 0x0302, 0x0307, 0x0015, // Temperature, Humidity, Contact Sensor
+			0x002C, 0x0106, 0x0107, 0x0305, 0x0306, // Air Quality, Light, Occupancy, Pressure, Flow Sensor
+			0x0041, 0x0043, 0x0044, 0x0076: // Water Freeze, Water Leak, Rain, Smoke CO Alarm
 			return "sensor"
 		}
 	}

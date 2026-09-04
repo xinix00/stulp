@@ -216,6 +216,76 @@ func TestDescriptorArrayAndClassMapping(t *testing.T) {
 	if got := endpointClass(nil, []uint32{doorLockCluster}); got != "lock" {
 		t.Fatalf("door-lock fallback mapped as %q", got)
 	}
+	// An air quality monitor serves On/Off for its display. The device type
+	// says what it is; the On/Off server alone used to make it a lamp.
+	airQualityMonitor := []uint32{onOffCluster, airQualityCluster, temperatureCluster, humidityCluster, carbonDioxideCluster, pm25Cluster}
+	if got := endpointClass([]uint32{0x002C}, airQualityMonitor); got != "sensor" {
+		t.Fatalf("air quality sensor with a display switch mapped as %q, want sensor", got)
+	}
+	if got := endpointClass(nil, airQualityMonitor); got != "light" {
+		t.Fatalf("endpoint without a device type mapped as %q; the server fallback should still say light", got)
+	}
+}
+
+func TestConcentrationMeasurementsAndAirQualityGrade(t *testing.T) {
+	// float32(3.1) widened to float64 is 3.0999999046325684; two decimals keep
+	// what the sensor meant.
+	got, ok := decodeConcentration(im.Value{Type: tlv.TypeFloat, Float: float64(float32(3.1))})
+	if !ok || got != 3.1 {
+		t.Fatalf("PM2.5 3.1 decoded as %v, %v", got, ok)
+	}
+	if got, ok := decodeConcentration(im.Value{Type: tlv.TypeUint, Uint: 812}); !ok || got != float64(812) {
+		t.Fatalf("integer concentration decoded as %v, %v", got, ok)
+	}
+	for name, value := range map[string]im.Value{
+		"NaN":      {Type: tlv.TypeFloat, Float: math.NaN()},
+		"infinite": {Type: tlv.TypeFloat, Float: math.Inf(1)},
+		"negative": {Type: tlv.TypeFloat, Float: -1},
+		"string":   {Type: tlv.TypeString},
+	} {
+		if got, ok := decodeConcentration(value); ok {
+			t.Fatalf("%s concentration was accepted as %v", name, got)
+		}
+	}
+
+	levels := map[uint64]string{0: "unknown", 1: "good", 2: "fair", 3: "moderate", 4: "poor", 5: "very_poor", 6: "extremely_poor"}
+	for raw, want := range levels {
+		if got, ok := decodeAirQuality(im.Value{Type: tlv.TypeUint, Uint: raw}); !ok || got != want {
+			t.Fatalf("AirQualityEnum %d decoded as %v, %v; want %q", raw, got, ok, want)
+		}
+	}
+	if got, ok := decodeAirQuality(im.Value{Type: tlv.TypeUint, Uint: 7}); ok {
+		t.Fatalf("AirQualityEnum 7 is outside the specification but decoded as %v", got)
+	}
+
+	capabilities, state, err := endpointCapabilities(context.Background(), stubAttributeClient{
+		reports: []im.AttributeReport{{Value: im.Value{Type: tlv.TypeFloat, Float: 812}}},
+	}, 1, []uint32{carbonDioxideCluster})
+	if err != nil || !slices.Contains(capabilities, "measure_co2") || state["measure_co2"] != float64(812) {
+		t.Fatalf("initial CO2 mapping: capabilities=%v state=%#v err=%v", capabilities, state, err)
+	}
+	capabilities, state, err = endpointCapabilities(context.Background(), stubAttributeClient{
+		reports: []im.AttributeReport{{Value: im.Value{Type: tlv.TypeFloat, Float: 4.25}}},
+	}, 1, []uint32{pm25Cluster})
+	if err != nil || !slices.Contains(capabilities, "measure_pm25") || state["measure_pm25"] != 4.25 {
+		t.Fatalf("initial PM2.5 mapping: capabilities=%v state=%#v err=%v", capabilities, state, err)
+	}
+	capabilities, state, err = endpointCapabilities(context.Background(), stubAttributeClient{
+		reports: []im.AttributeReport{{Value: im.Value{Type: tlv.TypeUint, Uint: 1}}},
+	}, 1, []uint32{airQualityCluster})
+	if err != nil || !slices.Contains(capabilities, "air_quality_state") || state["air_quality_state"] != "good" {
+		t.Fatalf("initial air quality mapping: capabilities=%v state=%#v err=%v", capabilities, state, err)
+	}
+	// MeasuredValue only exists with the NumericMeasurement feature. A sensor
+	// that merely grades its air keeps its other capabilities and gets no
+	// number it never measured.
+	unsupported := im.Status{Global: im.StatusUnsupportedAttribute}
+	capabilities, state, err = endpointCapabilities(context.Background(), stubAttributeClient{
+		reports: []im.AttributeReport{{Status: &unsupported}},
+	}, 1, []uint32{carbonDioxideCluster})
+	if err != nil || slices.Contains(capabilities, "measure_co2") || len(state) != 0 {
+		t.Fatalf("level-only CO2 cluster: capabilities=%v state=%#v err=%v", capabilities, state, err)
+	}
 }
 
 func TestInitialAttributeReadFailuresAreErrors(t *testing.T) {

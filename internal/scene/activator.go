@@ -87,10 +87,12 @@ func (a *Activator) Activate(ctx context.Context, id string) (ActivationResult, 
 // The first ON snapshots every known current value before issuing a command.
 // Only successfully changed states remain in that persisted restore set. A
 // repeated ON uses the existing restore set and can therefore never overwrite
-// the original baseline. OFF applies that baseline best-effort, skipping values
-// the device already reports, and retains failed or unattempted states, making
-// another OFF a safe retry. A button scene takes no snapshot: ON applies its
-// states and OFF is refused, because there is nothing to put back.
+// the original baseline. OFF applies that baseline best-effort and retains
+// failed or unattempted states, making another OFF a safe retry. In both
+// directions a value the device already reports is not sent again, within the
+// tolerance a radio's steps and float rounding leave. A button scene takes no
+// snapshot: ON applies its states and OFF is refused, because there is nothing
+// to put back.
 func (a *Activator) Set(ctx context.Context, id string, on bool) (ActivationResult, error) {
 	id = strings.TrimSpace(id)
 	result := ActivationResult{SceneID: id, RequestedOn: on, States: []StateResult{}}
@@ -129,11 +131,20 @@ func (a *Activator) Set(ctx context.Context, id string, on bool) (ActivationResu
 }
 
 // press applies a button scene. Nothing is remembered, so no current value has
-// to be readable first and the store is not involved beyond the definition.
+// to be readable first and the store is not involved beyond the definition. A
+// value the device already reports is still skipped; one it cannot read is
+// simply sent.
 func (a *Activator) press(ctx context.Context, definition store.Scene, result ActivationResult) (ActivationResult, error) {
+	current, _, err := a.currentValues(ctx, definition.States)
+	if err != nil {
+		return result, err
+	}
 	plans := make([]statePlan, len(definition.States))
 	for index, desired := range definition.States {
 		plans[index].state = desired
+		if value, known := current[stateKey(desired)]; known && sameValue(value, desired.Value) {
+			plans[index].unchanged = true
+		}
 	}
 	outcomes := a.apply(ctx, plans)
 	result, failures := collectResults(result, outcomes)
@@ -174,6 +185,15 @@ func (a *Activator) setOn(ctx context.Context, definition store.Scene, result Ac
 	for index, desired := range active.States {
 		plans[index].state = desired
 		key := stateKey(desired)
+		// Already there is done, without a command -- on the way in as on the
+		// way back. The state stays in the restore set: from here on the scene
+		// owns that value, and a baseline equal to its target restores as
+		// unchanged too. The comparison is against what the device reports
+		// now, not against the baseline: on a repeated ON those differ.
+		if value, known := current[key]; known && sameValue(value, desired.Value) {
+			plans[index].unchanged = true
+			continue
+		}
 		if _, known := baseline[key]; known {
 			continue
 		}

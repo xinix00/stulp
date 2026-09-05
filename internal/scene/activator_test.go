@@ -251,8 +251,10 @@ func TestRepeatedOnPreservesTheOriginalBaseline(t *testing.T) {
 		t.Fatalf("second ON = %#v, error %v", secondResult, err)
 	}
 	second := storedScene(t, database, definition.ID)
-	if invoked.Load() != 2 || !reflect.DeepEqual(second.Previous, first.Previous) || second.Previous[0].Value != false {
-		t.Fatalf("repeated ON changed baseline: first=%#v second=%#v invocations=%d", first.Previous, second.Previous, invoked.Load())
+	// The lamp already reports on, so the repeated ON sends nothing and still
+	// keeps the baseline from before the first ON.
+	if invoked.Load() != 1 || !secondResult.States[0].Unchanged || !reflect.DeepEqual(second.Previous, first.Previous) || second.Previous[0].Value != false {
+		t.Fatalf("repeated ON changed baseline: first=%#v second=%#v invocations=%d states=%#v", first.Previous, second.Previous, invoked.Load(), secondResult.States)
 	}
 	if second.Revision != first.Revision {
 		t.Fatalf("runtime state changed scene revision from %d to %d", first.Revision, second.Revision)
@@ -719,6 +721,87 @@ func TestSetOffSkipsValuesTheDeviceAlreadyReports(t *testing.T) {
 	}
 	if stored := storedScene(t, database, definition.ID); stored.Active || len(stored.Previous) != 0 {
 		t.Fatalf("scene after OFF = %#v", stored)
+	}
+}
+
+func TestSetOnSkipsValuesTheDeviceAlreadyReports(t *testing.T) {
+	database := sceneStore(t, store.InMemoryPath)
+	// The lamp is on and dimmed to what its radio calls 0.3; only the color
+	// differs from the scene. Floats and 1/254 steps must not turn "already
+	// there" into a command.
+	addSceneDevice(t, database, "lamp", []string{"onoff", "dim", "light_saturation"},
+		map[string]any{"onoff": true, "dim": 0.2992, "light_saturation": 0.5})
+	definition := createScene(t, database,
+		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true},
+		store.SceneState{DeviceID: "lamp", CapabilityID: "dim", Value: 0.3},
+		store.SceneState{DeviceID: "lamp", CapabilityID: "light_saturation", Value: 0.8},
+	)
+	type invocation struct {
+		capability string
+		value      any
+	}
+	var invoked []invocation
+	activator := New(database, func(_ context.Context, _ string, capability string, value any, _ map[string]any) error {
+		invoked = append(invoked, invocation{capability: capability, value: value})
+		return nil
+	})
+	result, err := activator.Set(context.Background(), definition.ID, true)
+	if err != nil || !result.Success || !result.Active || result.Attempted != 3 || result.Succeeded != 3 || result.Failed != 0 {
+		t.Fatalf("ON = %#v, error %v", result, err)
+	}
+	if want := []invocation{{capability: "light_saturation", value: 0.8}}; !reflect.DeepEqual(invoked, want) {
+		t.Fatalf("ON invocations = %#v, want %#v", invoked, want)
+	}
+	wantStates := []StateResult{
+		{DeviceID: "lamp", CapabilityID: "onoff", Value: true, Success: true, Unchanged: true},
+		{DeviceID: "lamp", CapabilityID: "dim", Value: 0.3, Success: true, Unchanged: true},
+		{DeviceID: "lamp", CapabilityID: "light_saturation", Value: 0.8, Success: true},
+	}
+	if !reflect.DeepEqual(result.States, wantStates) {
+		t.Fatalf("ON states = %#v, want %#v", result.States, wantStates)
+	}
+	// The scene owns all three values now, so all three are in the restore set.
+	stored := storedScene(t, database, definition.ID)
+	if !stored.Active || len(stored.Previous) != 3 {
+		t.Fatalf("scene after ON = %#v", stored)
+	}
+
+	// Off puts back only what actually moved.
+	reportState(t, database, "lamp", map[string]any{"light_saturation": 0.8})
+	invoked = nil
+	result, err = activator.Set(context.Background(), definition.ID, false)
+	if err != nil || !result.Success || result.Active || result.Attempted != 3 || result.Failed != 0 {
+		t.Fatalf("OFF = %#v, error %v", result, err)
+	}
+	if want := []invocation{{capability: "light_saturation", value: 0.5}}; !reflect.DeepEqual(invoked, want) {
+		t.Fatalf("OFF invocations = %#v, want %#v", invoked, want)
+	}
+}
+
+func TestButtonSceneSkipsValuesTheDeviceAlreadyReports(t *testing.T) {
+	database := sceneStore(t, store.InMemoryPath)
+	addSceneDevice(t, database, "lamp", []string{"onoff", "dim"}, map[string]any{"onoff": false, "dim": 0.2039})
+	definition, err := database.CreateScene(context.Background(), store.Scene{
+		Name: "Tuin uit", Kind: store.SceneKindButton, States: []store.SceneState{
+			{DeviceID: "lamp", CapabilityID: "onoff", Value: false},
+			{DeviceID: "lamp", CapabilityID: "dim", Value: 0.2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoked := 0
+	result, err := New(database, func(context.Context, string, string, any, map[string]any) error {
+		invoked++
+		return nil
+	}).Set(context.Background(), definition.ID, true)
+	if err != nil || !result.Success || result.Attempted != 2 || result.Succeeded != 2 || invoked != 0 {
+		t.Fatalf("pressing a button whose states already hold = %#v, error %v, %d invocations", result, err, invoked)
+	}
+	for _, state := range result.States {
+		if !state.Unchanged {
+			t.Fatalf("state %s was not reported as unchanged: %#v", state.CapabilityID, state)
+		}
 	}
 }
 

@@ -452,6 +452,11 @@ func TestButtonSceneIsPressedThroughItsOwnCapability(t *testing.T) {
 		t.Fatalf("button run card = %#v", run)
 	}
 
+	// The garden is on, so pressing "uit" has something to do.
+	device.State["onoff"] = true
+	if err := server.store.UpdateDevice(ctx, device); err != nil {
+		t.Fatal(err)
+	}
 	var calls []store.SceneState
 	server.scenes = scenerunner.New(server.store, func(_ context.Context, deviceID, capabilityID string, value any, _ map[string]any) error {
 		calls = append(calls, store.SceneState{DeviceID: deviceID, CapabilityID: capabilityID, Value: value})

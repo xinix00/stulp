@@ -358,6 +358,11 @@ func TestMCPPressesAButtonSceneWithoutARestoreSession(t *testing.T) {
 	server, physical := sceneServer(t)
 	created := createAPISceneOfKind(t, server, "Tuin uit", "button",
 		store.SceneState{DeviceID: physical.ID, CapabilityID: "onoff", Value: false})
+	// The garden is on, so pressing "uit" has something to do.
+	physical.State["onoff"] = true
+	if err := server.store.UpdateDevice(context.Background(), physical); err != nil {
+		t.Fatal(err)
+	}
 	server.options.Token = "secret"
 	calls := 0
 	server.scenes = scenerunner.New(server.store, func(context.Context, string, string, any, map[string]any) error {

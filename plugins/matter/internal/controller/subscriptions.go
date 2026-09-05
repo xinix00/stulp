@@ -558,7 +558,10 @@ func (c *Controller) subscribeOnce(ctx context.Context, nodeID uint64) error {
 				c.expireSession(nodeID, session)
 				return refreshErr
 			}
-			c.logger.Debug("Matter device-model refresh failed; subscribing to stored model",
+			// Loud on purpose: a node logs at Info, and a refresh that keeps
+			// failing is the difference between a sensor and a lamp with two
+			// readings. Diagnostics retries it and shows the same reason.
+			c.logger.Warn("Matter device-model refresh failed; subscribing to stored model",
 				"node", fmt.Sprintf("%016X", nodeID), "error", refreshErr)
 		} else {
 			devices = refreshed

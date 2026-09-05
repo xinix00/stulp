@@ -90,6 +90,35 @@ func TestDiagnosticsReadFromACommissionedNode(t *testing.T) {
 	if diagnostics.WiFi != nil {
 		t.Fatalf("a Thread node reported Wi-Fi diagnostics: %#v", diagnostics.WiFi)
 	}
+
+	// A stored model that is behind this build is re-read by Diagnostics itself,
+	// so a person who asks what the node is gets the current answer -- or the
+	// reason it could not be read, on the page instead of in a log.
+	stale, err := database.Device(ctx, added[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.Store["matter.modelVersion"] = matterModelVersion - 1
+	if err := database.UpdateDevice(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err = controller.Diagnostics(ctx, added[0].ID)
+	if err != nil {
+		t.Fatalf("Diagnostics on a stale model: %v", err)
+	}
+	if len(diagnostics.Errors) != 0 {
+		t.Fatalf("stale-model diagnostics reported errors: %v", diagnostics.Errors)
+	}
+	refreshed, err := database.Device(ctx, added[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if modelRefreshRequired([]Device{refreshed}) {
+		t.Fatalf("Diagnostics left the model at version %v", refreshed.Store["matter.modelVersion"])
+	}
+	if len(diagnostics.Inventory) == 0 {
+		t.Fatal("refreshed diagnostics carry no inventory")
+	}
 }
 
 // The mesh joins topology, diagnostics and DNS-SD. This drives it against the

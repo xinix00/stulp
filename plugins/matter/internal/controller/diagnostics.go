@@ -135,10 +135,20 @@ func (c *Controller) Diagnostics(ctx context.Context, deviceID string) (NodeDiag
 		return NodeDiagnostics{}, err
 	}
 	client := im.Client{Transport: c.node, Session: session}
-	result := NodeDiagnostics{
-		NodeID:    fmt.Sprintf("%016X", info.nodeID),
-		Inventory: storedEndpointInventories(device.Store["~matter.endpointInventory"]),
+	result := NodeDiagnostics{NodeID: fmt.Sprintf("%016X", info.nodeID)}
+
+	// Asking for diagnostics is asking what the node is, so a stored model that
+	// is behind this build is re-read here as well. The subscription does the
+	// same when it connects, but it can only log why that failed; here the
+	// reason lands on the page, and a refresh that succeeds shows its inventory.
+	if devices, _, devicesErr := c.nodeDevices(ctx, info.nodeID); devicesErr == nil && modelRefreshRequired(devices) {
+		if _, refreshErr := c.refreshNodeModel(ctx, info.nodeID, devices, info, session); refreshErr != nil {
+			result.Errors = append(result.Errors, "Apparaatmodel verversen: "+refreshErr.Error())
+		} else if refreshed, readErr := c.store.Device(ctx, deviceID); readErr == nil {
+			device = refreshed
+		}
 	}
+	result.Inventory = storedEndpointInventories(device.Store["~matter.endpointInventory"])
 
 	// Endpoint 0 is the node itself: Basic Information and the diagnostics
 	// clusters live there, never on an application endpoint.

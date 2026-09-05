@@ -805,6 +805,34 @@ func (p *Process) InvokeCapability(ctx context.Context, deviceID, capabilityID s
 	}, nil)
 }
 
+// InvokeCapabilities stuurt één apparaat al zijn waarden in één verzoek, zodat
+// de app kan bundelen wat het apparaat bundelt: lamp aan én op die helderheid
+// is voor een Matter-lamp één commando. Het antwoord zegt per capability wat
+// mislukte. Een app van vóór deze methode kent haar niet en zegt dat; dan gaan
+// de opdrachten één voor één, in de volgorde die Stulp koos.
+func (p *Process) InvokeCapabilities(ctx context.Context, deviceID string, commands []CapabilityCommand, options map[string]any) (map[string]error, error) {
+	var failed map[string]string
+	err := p.call(ctx, "capabilities.invoke", map[string]any{
+		"deviceId": deviceID, "commands": commands, "options": options,
+	}, &failed)
+	result := make(map[string]error, len(failed))
+	if err != nil {
+		if !strings.Contains(err.Error(), "unknown method") {
+			return nil, err
+		}
+		for _, command := range commands {
+			if callErr := p.InvokeCapability(ctx, deviceID, command.Capability, command.Value, options); callErr != nil {
+				result[command.Capability] = callErr
+			}
+		}
+		return result, nil
+	}
+	for capability, message := range failed {
+		result[capability] = errors.New(message)
+	}
+	return result, nil
+}
+
 func (p *Process) UpdateDeviceSettings(ctx context.Context, deviceID string, patch map[string]any) (store.Device, error) {
 	if err := p.updateDevice(ctx, deviceID, func(device *store.Device) error {
 		for key, value := range patch {

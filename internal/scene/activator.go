@@ -43,16 +43,52 @@ type ActivationResult struct {
 	States      []StateResult `json:"states"`
 }
 
+// Command is one capability value for a device.
+type Command struct {
+	CapabilityID string
+	Value        any
+}
+
+// Invoker delivers every command for one device in a single call, so an app
+// can combine what its device combines: a lamp on and at that level and in
+// that colour is one message to a Matter or Hue light, not four. The result
+// has one entry per command, in order: nil for success, the error otherwise,
+// or ErrNotAttempted for a command the route never sent. An error for the
+// call as a whole fails every command.
+type Invoker func(ctx context.Context, deviceID string, commands []Command) ([]error, error)
+
+// ErrNotAttempted marks a command that was never handed to the device, so a
+// retry can still pick it up. A route that stops at a cancelled context
+// reports the rest this way.
+var ErrNotAttempted = errors.New("command was not attempted")
+
+// PerCapability adapts a route that takes one capability at a time. Commands
+// go out in the given order; once the context is cancelled the rest is
+// reported as not attempted.
+func PerCapability(single func(ctx context.Context, deviceID, capabilityID string, value any, options map[string]any) error) Invoker {
+	return func(ctx context.Context, deviceID string, commands []Command) ([]error, error) {
+		results := make([]error, len(commands))
+		for index, command := range commands {
+			if ctx.Err() != nil {
+				results[index] = ErrNotAttempted
+				continue
+			}
+			results[index] = single(ctx, deviceID, command.CapabilityID, command.Value, map[string]any{})
+		}
+		return results, nil
+	}
+}
+
 // Activator applies scenes through the same capability invocation boundary as
 // direct controls and Flow actions.
 type Activator struct {
 	database *store.Store
-	invoke   func(context.Context, string, string, any, map[string]any) error
+	invoke   Invoker
 }
 
 // New creates a scene activator. The invoker is deliberately supplied by the
 // caller: the web layer owns the route to plugin and native Matter devices.
-func New(database *store.Store, invoker func(context.Context, string, string, any, map[string]any) error) *Activator {
+func New(database *store.Store, invoker Invoker) *Activator {
 	return &Activator{database: database, invoke: invoker}
 }
 
@@ -321,8 +357,9 @@ func (a *Activator) currentValues(ctx context.Context, states []store.SceneState
 	return values, stateErrors, nil
 }
 
-// apply runs one sequential worker per device. Each worker owns disjoint
-// outcome slots, so the final scene-order projection needs no synchronization.
+// apply gives every device its commands in one call and runs the devices in
+// parallel. Each worker owns disjoint outcome slots, so the final scene-order
+// projection needs no synchronization.
 func (a *Activator) apply(ctx context.Context, plans []statePlan) []stateOutcome {
 	outcomes := make([]stateOutcome, len(plans))
 	byDevice := make(map[string][]int)
@@ -357,26 +394,43 @@ func (a *Activator) apply(ctx context.Context, plans []statePlan) []stateOutcome
 	}
 
 	var workers sync.WaitGroup
-	for _, indices := range byDevice {
-		indices := indices
+	for deviceID, indices := range byDevice {
+		deviceID, indices := deviceID, indices
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			for _, index := range indices {
-				if ctx.Err() != nil {
-					return
+			if ctx.Err() != nil {
+				return
+			}
+			commands := make([]Command, len(indices))
+			for position, index := range indices {
+				commands[position] = Command{CapabilityID: plans[index].state.CapabilityID, Value: plans[index].state.Value}
+			}
+			var results []error
+			var err error
+			switch {
+			case a.invoke == nil:
+				err = errors.New("scene activator needs a capability invoker")
+			default:
+				results, err = a.invoke(ctx, deviceID, commands)
+				if err == nil && len(results) != len(commands) {
+					err = fmt.Errorf("device %s answered %d of %d commands", deviceID, len(results), len(commands))
+				}
+			}
+			for position, index := range indices {
+				commandErr := err
+				if commandErr == nil {
+					commandErr = results[position]
+				}
+				if errors.Is(commandErr, ErrNotAttempted) {
+					continue
 				}
 				outcome := &outcomes[index]
 				outcome.attempted = true
-				if a.invoke == nil {
-					outcome.err = errors.New("scene activator needs a capability invoker")
-				} else {
-					state := plans[index].state
-					outcome.err = a.invoke(ctx, state.DeviceID, state.CapabilityID, state.Value, map[string]any{})
-				}
-				outcome.result.Success = outcome.err == nil
-				if outcome.err != nil {
-					outcome.result.Error = outcome.err.Error()
+				outcome.err = commandErr
+				outcome.result.Success = commandErr == nil
+				if commandErr != nil {
+					outcome.result.Error = commandErr.Error()
 				}
 			}
 		}()

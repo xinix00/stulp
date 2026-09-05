@@ -148,6 +148,21 @@ func (m *matterDevice) OnCapability(name string, value any) error {
 	return controller.SetCapability(context.Background(), m.device.ID(), name, value)
 }
 
+// OnCapabilities is een bundel opdrachten voor dit apparaat, zoals een scene
+// die geeft: aan én helderheid én kleur. De controller maakt er zo weinig
+// Matter-commando's van als de clusters toelaten.
+func (m *matterDevice) OnCapabilities(values map[string]any) map[string]error {
+	controller := m.app.controller
+	if controller == nil {
+		failed := make(map[string]error, len(values))
+		for capability := range values {
+			failed[capability] = fmt.Errorf("Matter controller is not running")
+		}
+		return failed
+	}
+	return controller.SetCapabilities(context.Background(), m.device.ID(), values)
+}
+
 type app struct {
 	controller *mattercontroller.Controller
 

@@ -16,6 +16,7 @@ import (
 	"math"
 	"net"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -533,45 +534,204 @@ func (c *Controller) establishAfterCommissioning(ctx context.Context, initial *n
 }
 
 func (c *Controller) SetCapability(ctx context.Context, deviceID, capability string, value any) error {
+	return c.SetCapabilities(ctx, deviceID, map[string]any{capability: value})[capability]
+}
+
+// SetCapabilities applies several values to one device in as few Matter
+// commands as its clusters allow, and answers per capability what failed. One
+// CASE session carries them all; a command that fails ends that session and
+// what is left goes once more over a fresh one. The device is marked
+// unreachable only when nothing got through.
+func (c *Controller) SetCapabilities(ctx context.Context, deviceID string, values map[string]any) map[string]error {
+	failed := make(map[string]error, len(values))
+	failAll := func(err error) map[string]error {
+		for capability := range values {
+			failed[capability] = err
+		}
+		return failed
+	}
 	device, err := c.store.Device(ctx, deviceID)
 	if err != nil {
-		return err
+		return failAll(err)
 	}
 	info, err := deviceConnection(device)
 	if err != nil {
-		return err
+		return failAll(err)
 	}
-	for attempt := 0; attempt < 2; attempt++ {
+	planned, planErrors := planCommands(device, info.endpoint, values)
+	for capability, planErr := range planErrors {
+		failed[capability] = planErr
+	}
+	applied := make(map[string]any)
+	var lastErr error
+	for attempt := 0; attempt < 2 && len(planned) > 0; attempt++ {
 		session, sessionErr := c.session(ctx, info)
 		if sessionErr != nil {
-			return sessionErr
+			lastErr = sessionErr
+			break
 		}
 		client := im.Client{Transport: c.node, Session: session}
-		endpoint := capabilityEndpoint(device, capability, info.endpoint)
-		err = invokeCapability(ctx, client, endpoint, device, capability, value)
-		if err == nil {
-			c.reportMu.Lock()
-			latest, readErr := c.store.Device(ctx, device.ID)
-			if readErr == nil {
-				if latest.State == nil {
-					latest.State = make(map[string]any)
-				}
-				latest.State[capability] = normalizedCapability(capability, value)
-				latest.Available, latest.Message = true, ""
-				readErr = c.store.UpdateDevice(ctx, latest)
+		remaining := planned[:0:0]
+		for index, plan := range planned {
+			if err := invokePlanned(ctx, client, plan); err != nil {
+				lastErr = err
+				c.expireSession(info.nodeID, session)
+				remaining = planned[index:]
+				break
 			}
-			c.reportMu.Unlock()
-			return readErr
+			for _, capability := range plan.capabilities {
+				applied[capability] = normalizedCapability(capability, values[capability])
+			}
 		}
-		c.expireSession(info.nodeID, session)
+		planned = remaining
+	}
+	for _, plan := range planned {
+		for _, capability := range plan.capabilities {
+			failed[capability] = lastErr
+		}
 	}
 	c.reportMu.Lock()
-	if latest, readErr := c.store.Device(c.ctx, device.ID); readErr == nil {
-		latest.Available, latest.Message = false, err.Error()
-		_ = c.store.UpdateDevice(c.ctx, latest)
+	defer c.reportMu.Unlock()
+	if len(applied) == 0 && lastErr != nil {
+		if latest, readErr := c.store.Device(c.ctx, device.ID); readErr == nil {
+			latest.Available, latest.Message = false, lastErr.Error()
+			_ = c.store.UpdateDevice(c.ctx, latest)
+		}
+		return failed
 	}
-	c.reportMu.Unlock()
-	return err
+	if len(applied) == 0 {
+		return failed
+	}
+	latest, readErr := c.store.Device(ctx, device.ID)
+	if readErr == nil {
+		if latest.State == nil {
+			latest.State = make(map[string]any)
+		}
+		for capability, value := range applied {
+			latest.State[capability] = value
+		}
+		latest.Available, latest.Message = true, ""
+		readErr = c.store.UpdateDevice(ctx, latest)
+	}
+	if readErr != nil {
+		for capability := range applied {
+			failed[capability] = readErr
+		}
+	}
+	return failed
+}
+
+// plannedCommand is one Matter command and the capabilities it fulfils.
+type plannedCommand struct {
+	command      im.Command
+	timed        bool
+	capabilities []string
+}
+
+// planCommands turns the wanted values into Matter commands, fewest first. Hue
+// and saturation on one endpoint become MoveToHueAndSaturation, and a lamp that
+// must be on and at a level gets MoveToLevelWithOnOff alone, because that
+// command turns the lamp on by itself. Everything else is its own command,
+// power-on before the rest and power-off after it. A value no mapping can send
+// is reported, not sent.
+func planCommands(device Device, fallbackEndpoint uint16, values map[string]any) ([]plannedCommand, map[string]error) {
+	ids := make([]string, 0, len(values))
+	for capability := range values {
+		ids = append(ids, capability)
+	}
+	sort.SliceStable(ids, func(left, right int) bool {
+		leftRank, rightRank := commandRank(ids[left], values[ids[left]]), commandRank(ids[right], values[ids[right]])
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		return ids[left] < ids[right]
+	})
+	servers := storedMatterIDs(device.Store["matter.serverClusters"])
+	endpointOf := func(capability string) uint16 { return capabilityEndpoint(device, capability, fallbackEndpoint) }
+	partner := func(capability, base string) (string, bool) {
+		for _, candidate := range ids {
+			if baseCapability(candidate) == base && endpointOf(candidate) == endpointOf(capability) {
+				return candidate, true
+			}
+		}
+		return "", false
+	}
+
+	planned := make([]plannedCommand, 0, len(ids))
+	failed := make(map[string]error)
+	covered := make(map[string]bool, len(ids))
+	for _, capability := range ids {
+		if covered[capability] {
+			continue
+		}
+		endpoint := endpointOf(capability)
+		switch baseCapability(capability) {
+		case "onoff":
+			// On plus a level is MoveToLevelWithOnOff on its own; level 0 would
+			// turn the lamp off instead, and off plus a level stays two commands.
+			if on, _ := values[capability].(bool); on {
+				if dim, found := partner(capability, "dim"); found {
+					if level, ok := number(values[dim]); ok && level > 0 {
+						if command, timed, err := levelCommand(endpoint, values[dim]); err == nil {
+							planned = append(planned, plannedCommand{command: command, timed: timed, capabilities: []string{capability, dim}})
+							covered[capability], covered[dim] = true, true
+							continue
+						}
+					}
+				}
+			}
+		case "light_hue":
+			if saturation, found := partner(capability, "light_saturation"); found {
+				command, timed, err := hueAndSaturationCommand(endpoint, values[capability], values[saturation])
+				if err != nil {
+					failed[capability], failed[saturation] = err, err
+				} else {
+					planned = append(planned, plannedCommand{command: command, timed: timed, capabilities: []string{capability, saturation}})
+				}
+				covered[capability], covered[saturation] = true, true
+				continue
+			}
+		}
+		covered[capability] = true
+		deviceTypes := storedEndpointDeviceTypes(device, endpoint)
+		command, timed, err := commandForCapability(deviceTypes, servers, endpoint, capability, values[capability])
+		if err != nil {
+			failed[capability] = err
+			continue
+		}
+		planned = append(planned, plannedCommand{command: command, timed: timed, capabilities: []string{capability}})
+	}
+	return planned, failed
+}
+
+// commandRank orders a device's commands: power on first, power off last, the
+// rest in between. A level or colour sent to a lamp that is still off would be
+// swallowed, and one sent after the off would wake it again.
+func commandRank(capability string, value any) int {
+	if baseCapability(capability) != "onoff" {
+		return 1
+	}
+	if on, ok := value.(bool); ok && on {
+		return 0
+	}
+	return 2
+}
+
+func invokePlanned(ctx context.Context, client im.Client, plan plannedCommand) error {
+	var results []im.InvokeResult
+	var err error
+	if plan.timed {
+		results, err = client.InvokeTimed(ctx, 5000, plan.command)
+	} else {
+		results, err = client.Invoke(ctx, plan.command)
+	}
+	if err != nil {
+		return err
+	}
+	if len(results) != 1 || !results[0].Status.OK() {
+		return errors.New("Matter command was not accepted")
+	}
+	return nil
 }
 
 func (c *Controller) DeleteDevice(ctx context.Context, deviceID string) error {
@@ -615,28 +775,6 @@ func (c *Controller) DeleteDevice(ctx context.Context, deviceID string) error {
 	c.dropSession(info.nodeID)
 	c.stopSubscription(info.nodeID)
 	return c.store.DeleteDevice(ctx, deviceID)
-}
-
-func invokeCapability(ctx context.Context, client im.Client, endpoint uint16, device Device, capability string, value any) error {
-	deviceTypes := storedEndpointDeviceTypes(device, endpoint)
-	servers := storedMatterIDs(device.Store["matter.serverClusters"])
-	command, timed, err := commandForCapability(deviceTypes, servers, endpoint, capability, value)
-	if err != nil {
-		return err
-	}
-	var results []im.InvokeResult
-	if timed {
-		results, err = client.InvokeTimed(ctx, 5000, command)
-	} else {
-		results, err = client.Invoke(ctx, command)
-	}
-	if err != nil {
-		return err
-	}
-	if len(results) != 1 || !results[0].Status.OK() {
-		return errors.New("Matter command was not accepted")
-	}
-	return nil
 }
 
 func normalizedCapability(capability string, value any) any {

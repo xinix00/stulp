@@ -41,7 +41,7 @@ func canaryScene(t *testing.T, database *store.Store) store.Scene {
 
 func tripCanary(t *testing.T, database *store.Store, canary store.Scene) {
 	t.Helper()
-	if _, err := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(
+	if _, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil })).Set(
 		context.Background(), canary.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -62,10 +62,10 @@ func TestWatcherEndsASceneWhenAValueItSetIsChangedElsewhere(t *testing.T) {
 	t.Cleanup(watcher.Close)
 
 	var invoked atomic.Int32
-	if _, err := New(database, func(context.Context, string, string, any, map[string]any) error {
+	if _, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 		invoked.Add(1)
 		return nil
-	}).Set(context.Background(), film.ID, true); err != nil {
+	})).Set(context.Background(), film.ID, true); err != nil {
 		t.Fatal(err)
 	}
 	sent := invoked.Load()
@@ -114,12 +114,12 @@ func TestWatcherIgnoresStatesTheSceneDoesNotOwn(t *testing.T) {
 	t.Cleanup(watcher.Close)
 
 	// The lamp refuses power on the way in: only dim ends up in the restore set.
-	failing := New(database, func(_ context.Context, _ string, capability string, _ any, _ map[string]any) error {
+	failing := New(database, PerCapability(func(_ context.Context, _ string, capability string, _ any, _ map[string]any) error {
 		if capability == "onoff" {
 			return errors.New("no power")
 		}
 		return nil
-	})
+	}))
 	if _, err := failing.Set(context.Background(), film.ID, true); err == nil {
 		t.Fatal("partial ON did not report its failure")
 	}
@@ -135,12 +135,12 @@ func TestWatcherIgnoresStatesTheSceneDoesNotOwn(t *testing.T) {
 
 	// The dimmer refuses the restore: the scene stays on for a retry. The
 	// lamp reporting that restore is not a change made elsewhere either.
-	refusing := New(database, func(_ context.Context, _ string, capability string, _ any, _ map[string]any) error {
+	refusing := New(database, PerCapability(func(_ context.Context, _ string, capability string, _ any, _ map[string]any) error {
 		if capability == "dim" {
 			return errors.New("dimmer is offline")
 		}
 		return nil
-	})
+	}))
 	if _, err := refusing.Set(context.Background(), film.ID, false); err == nil {
 		t.Fatal("refused restore did not report its failure")
 	}
@@ -171,7 +171,7 @@ func TestWatcherIgnoresRestoredStatesAndButtonScenes(t *testing.T) {
 	watcher := NewWatcher(database, nil)
 	t.Cleanup(watcher.Close)
 
-	noop := New(database, func(context.Context, string, string, any, map[string]any) error { return nil })
+	noop := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil }))
 	if _, err := noop.Set(context.Background(), film.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -179,12 +179,12 @@ func TestWatcherIgnoresRestoredStatesAndButtonScenes(t *testing.T) {
 
 	// A restore that only half succeeds: power went back, dim did not. The
 	// lamp reporting its power-off is the restore, not a change elsewhere.
-	refusing := New(database, func(_ context.Context, _ string, capability string, _ any, _ map[string]any) error {
+	refusing := New(database, PerCapability(func(_ context.Context, _ string, capability string, _ any, _ map[string]any) error {
 		if capability == "dim" {
 			return errors.New("dimmer is offline")
 		}
 		return nil
-	})
+	}))
 	if _, err := refusing.Set(context.Background(), film.ID, false); err == nil {
 		t.Fatal("refused restore did not report its failure")
 	}

@@ -533,3 +533,96 @@ func TestPairedDeviceCarriesItsClass(t *testing.T) {
 		t.Fatalf("de soort reist niet mee: %s", encoded)
 	}
 }
+
+// combiningLamp neemt zijn opdrachten gebundeld aan, zoals een Matter- of
+// Hue-lamp ze in één bericht kan krijgen.
+type combiningLamp struct {
+	device  *appsdk.Device
+	batches chan map[string]any
+}
+
+type combiningDriver struct{ made chan *combiningLamp }
+
+func (d combiningDriver) NewDevice(device *appsdk.Device) (appsdk.DeviceHandler, error) {
+	lamp := &combiningLamp{device: device, batches: make(chan map[string]any, 4)}
+	if d.made != nil {
+		d.made <- lamp
+	}
+	return lamp, nil
+}
+
+func (l *combiningLamp) OnInit() error { return nil }
+
+func (l *combiningLamp) OnCapability(name string, value any) error {
+	return l.device.SetCapabilityValue(name, value)
+}
+
+func (l *combiningLamp) OnCapabilities(values map[string]any) map[string]error {
+	l.batches <- values
+	failed := map[string]error{}
+	for name, value := range values {
+		if name == "dim" {
+			failed[name] = fmt.Errorf("dim is broken")
+			continue
+		}
+		if err := l.device.SetCapabilityValue(name, value); err != nil {
+			failed[name] = err
+		}
+	}
+	return failed
+}
+
+// Een scene geeft alle waarden voor één apparaat in één verzoek. Een apparaat
+// dat ze gebundeld aankan krijgt ze zo; een gewoon apparaat krijgt ze één voor
+// één, in de volgorde die Stulp koos. Het antwoord zegt per capability wat
+// mislukte.
+func TestCapabilitiesInvokeReachesTheDeviceBundledOrOneByOne(t *testing.T) {
+	made := make(chan *combiningLamp, 1)
+	stulp := newFakeStulpWithCapabilities(t, appsdk.Plugin{
+		Drivers: map[string]appsdk.Driver{"switch": lampDriver{}, "combi": combiningDriver{made: made}},
+	}, "onoff", "dim")
+	defer stulp.close()
+
+	stulp.call(t, "device.init", map[string]any{"deviceId": "dev-1", "driverId": "switch"}, nil)
+	var failed map[string]string
+	stulp.call(t, "capabilities.invoke", map[string]any{
+		"deviceId": "dev-1", "commands": []map[string]any{
+			{"capability": "onoff", "value": true}, {"capability": "dim", "value": 0.4},
+		},
+	}, &failed)
+	if len(failed) != 0 || stulp.deviceState("dev-1", "onoff") != true || stulp.deviceState("dev-1", "dim") != 0.4 {
+		t.Fatalf("one-by-one: failed=%v onoff=%v dim=%v", failed, stulp.deviceState("dev-1", "onoff"), stulp.deviceState("dev-1", "dim"))
+	}
+
+	// Een tweede apparaat, van de bundelende soort. Stulp kent het al; de
+	// plugin hoort er pas van bij device.init.
+	colourLamp := map[string]any{
+		"name": "Kleurlamp", "class": "light", "available": true,
+		"data": map[string]any{"id": "def"}, "settings": map[string]any{},
+		"store": map[string]any{}, "state": map[string]any{},
+		"capabilities": []any{"onoff", "dim"},
+	}
+	stulp.mu.Lock()
+	stulp.devices["dev-2"] = colourLamp
+	stulp.mu.Unlock()
+	stulp.set(t, "state.device", map[string]any{"deviceId": "dev-2", "device": colourLamp})
+	stulp.call(t, "device.init", map[string]any{"deviceId": "dev-2", "driverId": "combi"}, nil)
+	lamp := <-made
+	failed = nil
+	stulp.call(t, "capabilities.invoke", map[string]any{
+		"deviceId": "dev-2", "commands": []map[string]any{
+			{"capability": "onoff", "value": true}, {"capability": "dim", "value": 0.4},
+		},
+	}, &failed)
+	select {
+	case batch := <-lamp.batches:
+		if len(batch) != 2 || batch["onoff"] != true || batch["dim"] != 0.4 {
+			t.Fatalf("bundled values = %#v", batch)
+		}
+	default:
+		t.Fatal("the combining lamp never got its bundle")
+	}
+	if len(failed) != 1 || failed["dim"] != "dim is broken" || stulp.deviceState("dev-2", "onoff") != true {
+		t.Fatalf("bundled answer = %v, onoff=%v", failed, stulp.deviceState("dev-2", "onoff"))
+	}
+}

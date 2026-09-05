@@ -22,13 +22,13 @@ func TestMCPDiscoversAndControlsSceneAsNormalOnOffDevice(t *testing.T) {
 	server.options.Token = "secret"
 
 	var calls []store.SceneState
-	server.scenes = scenerunner.New(server.store, func(_ context.Context, deviceID, capabilityID string, value any, options map[string]any) error {
+	server.scenes = scenerunner.New(server.store, scenerunner.PerCapability(func(_ context.Context, deviceID, capabilityID string, value any, options map[string]any) error {
 		if len(options) != 0 {
 			return errors.New("unexpected scene invocation options")
 		}
 		calls = append(calls, store.SceneState{DeviceID: deviceID, CapabilityID: capabilityID, Value: value})
 		return nil
-	})
+	}))
 	handler := server.Handler()
 	deviceID := store.SceneDeviceID(created.ID)
 
@@ -146,12 +146,12 @@ func TestMCPReturnsStructuredPartialSceneResultAndRetryState(t *testing.T) {
 	handler := server.Handler()
 	deviceID := store.SceneDeviceID(created.ID)
 
-	server.scenes = scenerunner.New(server.store, func(_ context.Context, _ string, capabilityID string, _ any, _ map[string]any) error {
+	server.scenes = scenerunner.New(server.store, scenerunner.PerCapability(func(_ context.Context, _ string, capabilityID string, _ any, _ map[string]any) error {
 		if capabilityID == "mode" {
 			return errors.New("mode is offline")
 		}
 		return nil
-	})
+	}))
 	partial := mcpToolCall(t, handler, "devices_write", map[string]any{
 		"deviceId": deviceID, "capabilityId": "onoff", "value": true,
 	})
@@ -187,7 +187,7 @@ func TestMCPReturnsStructuredPartialSceneResultAndRetryState(t *testing.T) {
 	}
 	assertMCPSceneActive(t, server, created.ID, true)
 
-	server.scenes = scenerunner.New(server.store, func(_ context.Context, _ string, _ string, _ any, _ map[string]any) error { return nil })
+	server.scenes = scenerunner.New(server.store, scenerunner.PerCapability(func(_ context.Context, _ string, _ string, _ any, _ map[string]any) error { return nil }))
 	retried := mcpStructured(t, mcpToolCall(t, handler, "devices_write", map[string]any{
 		"deviceId": deviceID, "capabilityId": "onoff", "value": false,
 	}))
@@ -208,18 +208,18 @@ func TestMCPReportsPartialSceneRestoreAndKeepsItRetryable(t *testing.T) {
 	handler := server.Handler()
 	deviceID := store.SceneDeviceID(created.ID)
 
-	server.scenes = scenerunner.New(server.store, func(_ context.Context, _ string, _ string, _ any, _ map[string]any) error { return nil })
+	server.scenes = scenerunner.New(server.store, scenerunner.PerCapability(func(_ context.Context, _ string, _ string, _ any, _ map[string]any) error { return nil }))
 	mcpStructured(t, mcpToolCall(t, handler, "devices_write", map[string]any{
 		"deviceId": deviceID, "capabilityId": "onoff", "value": true,
 	}))
 	reportDeviceState(t, server, physical.ID, map[string]any{"onoff": true, "mode": "movie"})
 
-	server.scenes = scenerunner.New(server.store, func(_ context.Context, _ string, capabilityID string, _ any, _ map[string]any) error {
+	server.scenes = scenerunner.New(server.store, scenerunner.PerCapability(func(_ context.Context, _ string, capabilityID string, _ any, _ map[string]any) error {
 		if capabilityID == "mode" {
 			return errors.New("mode restore failed")
 		}
 		return nil
-	})
+	}))
 	partial := mcpToolCall(t, handler, "devices_write", map[string]any{
 		"deviceId": deviceID, "capabilityId": "onoff", "value": false,
 	})
@@ -243,7 +243,7 @@ func TestMCPReportsPartialSceneRestoreAndKeepsItRetryable(t *testing.T) {
 	}
 	assertMCPSceneActive(t, server, created.ID, true)
 
-	server.scenes = scenerunner.New(server.store, func(_ context.Context, _ string, _ string, _ any, _ map[string]any) error { return nil })
+	server.scenes = scenerunner.New(server.store, scenerunner.PerCapability(func(_ context.Context, _ string, _ string, _ any, _ map[string]any) error { return nil }))
 	retry := mcpStructured(t, mcpToolCall(t, handler, "devices_write", map[string]any{
 		"deviceId": deviceID, "capabilityId": "onoff", "value": false,
 	}))
@@ -300,10 +300,10 @@ func TestMCPSceneWriteBeforeExecutionIsNotAccepted(t *testing.T) {
 	created := createAPIScene(t, server, "Te laat",
 		store.SceneState{DeviceID: physical.ID, CapabilityID: "onoff", Value: true})
 	invoked := false
-	server.scenes = scenerunner.New(server.store, func(_ context.Context, _ string, _ string, _ any, _ map[string]any) error {
+	server.scenes = scenerunner.New(server.store, scenerunner.PerCapability(func(_ context.Context, _ string, _ string, _ any, _ map[string]any) error {
 		invoked = true
 		return nil
-	})
+	}))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	value, _, err := server.mcpWriteDevice(ctx, map[string]any{
@@ -365,10 +365,10 @@ func TestMCPPressesAButtonSceneWithoutARestoreSession(t *testing.T) {
 	}
 	server.options.Token = "secret"
 	calls := 0
-	server.scenes = scenerunner.New(server.store, func(context.Context, string, string, any, map[string]any) error {
+	server.scenes = scenerunner.New(server.store, scenerunner.PerCapability(func(context.Context, string, string, any, map[string]any) error {
 		calls++
 		return nil
-	})
+	}))
 	handler := server.Handler()
 	deviceID := store.SceneDeviceID(created.ID)
 

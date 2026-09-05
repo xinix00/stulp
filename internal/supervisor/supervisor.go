@@ -604,6 +604,14 @@ func (s *Supervisor) InvokeCapability(ctx context.Context, deviceID, capabilityI
 	return runner.InvokeCapability(ctx, deviceID, capabilityID, value, options)
 }
 
+func (s *Supervisor) InvokeCapabilities(ctx context.Context, deviceID string, commands []plugin.CapabilityCommand, options map[string]any) (map[string]error, error) {
+	runner, err := s.runnerForDevice(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	return runner.InvokeCapabilities(ctx, deviceID, commands, options)
+}
+
 func (s *Supervisor) DeviceMedia(ctx context.Context, deviceID string) ([]plugin.MediaRegistration, error) {
 	runner, err := s.runnerForDevice(ctx, deviceID)
 	if err != nil {

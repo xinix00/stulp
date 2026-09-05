@@ -104,6 +104,16 @@ type CapabilityHandler interface {
 	OnCapability(name string, value any) error
 }
 
+// CapabilitiesHandler hoort bij een apparaat dat meer capabilities in één
+// opdracht aankan: lamp aan én op die helderheid én in die kleur, in zo weinig
+// berichten als het apparaat toelaat. Een scene levert zijn waarden zo aan.
+// Het antwoord zegt per capability wat mislukte; wat er niet in staat is
+// gelukt. Zonder deze interface krijgt OnCapability ze één voor één, in de
+// volgorde die Stulp koos: aan vóór de rest, uit erna.
+type CapabilitiesHandler interface {
+	OnCapabilities(values map[string]any) map[string]error
+}
+
 // Pairer levert de apparaten die nu toegevoegd kunnen worden. Dat is de
 // list_devices-stap van het koppelen.
 type Pairer interface {
@@ -400,6 +410,45 @@ func (p *process) handle(ctx context.Context, method string, params json.RawMess
 			return nil, fmt.Errorf("device %s takes no capability commands", p2.DeviceID)
 		}
 		return nil, handler.OnCapability(p2.Capability, p2.Value)
+
+	case "capabilities.invoke":
+		var p2 struct {
+			DeviceID string `json:"deviceId"`
+			Commands []struct {
+				Capability string `json:"capability"`
+				Value      any    `json:"value"`
+			} `json:"commands"`
+		}
+		if err := decode(method, params, &p2); err != nil {
+			return nil, err
+		}
+		device, ok := p.device(p2.DeviceID)
+		if !ok {
+			return nil, fmt.Errorf("device %s is not running", p2.DeviceID)
+		}
+		failed := make(map[string]string)
+		if batch, combines := device.handler.(CapabilitiesHandler); combines {
+			values := make(map[string]any, len(p2.Commands))
+			for _, command := range p2.Commands {
+				values[command.Capability] = command.Value
+			}
+			for capability, err := range batch.OnCapabilities(values) {
+				if err != nil {
+					failed[capability] = err.Error()
+				}
+			}
+			return failed, nil
+		}
+		handler, ok := device.handler.(CapabilityHandler)
+		if !ok {
+			return nil, fmt.Errorf("device %s takes no capability commands", p2.DeviceID)
+		}
+		for _, command := range p2.Commands {
+			if err := handler.OnCapability(command.Capability, command.Value); err != nil {
+				failed[command.Capability] = err.Error()
+			}
+		}
+		return failed, nil
 
 	case "flow.run":
 		var p2 struct {

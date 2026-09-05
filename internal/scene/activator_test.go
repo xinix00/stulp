@@ -124,7 +124,7 @@ func TestSetOnSnapshotsCurrentStateAndActivatesDesiredState(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var invoked []invocation
-	activator := New(database, func(_ context.Context, device, capability string, value any, options map[string]any) error {
+	activator := New(database, PerCapability(func(_ context.Context, device, capability string, value any, options map[string]any) error {
 		if options == nil || len(options) != 0 {
 			return fmt.Errorf("options = %#v, want an empty object", options)
 		}
@@ -132,7 +132,7 @@ func TestSetOnSnapshotsCurrentStateAndActivatesDesiredState(t *testing.T) {
 		invoked = append(invoked, invocation{device: device, capability: capability, value: value})
 		mu.Unlock()
 		return nil
-	})
+	}))
 
 	result, err := activator.Activate(context.Background(), definition.ID)
 	if err != nil {
@@ -192,10 +192,10 @@ func TestSetOrdersPowerAroundOtherCapabilitiesPerDevice(t *testing.T) {
 		value      any
 	}
 	var invoked []invocation
-	activator := New(database, func(_ context.Context, _ string, capability string, value any, _ map[string]any) error {
+	activator := New(database, PerCapability(func(_ context.Context, _ string, capability string, value any, _ map[string]any) error {
 		invoked = append(invoked, invocation{capability: capability, value: value})
 		return nil
-	})
+	}))
 
 	on, err := activator.Set(context.Background(), definition.ID, true)
 	if err != nil || !on.Success {
@@ -233,10 +233,10 @@ func TestRepeatedOnPreservesTheOriginalBaseline(t *testing.T) {
 		store.SceneState{DeviceID: device.ID, CapabilityID: "onoff", Value: true},
 	)
 	var invoked atomic.Int32
-	activator := New(database, func(context.Context, string, string, any, map[string]any) error {
+	activator := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 		invoked.Add(1)
 		return nil
-	})
+	}))
 	if result, err := activator.Set(context.Background(), definition.ID, true); err != nil || !result.Active {
 		t.Fatalf("first ON = %#v, error %v", result, err)
 	}
@@ -268,7 +268,7 @@ func TestSetOffRestoresBaselineAndMakesSceneInactive(t *testing.T) {
 		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true},
 		store.SceneState{DeviceID: "lamp", CapabilityID: "dim", Value: 0.3},
 	)
-	activator := New(database, func(context.Context, string, string, any, map[string]any) error { return nil })
+	activator := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil }))
 	if _, err := activator.Set(context.Background(), definition.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -276,10 +276,10 @@ func TestSetOffRestoresBaselineAndMakesSceneInactive(t *testing.T) {
 	reportState(t, database, "lamp", map[string]any{"onoff": true, "dim": 0.3})
 
 	var restored []any
-	restorer := New(database, func(_ context.Context, _ string, _ string, value any, _ map[string]any) error {
+	restorer := New(database, PerCapability(func(_ context.Context, _ string, _ string, value any, _ map[string]any) error {
 		restored = append(restored, value)
 		return nil
-	})
+	}))
 	result, err := restorer.Set(context.Background(), definition.ID, false)
 	if err != nil || !result.Success || result.RequestedOn || result.Active || result.Attempted != 2 || result.Succeeded != 2 {
 		t.Fatalf("OFF = %#v, error %v", result, err)
@@ -301,12 +301,12 @@ func TestPartialOnShrinksBaselineAndOffCanBeRetried(t *testing.T) {
 		store.SceneState{DeviceID: "lamp", CapabilityID: "dim", Value: 0.3},
 	)
 	onFailure := errors.New("switch refused ON")
-	activator := New(database, func(_ context.Context, _ string, capability string, _ any, _ map[string]any) error {
+	activator := New(database, PerCapability(func(_ context.Context, _ string, capability string, _ any, _ map[string]any) error {
 		if capability == "onoff" {
 			return onFailure
 		}
 		return nil
-	})
+	}))
 	result, err := activator.Set(context.Background(), definition.ID, true)
 	if !errors.Is(err, onFailure) || result.Success || !result.Active || result.Attempted != 2 || result.Succeeded != 1 || result.Failed != 1 {
 		t.Fatalf("partial ON = %#v, error %v", result, err)
@@ -320,7 +320,7 @@ func TestPartialOnShrinksBaselineAndOffCanBeRetried(t *testing.T) {
 	reportState(t, database, "lamp", map[string]any{"dim": 0.3})
 
 	offFailure := errors.New("dimmer is offline")
-	failOff := New(database, func(context.Context, string, string, any, map[string]any) error { return offFailure })
+	failOff := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return offFailure }))
 	firstOff, err := failOff.Set(context.Background(), definition.ID, false)
 	if !errors.Is(err, offFailure) || firstOff.Success || !firstOff.Active || firstOff.Attempted != 1 || firstOff.Failed != 1 {
 		t.Fatalf("first OFF = %#v, error %v", firstOff, err)
@@ -329,7 +329,7 @@ func TestPartialOnShrinksBaselineAndOffCanBeRetried(t *testing.T) {
 		t.Fatalf("failed OFF was not retained for retry: %#v", after)
 	}
 
-	retry := New(database, func(context.Context, string, string, any, map[string]any) error { return nil })
+	retry := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil }))
 	secondOff, err := retry.Set(context.Background(), definition.ID, false)
 	if err != nil || !secondOff.Success || secondOff.Active || secondOff.Attempted != 1 || secondOff.Succeeded != 1 {
 		t.Fatalf("retried OFF = %#v, error %v", secondOff, err)
@@ -347,10 +347,10 @@ func TestUnknownCurrentValueIsAVisibleFailureAndIsNeverChanged(t *testing.T) {
 		store.SceneState{DeviceID: "lamp", CapabilityID: "dim", Value: 0.3},
 	)
 	var invoked []string
-	activator := New(database, func(_ context.Context, _ string, capability string, _ any, _ map[string]any) error {
+	activator := New(database, PerCapability(func(_ context.Context, _ string, capability string, _ any, _ map[string]any) error {
 		invoked = append(invoked, capability)
 		return nil
-	})
+	}))
 	result, err := activator.Set(context.Background(), definition.ID, true)
 	if err == nil || result.Success || !result.Active || result.Attempted != 2 || result.Succeeded != 1 || result.Failed != 1 {
 		t.Fatalf("ON with unknown baseline = %#v, error %v", result, err)
@@ -394,7 +394,7 @@ func TestSetRunsDevicesInParallelButPreservesTheirStateOrder(t *testing.T) {
 	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
 	var mu sync.Mutex
 	sequence := map[string][]string{}
-	activator := New(database, func(ctx context.Context, device, capability string, _ any, _ map[string]any) error {
+	activator := New(database, PerCapability(func(ctx context.Context, device, capability string, _ any, _ map[string]any) error {
 		mu.Lock()
 		sequence[device] = append(sequence[device], capability)
 		mu.Unlock()
@@ -407,7 +407,7 @@ func TestSetRunsDevicesInParallelButPreservesTheirStateOrder(t *testing.T) {
 			}
 		}
 		return nil
-	})
+	}))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -451,7 +451,7 @@ func TestCancelledOffRetainsUnattemptedStatesForRetry(t *testing.T) {
 		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true},
 		store.SceneState{DeviceID: "lamp", CapabilityID: "dim", Value: 0.3},
 	)
-	if _, err := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(
+	if _, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil })).Set(
 		context.Background(), definition.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -460,11 +460,11 @@ func TestCancelledOffRetainsUnattemptedStatesForRetry(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var invoked atomic.Int32
-	cancelling := New(database, func(context.Context, string, string, any, map[string]any) error {
+	cancelling := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 		invoked.Add(1)
 		cancel()
 		return nil
-	})
+	}))
 	result, err := cancelling.Set(ctx, definition.ID, false)
 	if !errors.Is(err, context.Canceled) || result.Success || !result.Active ||
 		result.Attempted != 1 || result.Succeeded != 1 || result.Failed != 0 || invoked.Load() != 1 {
@@ -474,7 +474,7 @@ func TestCancelledOffRetainsUnattemptedStatesForRetry(t *testing.T) {
 	if !stored.Active || len(stored.Previous) != 1 || stored.Previous[0].CapabilityID != "onoff" {
 		t.Fatalf("unattempted restore state was not retained: %#v", stored.Previous)
 	}
-	if retry, retryErr := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(
+	if retry, retryErr := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil })).Set(
 		context.Background(), definition.ID, false); retryErr != nil || !retry.Success || retry.Active {
 		t.Fatalf("OFF retry = %#v, error %v", retry, retryErr)
 	}
@@ -486,7 +486,7 @@ func TestSetSerializesAcrossActivatorsAndNormalizedIDs(t *testing.T) {
 	definition := createScene(t, database,
 		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true},
 	)
-	if _, err := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(
+	if _, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil })).Set(
 		context.Background(), definition.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -497,11 +497,11 @@ func TestSetSerializesAcrossActivatorsAndNormalizedIDs(t *testing.T) {
 	releaseFirst := make(chan struct{})
 	firstDone := make(chan error, 1)
 	go func() {
-		_, err := New(database, func(context.Context, string, string, any, map[string]any) error {
+		_, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 			close(firstStarted)
 			<-releaseFirst
 			return nil
-		}).Set(context.Background(), definition.ID, false)
+		})).Set(context.Background(), definition.ID, false)
 		firstDone <- err
 	}()
 	<-firstStarted
@@ -513,10 +513,10 @@ func TestSetSerializesAcrossActivatorsAndNormalizedIDs(t *testing.T) {
 	}
 	secondDone := make(chan setOutcome, 1)
 	go func() {
-		result, err := New(database, func(context.Context, string, string, any, map[string]any) error {
+		result, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 			secondInvoked.Add(1)
 			return nil
-		}).Set(context.Background(), "  "+definition.ID+"  ", false)
+		})).Set(context.Background(), "  "+definition.ID+"  ", false)
 		secondDone <- setOutcome{result: result, err: err}
 	}()
 
@@ -569,7 +569,7 @@ func TestPreCancelledSetReportsTheDurableActiveState(t *testing.T) {
 	definition := createScene(t, database,
 		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true},
 	)
-	if _, err := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(
+	if _, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil })).Set(
 		context.Background(), definition.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -577,10 +577,10 @@ func TestPreCancelledSetReportsTheDurableActiveState(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var invoked atomic.Int32
-	result, err := New(database, func(context.Context, string, string, any, map[string]any) error {
+	result, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 		invoked.Add(1)
 		return nil
-	}).Set(ctx, definition.ID, false)
+	})).Set(ctx, definition.ID, false)
 	if !errors.Is(err, context.Canceled) || result.Success || !result.Active || result.RequestedOn ||
 		result.SceneID != definition.ID || result.SceneName != definition.Name || result.Attempted != 0 || invoked.Load() != 0 {
 		t.Fatalf("pre-cancelled OFF = %#v, error %v, invocations %d", result, err, invoked.Load())
@@ -593,16 +593,16 @@ func TestCancellationAfterLockAcquisitionReportsTheDurableActiveState(t *testing
 	definition := createScene(t, database,
 		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true},
 	)
-	if _, err := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(
+	if _, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil })).Set(
 		context.Background(), definition.ID, true); err != nil {
 		t.Fatal(err)
 	}
 
 	var invoked atomic.Int32
-	result, err := New(database, func(context.Context, string, string, any, map[string]any) error {
+	result, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 		invoked.Add(1)
 		return nil
-	}).Set(newCancelOnSecondCheckContext(), definition.ID, false)
+	})).Set(newCancelOnSecondCheckContext(), definition.ID, false)
 	if !errors.Is(err, context.Canceled) || result.Success || !result.Active || result.RequestedOn ||
 		result.SceneID != definition.ID || result.SceneName != definition.Name || result.Attempted != 0 || invoked.Load() != 0 {
 		t.Fatalf("OFF canceled after acquire = %#v, error %v, invocations %d", result, err, invoked.Load())
@@ -624,10 +624,10 @@ func TestBeginPersistenceFailurePreventsDeviceChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	var invoked atomic.Int32
-	result, err := New(database, func(context.Context, string, string, any, map[string]any) error {
+	result, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 		invoked.Add(1)
 		return nil
-	}).Set(context.Background(), definition.ID, true)
+	})).Set(context.Background(), definition.ID, true)
 	if err == nil || result.Active || result.Attempted != 0 || invoked.Load() != 0 {
 		t.Fatalf("failed begin = %#v, error %v, invocations %d", result, err, invoked.Load())
 	}
@@ -648,12 +648,12 @@ func TestRestoreSetPersistenceFailureIsReportedAndLeavesSafeBaseline(t *testing.
 		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true},
 	)
 	var moved atomic.Bool
-	result, err := New(database, func(context.Context, string, string, any, map[string]any) error {
+	result, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 		if moved.CompareAndSwap(false, true) {
 			return os.Rename(directory, filepath.Join(root, "moved"))
 		}
 		return nil
-	}).Set(context.Background(), definition.ID, true)
+	})).Set(context.Background(), definition.ID, true)
 	if err == nil || result.Success || !result.Active || result.Attempted != 1 || result.Succeeded != 1 {
 		t.Fatalf("failed baseline shrink = %#v, error %v", result, err)
 	}
@@ -666,10 +666,10 @@ func TestRestoreSetPersistenceFailureIsReportedAndLeavesSafeBaseline(t *testing.
 func TestSetMissingSceneDoesNotInvokeCapabilities(t *testing.T) {
 	database := sceneStore(t, store.InMemoryPath)
 	var invoked atomic.Int32
-	activator := New(database, func(context.Context, string, string, any, map[string]any) error {
+	activator := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 		invoked.Add(1)
 		return nil
-	})
+	}))
 	result, err := activator.Set(context.Background(), "missing", true)
 	if err == nil || result.SceneID != "missing" || result.Attempted != 0 || invoked.Load() != 0 {
 		t.Fatalf("missing activation = %#v, error %v, invocations %d", result, err, invoked.Load())
@@ -685,7 +685,7 @@ func TestSetOffSkipsValuesTheDeviceAlreadyReports(t *testing.T) {
 		store.SceneState{DeviceID: "lamp", CapabilityID: "dim", Value: 0.3},
 		store.SceneState{DeviceID: "lamp", CapabilityID: "light_saturation", Value: 0.5},
 	)
-	if _, err := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(
+	if _, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil })).Set(
 		context.Background(), definition.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -698,10 +698,10 @@ func TestSetOffSkipsValuesTheDeviceAlreadyReports(t *testing.T) {
 		value      any
 	}
 	var invoked []invocation
-	result, err := New(database, func(_ context.Context, _ string, capability string, value any, _ map[string]any) error {
+	result, err := New(database, PerCapability(func(_ context.Context, _ string, capability string, value any, _ map[string]any) error {
 		invoked = append(invoked, invocation{capability: capability, value: value})
 		return nil
-	}).Set(context.Background(), definition.ID, false)
+	})).Set(context.Background(), definition.ID, false)
 	if err != nil || !result.Success || result.Active || result.Attempted != 3 || result.Succeeded != 3 || result.Failed != 0 {
 		t.Fatalf("OFF = %#v, error %v", result, err)
 	}
@@ -741,10 +741,10 @@ func TestSetOnSkipsValuesTheDeviceAlreadyReports(t *testing.T) {
 		value      any
 	}
 	var invoked []invocation
-	activator := New(database, func(_ context.Context, _ string, capability string, value any, _ map[string]any) error {
+	activator := New(database, PerCapability(func(_ context.Context, _ string, capability string, value any, _ map[string]any) error {
 		invoked = append(invoked, invocation{capability: capability, value: value})
 		return nil
-	})
+	}))
 	result, err := activator.Set(context.Background(), definition.ID, true)
 	if err != nil || !result.Success || !result.Active || result.Attempted != 3 || result.Succeeded != 3 || result.Failed != 0 {
 		t.Fatalf("ON = %#v, error %v", result, err)
@@ -791,10 +791,10 @@ func TestButtonSceneSkipsValuesTheDeviceAlreadyReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	invoked := 0
-	result, err := New(database, func(context.Context, string, string, any, map[string]any) error {
+	result, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error {
 		invoked++
 		return nil
-	}).Set(context.Background(), definition.ID, true)
+	})).Set(context.Background(), definition.ID, true)
 	if err != nil || !result.Success || result.Attempted != 2 || result.Succeeded != 2 || invoked != 0 {
 		t.Fatalf("pressing a button whose states already hold = %#v, error %v, %d invocations", result, err, invoked)
 	}
@@ -809,7 +809,7 @@ func TestSetOffStillRestoresWhenTheCurrentValueIsUnknown(t *testing.T) {
 	database := sceneStore(t, store.InMemoryPath)
 	addSceneDevice(t, database, "lamp", []string{"onoff"}, map[string]any{"onoff": false})
 	definition := createScene(t, database, store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true})
-	if _, err := New(database, func(context.Context, string, string, any, map[string]any) error { return nil }).Set(
+	if _, err := New(database, PerCapability(func(context.Context, string, string, any, map[string]any) error { return nil })).Set(
 		context.Background(), definition.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -817,10 +817,10 @@ func TestSetOffStillRestoresWhenTheCurrentValueIsUnknown(t *testing.T) {
 	reportState(t, database, "lamp", map[string]any{"onoff": nil})
 
 	var invoked []any
-	result, err := New(database, func(_ context.Context, _ string, _ string, value any, _ map[string]any) error {
+	result, err := New(database, PerCapability(func(_ context.Context, _ string, _ string, value any, _ map[string]any) error {
 		invoked = append(invoked, value)
 		return nil
-	}).Set(context.Background(), definition.ID, false)
+	})).Set(context.Background(), definition.ID, false)
 	if err != nil || !result.Success || result.Active || result.Attempted != 1 || result.States[0].Unchanged {
 		t.Fatalf("OFF with unknown current value = %#v, error %v", result, err)
 	}
@@ -846,12 +846,12 @@ func TestButtonSceneIsPressedWithoutSnapshotAndCannotBeTurnedOff(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var invoked []store.SceneState
-	activator := New(database, func(_ context.Context, device, capability string, value any, _ map[string]any) error {
+	activator := New(database, PerCapability(func(_ context.Context, device, capability string, value any, _ map[string]any) error {
 		mu.Lock()
 		invoked = append(invoked, store.SceneState{DeviceID: device, CapabilityID: capability, Value: value})
 		mu.Unlock()
 		return nil
-	})
+	}))
 	for press := 1; press <= 2; press++ {
 		result, err := activator.Set(context.Background(), definition.ID, true)
 		if err != nil || !result.Success || !result.Momentary || result.Active || !result.RequestedOn ||
@@ -889,5 +889,95 @@ func TestButtonSceneIsPressedWithoutSnapshotAndCannotBeTurnedOff(t *testing.T) {
 	defer mu.Unlock()
 	if len(invoked) != 6 {
 		t.Fatalf("OFF on a button scene sent commands: %#v", invoked)
+	}
+}
+
+// A device gets everything a scene wants from it in one call, in command order,
+// so the app can send one message where the device takes one. Devices still
+// run side by side.
+func TestSetHandsEachDeviceItsCommandsInOneCall(t *testing.T) {
+	database := sceneStore(t, store.InMemoryPath)
+	addSceneDevice(t, database, "lamp", []string{"onoff", "dim", "light_hue"}, map[string]any{"onoff": false, "dim": 0.1, "light_hue": 0.0})
+	addSceneDevice(t, database, "blind", []string{"windowcoverings_set"}, map[string]any{"windowcoverings_set": 1.0})
+	definition := createScene(t, database,
+		store.SceneState{DeviceID: "lamp", CapabilityID: "dim", Value: 0.6},
+		store.SceneState{DeviceID: "blind", CapabilityID: "windowcoverings_set", Value: 0.2},
+		store.SceneState{DeviceID: "lamp", CapabilityID: "light_hue", Value: 0.5},
+		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true},
+	)
+	var mu sync.Mutex
+	calls := map[string][]Command{}
+	activator := New(database, func(_ context.Context, deviceID string, commands []Command) ([]error, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if _, again := calls[deviceID]; again {
+			t.Errorf("device %s was called twice", deviceID)
+		}
+		calls[deviceID] = commands
+		return make([]error, len(commands)), nil
+	})
+	result, err := activator.Set(context.Background(), definition.ID, true)
+	if err != nil || !result.Success || result.Attempted != 4 || result.Succeeded != 4 {
+		t.Fatalf("ON = %#v, error %v", result, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	// Power first, then the rest in the scene's own order.
+	wantLamp := []Command{{CapabilityID: "onoff", Value: true}, {CapabilityID: "dim", Value: 0.6}, {CapabilityID: "light_hue", Value: 0.5}}
+	if !reflect.DeepEqual(calls["lamp"], wantLamp) {
+		t.Fatalf("lamp commands = %#v, want %#v", calls["lamp"], wantLamp)
+	}
+	if want := []Command{{CapabilityID: "windowcoverings_set", Value: 0.2}}; !reflect.DeepEqual(calls["blind"], want) {
+		t.Fatalf("blind commands = %#v, want %#v", calls["blind"], want)
+	}
+}
+
+// What the route answers per command is what the scene reports per state: a
+// failed command fails its state, an error for the whole call fails them all,
+// and a command the route never sent stays unattempted and in the restore set.
+func TestSetProjectsTheRouteAnswerOntoEachState(t *testing.T) {
+	database := sceneStore(t, store.InMemoryPath)
+	addSceneDevice(t, database, "lamp", []string{"onoff", "dim"}, map[string]any{"onoff": false, "dim": 0.1})
+	addSceneDevice(t, database, "fan", []string{"onoff"}, map[string]any{"onoff": false})
+	addSceneDevice(t, database, "blind", []string{"windowcoverings_set"}, map[string]any{"windowcoverings_set": 1.0})
+	definition := createScene(t, database,
+		store.SceneState{DeviceID: "lamp", CapabilityID: "onoff", Value: true},
+		store.SceneState{DeviceID: "lamp", CapabilityID: "dim", Value: 0.6},
+		store.SceneState{DeviceID: "fan", CapabilityID: "onoff", Value: true},
+		store.SceneState{DeviceID: "blind", CapabilityID: "windowcoverings_set", Value: 0.2},
+	)
+	dimFailure := errors.New("level rejected")
+	fanFailure := errors.New("fan is offline")
+	activator := New(database, func(_ context.Context, deviceID string, commands []Command) ([]error, error) {
+		switch deviceID {
+		case "lamp":
+			return []error{nil, dimFailure}, nil
+		case "fan":
+			return nil, fanFailure
+		default:
+			return []error{ErrNotAttempted}, nil
+		}
+	})
+	result, err := activator.Set(context.Background(), definition.ID, true)
+	if err == nil || result.Success || result.Attempted != 3 || result.Succeeded != 1 || result.Failed != 2 {
+		t.Fatalf("ON = %#v, error %v", result, err)
+	}
+	if !errors.Is(err, dimFailure) || !errors.Is(err, fanFailure) {
+		t.Fatalf("ON error lost a cause: %v", err)
+	}
+	byCapability := map[string]StateResult{}
+	for _, state := range result.States {
+		byCapability[state.DeviceID+"/"+state.CapabilityID] = state
+	}
+	if !byCapability["lamp/onoff"].Success || byCapability["lamp/dim"].Error != "level rejected" || byCapability["fan/onoff"].Error != "fan is offline" {
+		t.Fatalf("states = %#v", result.States)
+	}
+	if _, attempted := byCapability["blind/windowcoverings_set"]; attempted {
+		t.Fatalf("an unsent command was reported as attempted: %#v", result.States)
+	}
+	// Only the state that actually changed is in the restore set.
+	stored := storedScene(t, database, definition.ID)
+	if len(stored.Previous) != 1 || stored.Previous[0].DeviceID != "lamp" || stored.Previous[0].CapabilityID != "onoff" {
+		t.Fatalf("restore set = %#v", stored.Previous)
 	}
 }

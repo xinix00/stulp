@@ -61,7 +61,7 @@ var capabilityMappings = []capabilityMapping{
 	{Capability: "measure_current", Cluster: electricalPowerCluster, Attribute: 0x0005, Optional: true, Decode: decodeSignedScale(1000)},
 	{Capability: "measure_power", Cluster: electricalPowerCluster, Attribute: activePowerAttribute, Decode: decodeSignedScale(1000)},
 	{Capability: "meter_power", Cluster: electricalEnergyCluster, Attribute: cumulativeEnergyImportedAttribute, Optional: true, Decode: decodeEnergy},
-	{Capability: "light_hue", Cluster: colorControlCluster, Attribute: 0x0000, Optional: true, Decode: decodeUnsignedScale(254), Command: hueCommand, Commands: []uint32{0}},
+	{Capability: "light_hue", Cluster: colorControlCluster, Attribute: 0x0000, Optional: true, Decode: decodeUnsignedScale(254), Command: hueCommand, Commands: []uint32{0, 6}},
 	{Capability: "light_saturation", Cluster: colorControlCluster, Attribute: 0x0001, Optional: true, Decode: decodeUnsignedScale(254), Command: saturationCommand, Commands: []uint32{3}},
 	{Capability: "alarm_smoke", Cluster: smokeCOAlarmCluster, Attribute: 0x0001, Optional: true, Decode: decodeEnumAlarm},
 	{Capability: "alarm_co", Cluster: smokeCOAlarmCluster, Attribute: 0x0002, Optional: true, Decode: decodeEnumAlarm},
@@ -146,6 +146,31 @@ func saturationCommand(endpoint uint16, value any) (im.Command, bool, error) {
 			writer.PutUintWidth(tlv.Context(1), 0, 2)
 			writer.PutUintWidth(tlv.Context(2), 0, 1)
 			writer.PutUintWidth(tlv.Context(3), 0, 1)
+			writer.EndContainer()
+		}}, false, nil
+}
+
+// hueAndSaturationCommand is Color Control MoveToHueAndSaturation (0x06): both
+// values in one command, so a lamp does not first turn to the new hue at its
+// old saturation. Fields: Hue, Saturation, TransitionTime, OptionsMask,
+// OptionsOverride.
+func hueAndSaturationCommand(endpoint uint16, hueValue, saturationValue any) (im.Command, bool, error) {
+	hue, ok := number(hueValue)
+	if !ok || hue < 0 || hue > 1 {
+		return im.Command{}, false, fmt.Errorf("light_hue needs a number between 0 and 1")
+	}
+	saturation, ok := number(saturationValue)
+	if !ok || saturation < 0 || saturation > 1 {
+		return im.Command{}, false, fmt.Errorf("light_saturation needs a number between 0 and 1")
+	}
+	return im.Command{Path: im.CommandPath{Endpoint: endpoint, Cluster: colorControlCluster, Command: 0x06},
+		Fields: func(writer *tlv.Writer, tag tlv.Tag) {
+			writer.StartStructure(tag)
+			writer.PutUintWidth(tlv.Context(0), uint64(math.Round(hue*254)), 1)
+			writer.PutUintWidth(tlv.Context(1), uint64(math.Round(saturation*254)), 1)
+			writer.PutUintWidth(tlv.Context(2), 0, 2) // immediate transition
+			writer.PutUintWidth(tlv.Context(3), 0, 1)
+			writer.PutUintWidth(tlv.Context(4), 0, 1)
 			writer.EndContainer()
 		}}, false, nil
 }

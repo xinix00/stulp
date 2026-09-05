@@ -152,13 +152,13 @@ func TestSceneAPICreatesListsUpdatesAndActsAsAnOnOffDevice(t *testing.T) {
 	}
 
 	var calls []store.SceneState
-	server.scenes = scenerunner.New(server.store, func(_ context.Context, deviceID, capabilityID string, value any, options map[string]any) error {
+	server.scenes = scenerunner.New(server.store, scenerunner.PerCapability(func(_ context.Context, deviceID, capabilityID string, value any, options map[string]any) error {
 		if len(options) != 0 {
 			t.Fatalf("scene invocation options = %#v", options)
 		}
 		calls = append(calls, store.SceneState{DeviceID: deviceID, CapabilityID: capabilityID, Value: value})
 		return nil
-	})
+	}))
 	response = request(t, server.Handler(), http.MethodPut, "/api/manager/devices/device/"+virtualID+"/capability/onoff", map[string]any{"value": true}, "")
 	if response.Code != http.StatusOK {
 		t.Fatalf("turn scene on returned %d: %s", response.Code, response.Body.String())
@@ -458,10 +458,10 @@ func TestButtonSceneIsPressedThroughItsOwnCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	var calls []store.SceneState
-	server.scenes = scenerunner.New(server.store, func(_ context.Context, deviceID, capabilityID string, value any, _ map[string]any) error {
+	server.scenes = scenerunner.New(server.store, scenerunner.PerCapability(func(_ context.Context, deviceID, capabilityID string, value any, _ map[string]any) error {
 		calls = append(calls, store.SceneState{DeviceID: deviceID, CapabilityID: capabilityID, Value: value})
 		return nil
-	})
+	}))
 	response := request(t, server.Handler(), http.MethodPut, "/api/manager/devices/device/"+virtualID+"/capability/button", map[string]any{"value": true}, "")
 	if response.Code != http.StatusOK {
 		t.Fatalf("press returned %d: %s", response.Code, response.Body.String())

@@ -41,8 +41,11 @@ type Runtime interface {
 	SetSetting(ctx context.Context, name string, value any) error
 	UnsetSetting(ctx context.Context, name string) error
 
-	// Devices.
+	// Devices. InvokeCapabilities carries every value for one device in a
+	// single request, so the app can combine what the device combines; it
+	// answers per capability what failed.
 	InvokeCapability(ctx context.Context, deviceID, capabilityID string, value any, options map[string]any) error
+	InvokeCapabilities(ctx context.Context, deviceID string, commands []CapabilityCommand, options map[string]any) (map[string]error, error)
 	UpdateDeviceSettings(ctx context.Context, deviceID string, patch map[string]any) (store.Device, error)
 	RenameDevice(ctx context.Context, deviceID, name string) (store.Device, error)
 	DeleteDevice(ctx context.Context, deviceID string) error
@@ -55,6 +58,13 @@ type Runtime interface {
 	Registrations(ctx context.Context) (RegistrationSnapshot, error)
 	DeviceMedia(ctx context.Context, deviceID string) ([]MediaRegistration, error)
 	ResolveMedia(ctx context.Context, deviceID, slot, kind string) (VideoStream, error)
+}
+
+// CapabilityCommand is één waarde voor één capability, zoals een scene er
+// meerdere tegelijk aan een apparaat geeft.
+type CapabilityCommand struct {
+	Capability string `json:"capability"`
+	Value      any    `json:"value"`
 }
 
 // Een app is een eigen proces dat appproto spreekt. Zie docs/app-processes.md

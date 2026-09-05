@@ -23,6 +23,7 @@ import (
 	flowengine "github.com/xinix00/stulp/internal/flow"
 	"github.com/xinix00/stulp/internal/imageshare"
 	"github.com/xinix00/stulp/internal/manifest"
+	"github.com/xinix00/stulp/internal/plugin"
 	"github.com/xinix00/stulp/internal/scene"
 	"github.com/xinix00/stulp/internal/stats"
 	"github.com/xinix00/stulp/internal/store"
@@ -99,7 +100,7 @@ func New(database *store.Store, apps *supervisor.Supervisor, options Options) *S
 	if system, err := database.System(context.Background()); err == nil {
 		s.unitsSet = system.Units
 	}
-	s.scenes = scene.New(database, s.invokeCapability)
+	s.scenes = scene.New(database, s.invokeCapabilities)
 	s.watcher = scene.NewWatcher(database, options.Logger)
 	s.flows = flowengine.NewWithOptions(database, apps, flowengine.Options{
 		Timezone: options.Timezone, InvokeCapability: s.invokeCapability,
@@ -245,6 +246,33 @@ func (s *Server) invokeCapabilityDetailed(ctx context.Context, deviceID, capabil
 		return &result, activationErr
 	}
 	return nil, s.supervisor.InvokeCapability(ctx, device.ID, capabilityID, value, options)
+}
+
+// invokeCapabilities is de route van een scene naar een apparaat: alle
+// opdrachten voor één apparaat in één aanroep, zodat een app kan bundelen wat
+// het apparaat bundelt -- lamp aan én op die helderheid is voor een Matter-lamp
+// één commando. Een scene-apparaat heeft één capability en neemt de gewone weg.
+func (s *Server) invokeCapabilities(ctx context.Context, deviceID string, commands []scene.Command) ([]error, error) {
+	device, err := s.store.Device(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	if _, sceneDevice := store.SceneIDFromDeviceID(device.ID); sceneDevice && device.AppID == store.NativeSceneAppID {
+		return scene.PerCapability(s.invokeCapability)(ctx, deviceID, commands)
+	}
+	wanted := make([]plugin.CapabilityCommand, len(commands))
+	for index, command := range commands {
+		wanted[index] = plugin.CapabilityCommand{Capability: command.CapabilityID, Value: command.Value}
+	}
+	failed, err := s.supervisor.InvokeCapabilities(ctx, device.ID, wanted, map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+	results := make([]error, len(commands))
+	for index, command := range commands {
+		results[index] = failed[command.CapabilityID]
+	}
+	return results, nil
 }
 
 // UseStatistics hangt een verzamelaar aan de API. Zonder is de route er wel en

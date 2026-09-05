@@ -11,6 +11,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -619,4 +620,68 @@ func TestUnmarkedMethodStaysInTheQueue(t *testing.T) {
 		t.Fatalf("een ongemarkeerde methode kwam er langs de rij: %v", err)
 	}
 	close(release)
+}
+
+// Een zijbaan met een eigen plafond: zoveel van die methode tegelijk, de rest
+// wacht in de rij. Een scene stuurt haar lampen zo naast elkaar zonder dat het
+// aantal goroutines aan de peer wordt overgelaten.
+func TestBesideQueueLimitIsPerMethod(t *testing.T) {
+	var running, peak atomic.Int32
+	release := make(chan struct{})
+	entered := make(chan struct{}, 8)
+	server, client := net.Pipe()
+	session := NewSession(NewConn(server), func(_ context.Context, method string, _ json.RawMessage) (any, error) {
+		if method != "bundle" {
+			return "other", nil
+		}
+		now := running.Add(1)
+		for {
+			seen := peak.Load()
+			if now <= seen || peak.CompareAndSwap(seen, now) {
+				break
+			}
+		}
+		entered <- struct{}{}
+		<-release
+		running.Add(-1)
+		return "done", nil
+	}, nil)
+	session.AnswerBesideQueueLimit(2, "bundle")
+	go session.Serve()
+	defer session.Close()
+
+	caller := NewSession(NewConn(client), nil, nil)
+	go caller.Serve()
+	defer caller.Close()
+
+	results := make(chan error, 4)
+	for range 4 {
+		go func() {
+			_, err := caller.Call(context.Background(), "bundle", nil)
+			results <- err
+		}()
+	}
+	// Twee lopen naast de rij en één op de worker van de rij zelf; de vierde
+	// staat achter die ene en komt pas als hij klaar is.
+	for range 3 {
+		select {
+		case <-entered:
+		case <-time.After(2 * time.Second):
+			t.Fatal("de zijbaan liet geen twee bundels naast de rij lopen")
+		}
+	}
+	select {
+	case <-entered:
+		t.Fatal("een vierde bundel liep boven het plafond van twee plus de rij")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	for range 4 {
+		if err := <-results; err != nil {
+			t.Fatalf("bundel eindigde met %v", err)
+		}
+	}
+	if peak.Load() != 3 {
+		t.Fatalf("hoogste gelijktijdigheid = %d, wil 3", peak.Load())
+	}
 }

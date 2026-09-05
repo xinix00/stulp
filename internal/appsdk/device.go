@@ -18,6 +18,9 @@ type Device struct {
 
 	mu    sync.Mutex
 	media map[string]mediaSlot
+	// commands houdt de gebundelde opdrachten (OnCapabilities) voor dit ene
+	// apparaat achter elkaar, terwijl andere apparaten tegelijk bediend worden.
+	commands sync.Mutex
 }
 
 func (d *Device) ID() string       { return d.id }

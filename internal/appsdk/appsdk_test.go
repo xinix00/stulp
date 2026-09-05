@@ -626,3 +626,87 @@ func TestCapabilitiesInvokeReachesTheDeviceBundledOrOneByOne(t *testing.T) {
 		t.Fatalf("bundled answer = %v, onoff=%v", failed, stulp.deviceState("dev-2", "onoff"))
 	}
 }
+
+// blockingLamp houdt zijn bundel vast tot de test hem loslaat, zodat te zien is
+// wat er ondertussen nog wél doorgaat.
+type blockingLamp struct {
+	device  *appsdk.Device
+	entered chan string
+	release chan struct{}
+}
+
+type blockingDriver struct {
+	entered chan string
+	release chan struct{}
+}
+
+func (d blockingDriver) NewDevice(device *appsdk.Device) (appsdk.DeviceHandler, error) {
+	return &blockingLamp{device: device, entered: d.entered, release: d.release}, nil
+}
+
+func (l *blockingLamp) OnInit() error                  { return nil }
+func (l *blockingLamp) OnCapability(string, any) error { return nil }
+func (l *blockingLamp) OnCapabilities(map[string]any) map[string]error {
+	l.entered <- l.device.ID()
+	<-l.release
+	return nil
+}
+
+// Een scene stuurt haar lampen tegelijk: twee bundelende apparaten krijgen hun
+// bundel naast elkaar, en een gewone opdracht voor een derde apparaat wacht
+// daar niet op. De worker blijft dus vrij voor de gewone callbacks.
+func TestBundledCommandsRunBesideEachOtherAndBesideTheWorker(t *testing.T) {
+	entered := make(chan string, 2)
+	release := make(chan struct{})
+	stulp := newFakeStulpWithCapabilities(t, appsdk.Plugin{
+		Drivers: map[string]appsdk.Driver{"switch": lampDriver{}, "slow": blockingDriver{entered: entered, release: release}},
+	}, "onoff", "dim")
+	defer stulp.close()
+	for _, id := range []string{"dev-2", "dev-3"} {
+		device := map[string]any{
+			"name": id, "class": "light", "available": true,
+			"data": map[string]any{"id": id}, "settings": map[string]any{},
+			"store": map[string]any{}, "state": map[string]any{},
+			"capabilities": []any{"onoff", "dim"},
+		}
+		stulp.mu.Lock()
+		stulp.devices[id] = device
+		stulp.mu.Unlock()
+		stulp.set(t, "state.device", map[string]any{"deviceId": id, "device": device})
+		stulp.call(t, "device.init", map[string]any{"deviceId": id, "driverId": "slow"}, nil)
+	}
+	stulp.call(t, "device.init", map[string]any{"deviceId": "dev-1", "driverId": "switch"}, nil)
+
+	bundles := make(chan error, 2)
+	for _, id := range []string{"dev-2", "dev-3"} {
+		go func() {
+			_, err := stulp.session.Call(context.Background(), "capabilities.invoke", map[string]any{
+				"deviceId": id, "commands": []map[string]any{{"capability": "onoff", "value": true}},
+			})
+			bundles <- err
+		}()
+	}
+	started := map[string]bool{}
+	for len(started) < 2 {
+		select {
+		case id := <-entered:
+			started[id] = true
+		case <-time.After(2 * time.Second):
+			t.Fatalf("de bundels liepen niet naast elkaar: %v", started)
+		}
+	}
+	// Terwijl beide bundels hangen gaat een gewone opdracht gewoon door.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := stulp.session.Call(ctx, "capability.invoke", map[string]any{
+		"deviceId": "dev-1", "capability": "onoff", "value": true,
+	}); err != nil {
+		t.Fatalf("een gewone opdracht wachtte op de bundels: %v", err)
+	}
+	close(release)
+	for range 2 {
+		if err := <-bundles; err != nil {
+			t.Fatalf("bundel eindigde met %v", err)
+		}
+	}
+}

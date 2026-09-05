@@ -30,6 +30,12 @@
 // wél parallel: elke methode op Stulp en Device is veilig vanaf elke goroutine.
 // Dat is de enige regel, en hij staat hier omdat het de eerste vraag is die
 // iemand stelt die een socket openzet.
+//
+// Eén uitzondering, en die kies je zelf: OnCapabilities (een scene die meer
+// waarden tegelijk zet) loopt naast die worker, per apparaat achter elkaar maar
+// voor verschillende apparaten tegelijk -- anders wacht de twintigste lamp van
+// een scene op de negentien ervoor. Wie die interface implementeert belooft dus
+// dat zijn OnCapabilities vanaf meerdere goroutines mag draaien.
 package appsdk
 
 import (
@@ -209,6 +215,11 @@ func serveWithHeartbeat(conn *appproto.Conn, plugin Plugin, heartbeatInterval, h
 	// zijbaan staan die leesacties achter de handler die er nu is, en een app die
 	// een trage peer bevraagt laat zijn eigen pagina's dan minuten leeg.
 	app.session.AnswerBesideQueue("ui.asset")
+	// Gebundelde opdrachten lopen per apparaat naast de rij, zodat een scene
+	// haar lampen tegelijk aanstuurt in plaats van één voor één. Zie
+	// "capabilities.invoke" in handle voor hoe de belofte van één callback
+	// tegelijk daarbij overeind blijft.
+	app.session.AnswerBesideQueueLimit(besideCommandLimit, "capabilities.invoke")
 	app.host = NewHost(app.session, app.state)
 	app.stulp = &Stulp{host: app.host, cards: map[string]*flowCard{}}
 
@@ -275,6 +286,12 @@ type process struct {
 	mu       sync.Mutex
 	devices  map[string]*Device
 	sessions map[string]map[string]PairHandler
+
+	// lifecycle is de belofte van hierboven: één callback tegelijk. De worker
+	// van appproto geeft die vanzelf; het slot is er voor wat naast die worker
+	// loopt en toch een gewone callback aanroept, zoals een bundel opdrachten
+	// voor een apparaat dat ze alleen los aanneemt.
+	lifecycle sync.Mutex
 }
 
 // startPair opent een koppelsessie en meldt welke berichten de pagina mag sturen.
@@ -328,13 +345,27 @@ func (p *process) startPair(driverID, sessionID string) ([]string, error) {
 	return names, nil
 }
 
+// besideCommandLimit is hoeveel gebundelde opdrachten er tegelijk mogen lopen.
+// Ruim boven het aantal apparaten dat één scene per app raakt; daarboven gaat
+// een bundel gewoon de rij in en komt hij iets later.
+const besideCommandLimit = 32
+
 // handle draait op de geordende worker van appproto: verzoeken komen daar één
-// voor één binnen, dus twee lifecycle-callbacks lopen nooit door elkaar.
+// voor één binnen, dus twee lifecycle-callbacks lopen nooit door elkaar. De
+// zijbaan-methodes (ui.asset, capabilities.invoke) komen hier ook langs, maar
+// dan vanuit een eigen goroutine; die nemen het lifecycle-slot alleen als ze
+// een gewone callback aanroepen.
 func (p *process) handle(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	select {
 	case <-p.ready:
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+	switch method {
+	case "ui.asset", "capabilities.invoke":
+	default:
+		p.lifecycle.Lock()
+		defer p.lifecycle.Unlock()
 	}
 
 	switch method {
@@ -428,6 +459,10 @@ func (p *process) handle(ctx context.Context, method string, params json.RawMess
 		}
 		failed := make(map[string]string)
 		if batch, combines := device.handler.(CapabilitiesHandler); combines {
+			// Naast de worker, maar per apparaat één bundel tegelijk: twee
+			// scenes die dezelfde lamp raken lopen niet door elkaar.
+			device.commands.Lock()
+			defer device.commands.Unlock()
 			values := make(map[string]any, len(p2.Commands))
 			for _, command := range p2.Commands {
 				values[command.Capability] = command.Value
@@ -443,6 +478,10 @@ func (p *process) handle(ctx context.Context, method string, params json.RawMess
 		if !ok {
 			return nil, fmt.Errorf("device %s takes no capability commands", p2.DeviceID)
 		}
+		// Losse OnCapability-aanroepen zijn gewone callbacks en houden hun
+		// belofte: nooit tegelijk met een andere.
+		p.lifecycle.Lock()
+		defer p.lifecycle.Unlock()
 		for _, command := range p2.Commands {
 			if err := handler.OnCapability(command.Capability, command.Value); err != nil {
 				failed[command.Capability] = err.Error()

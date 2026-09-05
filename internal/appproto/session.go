@@ -33,10 +33,11 @@ const (
 	maxQueuedRequestBytes = MaxFrameSize
 )
 
-// besideQueueLimit is hoeveel methodes uit de zijbaan er tegelijk mogen lopen.
-// Twee is genoeg om een pagina te vullen terwijl er één traag bestand onderweg
-// is, en het plafond bestaat omdat de peer bepaalt hoe vaak hij vraagt: boven
-// dit aantal gaat een verzoek gewoon de normale rij in.
+// besideQueueLimit is hoeveel verzoeken van één zijbaan-methode er tegelijk
+// mogen lopen als de aanroeper geen eigen grens noemt. Twee is genoeg om een
+// pagina te vullen terwijl er één traag bestand onderweg is, en het plafond
+// bestaat omdat de peer bepaalt hoe vaak hij vraagt: boven dit aantal gaat een
+// verzoek gewoon de normale rij in.
 const besideQueueLimit = 2
 
 // pingMethod is protocol plumbing, not an application callback. Handling it on
@@ -77,10 +78,10 @@ type Session struct {
 	requestQueue   []Frame
 	requestBytes   int
 	requestsClosed bool
-	// beside zijn de methodes uit AnswerBesideQueue, besideRunning hoeveel er
-	// daarvan nu lopen.
-	beside        map[string]bool
-	besideRunning int
+	// beside zijn de methodes uit AnswerBesideQueue met hun plafond,
+	// besideRunning hoeveel er per methode nu lopen.
+	beside        map[string]int
+	besideRunning map[string]int
 	handlerCtx    context.Context
 	cancelHandler context.CancelFunc
 }
@@ -167,13 +168,25 @@ func (s *Session) Serve() (serveErr error) {
 // blokkeren -- een leesactie op een ingebed bestandssysteem hoort hier, een
 // apparaat bevragen niet. Aanroepen vóór Serve.
 func (s *Session) AnswerBesideQueue(methods ...string) {
+	s.AnswerBesideQueueLimit(besideQueueLimit, methods...)
+}
+
+// AnswerBesideQueueLimit is AnswerBesideQueue met een eigen plafond: zoveel
+// verzoeken van elk van deze methodes lopen tegelijk, de rest gaat de rij in.
+// Een scene die twintig lampen tegelijk aanstuurt heeft meer nodig dan de twee
+// van een configuratiepagina.
+func (s *Session) AnswerBesideQueueLimit(limit int, methods ...string) {
+	if limit < 1 {
+		limit = 1
+	}
 	s.requestMu.Lock()
 	defer s.requestMu.Unlock()
 	if s.beside == nil {
-		s.beside = make(map[string]bool, len(methods))
+		s.beside = make(map[string]int, len(methods))
+		s.besideRunning = make(map[string]int, len(methods))
 	}
 	for _, method := range methods {
-		s.beside[method] = true
+		s.beside[method] = limit
 	}
 }
 
@@ -181,16 +194,17 @@ func (s *Session) AnswerBesideQueue(methods ...string) {
 // false hoort de aanroeper hem gewoon in de rij te zetten.
 func (s *Session) answerBeside(frame Frame) bool {
 	s.requestMu.Lock()
-	if !s.beside[frame.M] || s.besideRunning >= besideQueueLimit || s.requestsClosed {
+	limit := s.beside[frame.M]
+	if limit == 0 || s.besideRunning[frame.M] >= limit || s.requestsClosed {
 		s.requestMu.Unlock()
 		return false
 	}
-	s.besideRunning++
+	s.besideRunning[frame.M]++
 	s.requestMu.Unlock()
 	go func() {
 		defer func() {
 			s.requestMu.Lock()
-			s.besideRunning--
+			s.besideRunning[frame.M]--
 			s.requestMu.Unlock()
 		}()
 		s.answer(frame)

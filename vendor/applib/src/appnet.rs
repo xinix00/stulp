@@ -1107,6 +1107,26 @@ impl TcpStream {
             .await
     }
 
+    /// Wacht tot een read niet zou blokkeren: er staan bytes klaar, of de
+    /// peer sloot (de read geeft dan EOF of de fout). Verbruikt niets, zodat
+    /// een eigenaar met één `select` op meerdere verbindingen kan wachten in
+    /// plaats van ze rond te pollen met een lege read en een dutje (de les
+    /// van de gedeelde core, 02-10). De deadline van de stroom geldt ook hier.
+    pub async fn readable(&mut self) -> Result<()> {
+        let h = self.h;
+        self.net
+            .wait(
+                self.deadline,
+                |st, _| match st.tcp_readable(h) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(StackError::WouldBlock),
+                    Err(e) => Err(e),
+                },
+                |st, w| st.tcp_register_read_waker(h, w),
+            )
+            .await
+    }
+
     /// Schrijft een deel van `data` in de zendring; het aantal bytes.
     pub async fn write(&mut self, data: &[u8]) -> Result<usize> {
         let h = self.h;
@@ -1271,6 +1291,24 @@ impl UdpSocket {
             .wait(
                 self.deadline,
                 |st, now| st.udp_recv_from(h, buf, now),
+                |st, w| st.udp_register_read_waker(h, w),
+            )
+            .await
+    }
+
+    /// Wacht tot er een datagram klaarligt, zonder het te lezen: de
+    /// tegenhanger van [`TcpStream::readable`] voor een eigenaar die op
+    /// meerdere sockets tegelijk wacht.
+    pub async fn readable(&self) -> Result<()> {
+        let h = self.h;
+        self.net
+            .wait(
+                self.deadline,
+                |st, _| match st.udp_readable(h) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(StackError::WouldBlock),
+                    Err(e) => Err(e),
+                },
                 |st, w| st.udp_register_read_waker(h, w),
             )
             .await

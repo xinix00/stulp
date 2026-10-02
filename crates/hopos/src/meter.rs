@@ -80,7 +80,7 @@ impl Meter {
             (u128::from(now.idle.wrapping_sub(prev.idle)) * 100 / ticks).min(100)
         };
         let per_s = |d: u64| u128::from(d) * 1_000_000_000 / u128::from(dt_ns);
-        let d = |a: u64, b: u64| a.wrapping_sub(b);
+        let d = |a: u64, b: u64| a.saturating_sub(b);
         let mut s = String::new();
         s.try_reserve(240).map_err(|_| stulp_core::Error::Memory)?;
         write!(
@@ -93,7 +93,7 @@ impl Meter {
             d(now.tx_waits, prev.tx_waits),
             d(now.retrans, prev.retrans),
             d(now.fast, prev.fast),
-            d(now.zero_win, prev.zero_win),
+            now.zero_win,
             d(now.rx_refused, prev.rx_refused),
             d(now.budget_refused, prev.budget_refused),
             d(now.segs_out, prev.segs_out),

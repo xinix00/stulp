@@ -464,6 +464,26 @@ connected") and every Matter session had to be rebuilt. Three measures:
   transport turn between them (`Client::idle`), and the engine waits 250 ms
   between two nodes, so the slot yields its core between the heavy steps.
 
+### Fewer connections, more breathing
+
+Measured with `STULP_LOAD` and `STULP_TLS` on the LicheeRV (2 October,
+evening): both slots idle 99% when quiet; during use the bundle fell to 14%
+idle with 30 TCP retransmissions per 30 s on its external connections, every
+Spotify or TaHoma call cost a full TLS handshake of 160 to 630 ms of
+computation, and the UniFi and Matter callbacks ran up to 7 s. Three more
+measures:
+
+- The plugin HTTP worker keeps connections alive through leanhttp's pool
+  (two per host, eight in total, 30 s), so a poll reuses its connection
+  instead of paying a handshake.
+- The TLS handshake yields to the executor after the chain verification and
+  after the certificate signature, so one handshake no longer runs in one
+  breath for the other plugins on the executor.
+- `STULP_BUNDLE_SKIP=com.stulp.matter` leaves Matter out of the bundle; the
+  node runs it as its own job from `matter-<arch>-tamago.elf` with its own
+  executor and heartbeat, so UniFi, Spotify and TaHoma work and Matter work
+  no longer queue behind each other.
+
 ## IPv6 and Thread follow-up
 
 No extra enable flag is needed: Matter opens separate IPv4/IPv6 UDP sockets,

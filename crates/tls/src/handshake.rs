@@ -232,6 +232,10 @@ where
         let verifier = self.trust_decision(trust, server_name, len);
         self.consume(len);
         let verifier = verifier?;
+        // De ketenverificatie is het zwaarste rekenwerk van de handshake; één
+        // beurt voor de buren op dezelfde executor voordat de handtekening
+        // volgt (HopOS docs/apps.md).
+        cooperate().await;
 
         // CertificateVerify dekt het transcript tot en met Certificate.
         let before_cv = self.transcript.clone().finish();
@@ -239,6 +243,7 @@ where
         let checked = verify_certificate_verify(self.body(len), &verifier, &before_cv);
         self.consume(len);
         checked?;
+        cooperate().await;
 
         let before_fin = self.transcript.clone().finish();
         let len = self.expect(HS_FINISHED).await?;
@@ -535,4 +540,21 @@ fn verify_certificate_verify(
         }
         Verifier::Chain(v, leaf) => v.verify_signature(leaf, alg, &content, sig),
     }
+}
+
+/// Eén beurt aan de executor: de taak meldt zich meteen weer en gaat
+/// verder zodra de anderen hun beurt hadden. Zonder executor-afhankelijkheid,
+/// zodat deze crate `no_std` en vrij van runtimes blijft.
+async fn cooperate() {
+    let mut yielded = false;
+    core::future::poll_fn(|cx| {
+        if yielded {
+            core::task::Poll::Ready(())
+        } else {
+            yielded = true;
+            cx.waker().wake_by_ref();
+            core::task::Poll::Pending
+        }
+    })
+    .await;
 }

@@ -288,13 +288,19 @@ pub(super) fn start(
     if owner.started.get().replace(true) {
         return Err(Error::Invalid("plugin I/O already started"));
     }
-    let mut dial = crate::network::Dial::new(app, &env.random());
+    let dial = crate::network::Dial::new(app, &env.random());
     EXEC.get()
         .spawn(async move {
+            // Keep-alive: de pool van leanhttp (twee ruststaande verbindingen
+            // per host, acht totaal, dertig seconden) spaart per poll een
+            // TLS-handshake uit. Op de LicheeRV kostte elke handshake naar
+            // Spotify of TaHoma 160 tot 630 ms rekenen in één adem, bij
+            // elke aanroep opnieuw (02-10, STULP_TLS).
+            let mut client = leanhttp::Client::new(dial);
             loop {
                 let (id, r) = owner.http.recv().await;
                 let ms = r.timeout_ms;
-                let result = until(owner, HTTP, id, ms, http(&mut dial, r)).await;
+                let result = until(owner, HTTP, id, ms, http(&mut client, r)).await;
                 answer(owner, &owner.http_out, id, result);
             }
         })
@@ -347,8 +353,12 @@ pub(super) fn start(
         .map_err(|_| Error::Transport("discovery worker unavailable"))?;
     Ok(owner)
 }
-async fn http(dial: &mut crate::network::Dial, r: HttpRequest) -> Result<HttpResponse> {
-    dial.device(r.device_certificate);
+async fn http(
+    client: &mut leanhttp::Client<crate::network::Dial>,
+    r: HttpRequest,
+) -> Result<HttpResponse> {
+    client.dialer.device(r.device_certificate);
+    let now = || Duration::from_nanos(applib::clock::now_ns());
     let mut header = leanhttp::Header::new();
     for (k, v) in &r.headers {
         header
@@ -363,7 +373,8 @@ async fn http(dial: &mut crate::network::Dial, r: HttpRequest) -> Result<HttpRes
         header_timeout: Some(Duration::from_secs(15)),
         ..Default::default()
     };
-    let mut response = leanhttp::fetch(dial, call)
+    let mut response = client
+        .send(call, now())
         .await
         .map_err(|_| Error::Transport("HTTP or TLS request failed"))?;
     let mut headers = Vec::new();
@@ -381,8 +392,11 @@ async fn http(dial: &mut crate::network::Dial, r: HttpRequest) -> Result<HttpRes
         .read_to_end(r.limit)
         .await
         .map_err(|_| Error::Transport("HTTP body failed or exceeds limit"))?;
+    let status = response.status;
+    // Terug naar de pool voor de volgende aanroep naar dezelfde host.
+    client.finish(response, now()).await;
     Ok(HttpResponse {
-        status: response.status,
+        status,
         headers,
         body,
     })

@@ -11,7 +11,7 @@ use applib::{
 };
 use core::future::Future;
 use core::time::Duration;
-use hop_sync::{Local, mpsc::Mailbox};
+use hop_sync::{Either, Local, mpsc::Mailbox, select};
 use stulp_controller::{
     Reply,
     callbacks::callback,
@@ -101,6 +101,11 @@ struct Subscriber {
     overview: bool,
 }
 
+/// De tik van de eigenaar: de korrel van alle termijnen die hij zelf bewaakt
+/// (hartslag 15 s, callbacks 31 s, SSE-keepalive 15 s, Flow- en scènetimers).
+/// Werk komt eerder, via de wek van een app-verbinding of de werkmailbox; dit
+/// is alleen de vloer, dezelfde maat als de hartslag van applib.
+const OWNER_TICK: Duration = Duration::from_millis(50);
 /// Runs the sole controller owner on its parked stack. HTTP workers are fixed executor tasks.
 pub fn run<S: Storage>(
     mut store: Store<S>,
@@ -120,7 +125,13 @@ pub fn run<S: Storage>(
     let mut subscribers: Vec<Subscriber> = Vec::new();
     let mut media: Vec<(u64, Sender)> = Vec::new();
     loop {
-        wait.wait(EXEC.get().after(Duration::from_millis(1)))?;
+        // Slapen op gebeurtenissen (HopOS docs/apps.md): bytes van een app,
+        // een nieuwe attach, werk van een HTTP-werker, of de tik waarop de
+        // termijnen van hartslag, Flows, scènes en SSE-keepalive lopen.
+        let (first, mut incoming) = match wait.wait(select(apps.wait(OWNER_TICK), WORK.recv()))? {
+            Either::Left(first) => (first, None),
+            Either::Right(work) => (None, Some(work)),
+        };
         media.retain(|(_, reply)| !reply.closed());
         if let Ok(now) = env.unix_ms() {
             store.tick(now);
@@ -128,7 +139,7 @@ pub fn run<S: Storage>(
         if let Some(e) = store.statistics_fault() {
             log!("[stulp:statistics] {e}");
         }
-        match apps.poll(&mut store, &mut env) {
+        match apps.poll(&mut store, &mut env, first) {
             Ok(completed) => {
                 for completion in completed {
                     match mcp.complete(&completion) {
@@ -304,7 +315,7 @@ pub fn run<S: Storage>(
                 index += 1;
             }
         }
-        let call = match WORK.try_recv() {
+        let call = match incoming.take().or_else(|| WORK.try_recv()) {
             Some(Work::AuthorizeRestore(call)) => {
                 let response = web
                     .handle(&mut store, &call.request, &mut env)
@@ -326,10 +337,7 @@ pub fn run<S: Storage>(
                 media.retain(|(id, _)| *id != owner);
                 continue;
             }
-            None => {
-                wait.wait(EXEC.get().after(Duration::from_millis(10)))?;
-                continue;
-            }
+            None => continue,
         };
         match web.handle(&mut store, &call.request, &mut env) {
             Ok(response) => {
@@ -598,15 +606,22 @@ pub fn run<S: Storage>(
 struct Events<'a> {
     answers: &'a crate::replies::Receiver,
     first: Option<Vec<u8>>,
+    /// De eigenaar sloot het kanaal: de stroom eindigt na wat nog klaarstaat.
+    ended: bool,
 }
 
-/// Hoe lang de stroom wacht als er geen antwoord klaarligt.
-const EVENTS_NAP: Duration = Duration::from_millis(100);
+/// Het plafond op het wachten van de stroom: zonder antwoord in deze tijd
+/// kijkt leanhttp één keer of de lezer er nog is, en wacht hij weer. Het
+/// echte wachten is op het antwoordkanaal zelf (docs/apps.md van HopOS).
+const EVENTS_NAP: Duration = Duration::from_secs(1);
 
 impl leanhttp::Source for Events<'_> {
     async fn next(&mut self) -> leanhttp::Next {
         if let Some(first) = self.first.take() {
             return leanhttp::Next::Data(first);
+        }
+        if self.ended {
+            return leanhttp::Next::End;
         }
         // Eén poll: ligt er nu een antwoord? Zo niet, dan "niets"; de
         // stroom kijkt naar de lezer en wacht `EVENTS_NAP`.
@@ -621,7 +636,11 @@ impl leanhttp::Source for Events<'_> {
     }
 
     async fn nap(&mut self) {
-        EXEC.get().after(EVENTS_NAP).await;
+        match select(self.answers.wait(), EXEC.get().after(EVENTS_NAP)).await {
+            Either::Left(Ok(response)) => self.first = Some(response.body.bytes().to_vec()),
+            Either::Left(Err(_)) => self.ended = true,
+            Either::Right(()) => (),
+        }
     }
 }
 
@@ -739,6 +758,7 @@ async fn worker(queue: &'static Local<Mailbox<TcpStream, 1>>, mut dial: crate::n
                     let mut events = Events {
                         answers: &answers,
                         first: Some(response.body.bytes().to_vec()),
+                        ended: false,
                     };
                     return exchange.stream(response.status, &mut events).await;
                 }

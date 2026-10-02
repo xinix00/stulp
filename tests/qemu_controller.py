@@ -195,6 +195,14 @@ def main():
                                     with urllib.request.urlopen(req,timeout=15) as response:
                                         assert response.status in [200,202,204]
                                     time.sleep(12) # persist the scheduler's removal as well
+                                # De meetlat (HopOS docs/apps.md): met STULP_QEMU_HOLD=<s> blijft de
+                                # node na de checks zoveel seconden staan, zodat de kernel zijn
+                                # HOPOS_SLOT_LOAD-regels (idle en wekken per slot, elke 30 s) in het
+                                # logboek zet; ze gaan mee in checks.json.
+                                hold=int(os.environ.get('STULP_QEMU_HOLD','0'))
+                                if hold:
+                                    time.sleep(hold)
+                                    evidence.setdefault('load',[]).extend(l.strip() for l in log.read_text(errors='replace').splitlines() if 'HOPOS_SLOT_LOAD' in l)
                                 print(f'PASS boot {boot}: controller HTTP, plugin + backup/restore',flush=True)
                                 break
                             if process.poll() is not None:raise RuntimeError('QEMU exited: '+str(log))

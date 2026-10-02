@@ -2,6 +2,7 @@
 use alloc::{string::String, vec::Vec};
 use applib::{App, EXEC, appnet::TcpStream};
 use core::time::Duration;
+use hop_sync::select;
 use stulp_core::json::{self, Value};
 use stulp_protocol::{
     Decoder, Frame, MAX_FRAME, MAX_GREETING,
@@ -14,6 +15,14 @@ mod streams;
 mod udp;
 /// De tien plugins delen een netstack, maar nooit hun I/O-antwoorden.
 pub const BUNDLE_CAP: usize = 10;
+/// De tik van het transport: de korrel van de termijnen die de plugin zelf
+/// bewaakt (hartslag 5 s, MRP-hertransmissies, Flow-timers). Werk komt
+/// eerder, via de wek van de controller-socket, een UDP-datagram, een
+/// I/O-werker of een stream; dit is alleen de vloer (HopOS docs/apps.md).
+const TICK: Duration = Duration::from_millis(50);
+/// Met een actieve media-eigenaar korter: die bedient zijn kijkers en
+/// bronnen nog per tik.
+const MEDIA_TICK: Duration = Duration::from_millis(5);
 /// One authenticated attach owns protocol buffers and all device I/O leases.
 pub struct Connection {
     app: &'static App,
@@ -98,10 +107,15 @@ impl Connection {
             if let Some(bytes) = self.read()? {
                 return json::parse(&bytes).map_err(|e| Error::Core(e.into()));
             }
-            if self.now() >= deadline {
+            let remaining = deadline.saturating_sub(self.now());
+            if remaining == 0 {
                 return Err(Error::Timeout);
             }
-            EXEC.get().after(Duration::from_millis(5)).await;
+            let _ = select(
+                self.socket.readable(),
+                EXEC.get().after(Duration::from_millis(remaining)),
+            )
+            .await;
         }
     }
     fn read(&mut self) -> Result<Option<Vec<u8>>> {
@@ -162,7 +176,28 @@ impl Transport for Connection {
         if let Some(bytes) = self.read()? {
             return Ok(Event::Frame(Frame::decode(&bytes)?));
         }
-        EXEC.get().after(Duration::from_millis(5)).await;
+        // Slapen op gebeurtenissen: de controller-socket, een datagram, een
+        // antwoord van een I/O-werker, een streamgebeurtenis, of de tik.
+        let tick = if self.media.is_some() {
+            MEDIA_TICK
+        } else {
+            TICK
+        };
+        let Self {
+            socket,
+            udp,
+            requests,
+            streams,
+            ..
+        } = self;
+        let _ = select(
+            select(socket.readable(), udp.wait()),
+            select(
+                select(requests.wait(), streams.wait()),
+                EXEC.get().after(tick),
+            ),
+        )
+        .await;
         Ok(Event::Tick)
     }
     fn start_http(&mut self, r: stulp_sdk::HttpRequest) -> Result {

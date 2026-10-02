@@ -9,7 +9,7 @@
     "applib/src/app.rs": "1d8a28be1fa3e19e31c3ecc24e2a690cd426b8d794f32844e1b9722b7e6efc34",
     "applib/src/appnet/dns.rs": "01f193de9b798f6220eadb2bdf0e9140ea23ab988f43fcb5b4c408e8f3959cd2",
     "applib/src/appnet/tests.rs": "9fb9565567c7b8f5e33430857dc3440ee6e5fb5049a1e8429bf67cc995c1108d",
-    "applib/src/appnet.rs": "93eff23897f00754e4722d306fcc26d573a09490c3bb3d3bbc593197c6f52fe1",
+    "applib/src/appnet.rs": "10d4568b0d3848f5a0cf3e5fca957aa4db5fe9db228798ac5ad1bc820c0ec555",
     "applib/src/arch.rs": "3d784bc30aebc13d1d078adda57f6bb67caba76a841ff3e0ad653556c16763d0",
     "applib/src/clock.rs": "a2081fef81c3ccf81d996ce7df04b4a46619daa3b105f57888851329ea312001",
     "applib/src/codec.rs": "5cdefaeb31b65da8034f897bd5e0017ff844f95fce392a6eadf7bb0fdec50995",

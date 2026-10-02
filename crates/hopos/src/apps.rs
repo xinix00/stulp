@@ -3,7 +3,11 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use applib::appnet::{TcpListener, TcpStream};
+use applib::{
+    EXEC,
+    appnet::{TcpListener, TcpStream},
+};
+use core::time::Duration;
 use stulp_core::{
     Error, Result,
     json::{self, TryClone, Value},
@@ -67,7 +71,53 @@ impl Apps {
     pub fn reset(&mut self) {
         self.connections.clear();
     }
-    fn accept(&mut self, env: &mut crate::environment::Environment) -> Result {
+    /// Slaapt tot er werk is (HopOS docs/apps.md): een nieuwe attach (die
+    /// komt mee terug), bytes op een app-verbinding, of de tik. Met uitgaand
+    /// werk in een rij korter, zodat een volle zendbuffer binnen 10 ms
+    /// opnieuw geprobeerd wordt; de zendkant heeft geen eigen bel.
+    pub async fn wait(&mut self, tick: Duration) -> Option<TcpStream> {
+        let flushing = self.connections.iter().any(|c| !c.outgoing.is_empty());
+        let nap = if flushing {
+            Duration::from_millis(10)
+        } else {
+            tick
+        };
+        let mut timer = core::pin::pin!(EXEC.get().after(nap));
+        let room = self.connections.len() < MAX_APPS;
+        let Self {
+            listener,
+            connections,
+            ..
+        } = self;
+        core::future::poll_fn(|cx| {
+            use core::task::Poll;
+            if timer.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(None);
+            }
+            if room {
+                match core::pin::pin!(listener.accept()).poll(cx) {
+                    Poll::Ready(Ok(stream)) => return Poll::Ready(Some(stream)),
+                    Poll::Ready(Err(_)) => return Poll::Ready(None),
+                    Poll::Pending => (),
+                }
+            }
+            for c in connections.iter_mut() {
+                if core::pin::pin!(c.stream.readable()).poll(cx).is_ready() {
+                    return Poll::Ready(None);
+                }
+            }
+            Poll::Pending
+        })
+        .await
+    }
+    fn accept(
+        &mut self,
+        env: &mut crate::environment::Environment,
+        first: Option<TcpStream>,
+    ) -> Result {
+        if let Some(stream) = first {
+            self.admit(stream, env)?;
+        }
         for _ in 0..4 {
             if self.connections.len() == MAX_APPS {
                 break;
@@ -77,6 +127,17 @@ impl Apps {
                 None => break,
                 Some(Err(_)) => return Err(Error::Invalid("attach accept failed")),
             };
+            self.admit(stream, env)?;
+        }
+        Ok(())
+    }
+    /// Neemt één aangenomen verbinding op en stuurt de uitdaging; vol is
+    /// stil weigeren (de peer ziet een gesloten verbinding en komt terug).
+    fn admit(&mut self, stream: TcpStream, env: &mut crate::environment::Environment) -> Result {
+        if self.connections.len() >= MAX_APPS {
+            return Ok(());
+        }
+        {
             let nonce = token::base64(&env.random())?;
             let mut connection = Connection {
                 stream,
@@ -127,8 +188,9 @@ impl Apps {
         &mut self,
         store: &mut Store<S>,
         env: &mut crate::environment::Environment,
+        first: Option<TcpStream>,
     ) -> Result<Vec<Completion>> {
-        self.accept(env)?;
+        self.accept(env, first)?;
         let now = self.now();
         let mut completed = Vec::new();
         let count = self.connections.len();

@@ -421,6 +421,29 @@ plugin job before the hard stop and starts it again after controller recovery; i
 does not establish correctness of simultaneous scheduler recovery. No scheduler
 or kernel changes are included in this port.
 
+## Waiting on events, not on the clock
+
+The HopOS runtime follows the contract in HopOS `docs/apps.md`: a slot that
+idles yields its core with a wake time, and the kernel divides a shared core
+between residents that sleep. Until 2 October 2026 the controller owner woke
+every 1 ms and 10 ms, every plugin transport every 5 ms, and the request and
+stream workers every 2 to 5 ms, each wake a full round of work. On the
+LicheeRV with controller, plugin bundle and tunnel in one sharegroup that
+cost the controller 0.2 to 2 s per trivial request and dropped all ten
+plugin heartbeats every 8 to 11 minutes.
+
+Now every loop waits on the things that can give it work: `TcpStream::readable()`
+and `UdpSocket::readable()` from the SDK (non-consuming, waker based), the
+work mailbox, per-worker `Signal`s for answers, stream events and attach
+changes, and the reply channel of an SSE stream. Timers remain only as
+deadlines and as a floor tick: 50 ms for the controller owner and the plugin
+transport (the granularity of heartbeat, Flow, scene and MRP deadlines, the
+same measure as the applib heartbeat), 5 ms while a media owner serves
+viewers, 1 s as the SSE reader probe. The kernel prints
+`slot N: idle=NN% wakes=N/s cores=N HOPOS_SLOT_LOAD` every 30 s for each
+slot; on hardware a quiet Stulp slot should sit above 95% idle with wakes in
+the tens per second.
+
 ## IPv6 and Thread follow-up
 
 No extra enable flag is needed: Matter opens separate IPv4/IPv6 UDP sockets,

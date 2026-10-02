@@ -5,7 +5,7 @@ use applib::{
     appnet::{self, TcpStream},
 };
 use core::{cell::Cell, time::Duration};
-use hop_sync::{Either, Local, mpsc::Mailbox, select};
+use hop_sync::{Either, Local, Signal, mpsc::Mailbox, select};
 use stulp_core::json;
 use stulp_sdk::{
     Datagram, DatagramRequest, DatagramTarget, Error, HttpRequest, HttpResponse, Result, TcpRequest,
@@ -13,6 +13,11 @@ use stulp_sdk::{
 pub(super) struct Queues {
     generation: Local<Cell<u64>>,
     started: Local<Cell<bool>>,
+    /// Gaat af als een antwoord klaarstaat: de wek van het plugin-transport.
+    done: Local<Signal>,
+    /// Gaat af als de attach wisselt, één bel per werker (een `Signal` kent
+    /// één wachter): de werker laat zijn lopende verzoek dan vallen.
+    closed: [Local<Signal>; WORKERS],
     http: Local<Mailbox<(u64, HttpRequest), 1>>,
     http_out: Local<Mailbox<(u64, Result<HttpResponse>), 1>>,
     tcp: Local<Mailbox<(u64, TcpRequest), 1>>,
@@ -27,6 +32,8 @@ impl Queues {
         Self {
             generation: Local::new(Cell::new(0)),
             started: Local::new(Cell::new(false)),
+            done: Local::new(Signal::new()),
+            closed: [const { Local::new(Signal::new()) }; WORKERS],
             http: Local::new(Mailbox::new()),
             http_out: Local::new(Mailbox::new()),
             tcp: Local::new(Mailbox::new()),
@@ -82,6 +89,7 @@ fn answer<T>(
         queue.try_recv();
         let _ = queue.try_send(value);
     }
+    owner.done.get().set();
 }
 impl Drop for Requests {
     fn drop(&mut self) {
@@ -90,13 +98,27 @@ impl Drop for Requests {
                 .generation
                 .get()
                 .set(self.generation.wrapping_add(1));
+            self.queues.ring_closed();
+        }
+    }
+}
+impl Queues {
+    /// Elke werker hoort dat de attach wisselde.
+    fn ring_closed(&self) {
+        for bell in &self.closed {
+            bell.get().set();
         }
     }
 }
 impl Requests {
+    /// Klaar zodra een werker een antwoord klaarzette.
+    pub(super) async fn wait(&self) {
+        self.queues.done.get().wait().await;
+    }
     pub(super) fn new(queues: &'static Queues) -> Self {
         let generation = queues.generation.get().get().wrapping_add(1);
         queues.generation.get().set(generation);
+        queues.ring_closed();
         Self {
             queues,
             generation,
@@ -215,8 +237,17 @@ async fn resolve_addresses(address: &str) -> Result<Vec<String>> {
     json::push(&mut out, display(peer), 16)?;
     Ok(out)
 }
+/// De vier werkers; elk heeft zijn eigen bel in [`Queues::closed`].
+const WORKERS: usize = 4;
+const HTTP: usize = 0;
+const TCP: usize = 1;
+const DNS: usize = 2;
+const BROWSE: usize = 3;
+/// `f` tot `ms` na nu, of tot de attach wisselt. De annulering wacht op de
+/// bel van `worker` en op de termijn, niet op een dutje van 5 ms.
 async fn until<T>(
     owner: &Queues,
+    worker: usize,
     generation: u64,
     ms: u64,
     f: impl core::future::Future<Output = Result<T>>,
@@ -225,18 +256,20 @@ async fn until<T>(
         return Err(Error::Transport("attach closed"));
     }
     let cancel = async {
-        let deadline = (applib::clock::now_ns() / 1_000_000).saturating_add(ms);
+        let exec = EXEC.get();
+        let deadline = exec.now().saturating_add(ms.saturating_mul(1_000_000));
+        let Some(bell) = owner.closed.get(worker) else {
+            return Error::Invalid("request worker index out of range");
+        };
         loop {
             if generation != owner.generation.get().get() {
                 return Error::Transport("attach closed");
             }
-            let remaining = deadline.saturating_sub(applib::clock::now_ns() / 1_000_000);
-            if remaining == 0 {
+            if exec.now() >= deadline {
                 return Error::Timeout;
             }
-            EXEC.get()
-                .after(Duration::from_millis(remaining.min(5)))
-                .await;
+            // Een bel die al stond (de vorige attach) is één ronde extra.
+            let _ = select(bell.get().wait(), exec.until(deadline)).await;
         }
     };
     match select(f, cancel).await {
@@ -261,7 +294,7 @@ pub(super) fn start(
             loop {
                 let (id, r) = owner.http.recv().await;
                 let ms = r.timeout_ms;
-                let result = until(owner, id, ms, http(&mut dial, r)).await;
+                let result = until(owner, HTTP, id, ms, http(&mut dial, r)).await;
                 answer(owner, &owner.http_out, id, result);
             }
         })
@@ -286,7 +319,7 @@ pub(super) fn start(
                         r.generation,
                     );
                 }
-                let result = until(owner, id, r.timeout_ms, tcp(&mut socket, r)).await;
+                let result = until(owner, TCP, id, r.timeout_ms, tcp(&mut socket, r)).await;
                 if result.is_err() {
                     socket = None;
                 }
@@ -298,7 +331,7 @@ pub(super) fn start(
         .spawn(async move {
             loop {
                 let (id, r) = owner.dns.recv().await;
-                let result = until(owner, id, 5000, resolve_addresses(&r)).await;
+                let result = until(owner, DNS, id, 5000, resolve_addresses(&r)).await;
                 answer(owner, &owner.dns_out, id, result);
             }
         })
@@ -420,7 +453,7 @@ async fn browse(owner: &Queues, generation: u64, r: DatagramRequest) -> Result<V
             Peer::V6(_) => endpoint("[::]:0")?,
         };
         let socket = Socket::bind(bind)?;
-        until(owner, generation, r.timeout_ms.min(5000), async {
+        until(owner, BROWSE, generation, r.timeout_ms.min(5000), async {
             socket.send(target, &r.payload).await
         })
         .await?;
@@ -460,9 +493,19 @@ async fn browse(owner: &Queues, generation: u64, r: DatagramRequest) -> Result<V
                 )?;
             }
         }
-        EXEC.get()
-            .after(Duration::from_nanos(remaining.min(5_000_000)))
-            .await;
+        // Slapen tot een antwoord, de termijn of een wisselende attach; niet
+        // elke 5 ms kijken.
+        let Some(bell) = owner.closed.get(BROWSE) else {
+            return Err(Error::Invalid("request worker index out of range"));
+        };
+        let _ = select(
+            super::udp::any_readable(&sockets),
+            select(
+                bell.get().wait(),
+                EXEC.get().after(Duration::from_nanos(remaining)),
+            ),
+        )
+        .await;
     }
 }
 
@@ -514,7 +557,7 @@ mod tests {
         drop(owner);
         let current = Requests::new(&Q);
         let touched = Cell::new(false);
-        let mut work = pin!(until(&Q, stale, 1000, async {
+        let mut work = pin!(until(&Q, HTTP, stale, 1000, async {
             touched.set(true);
             Ok(())
         }));

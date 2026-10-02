@@ -2,7 +2,7 @@
 use alloc::{collections::VecDeque, vec::Vec};
 use applib::{App, EXEC};
 use core::{cell::Cell, time::Duration};
-use hop_sync::{Either, Local, mpsc::Mailbox, select};
+use hop_sync::{Either, Local, Signal, mpsc::Mailbox, select};
 use leanhttp::{AsyncRead, AsyncWrite, Dial as _};
 use stulp_sdk::{Error, Result, StreamCommand as Command, StreamEvent as Event};
 pub(super) struct Queues {
@@ -10,6 +10,11 @@ pub(super) struct Queues {
     started: Local<Cell<u8>>,
     input: [Local<Mailbox<(u64, Command), 32>>; 8],
     output: Local<Mailbox<(u64, Event), 64>>,
+    /// Gaat af als er een gebeurtenis in `output` ligt: de wek van het transport.
+    ready: Local<Signal>,
+    /// Gaat af als het transport uit `output` las, één bel per werker: een
+    /// werker die op ruimte wacht, hoeft niet elke 2 ms te kijken.
+    drained: [Local<Signal>; 8],
 }
 impl Queues {
     const fn new() -> Self {
@@ -18,6 +23,8 @@ impl Queues {
             started: Local::new(Cell::new(0)),
             input: [const { Local::new(Mailbox::new()) }; 8],
             output: Local::new(Mailbox::new()),
+            ready: Local::new(Signal::new()),
+            drained: [const { Local::new(Signal::new()) }; 8],
         }
     }
 }
@@ -99,8 +106,15 @@ impl Streams {
         }
         Ok(())
     }
+    /// Klaar zodra een werker een gebeurtenis klaarzette.
+    pub(super) async fn wait(&self) {
+        self.queues.ready.get().wait().await;
+    }
     pub(super) fn poll(&mut self) -> Option<Event> {
         while let Some((g, e)) = self.queues.output.try_recv() {
+            for bell in &self.queues.drained {
+                bell.get().set();
+            }
             if g == self.generation {
                 if let Event::Closed(id, _) = &e {
                     for slot in &mut self.ids {
@@ -125,17 +139,29 @@ impl Drop for Streams {
         }
     }
 }
-async fn emit(owner: &Queues, g: u64, e: Event) -> bool {
+async fn emit(owner: &Queues, worker: usize, g: u64, e: Event) -> bool {
     let mut value = (g, e);
     loop {
         if owner.generation.get().get() != g {
             return false;
         }
         match owner.output.try_send(value) {
-            Ok(()) => return true,
+            Ok(()) => {
+                owner.ready.get().set();
+                return true;
+            }
             Err(full) => value = full.0,
         }
-        EXEC.get().after(Duration::from_millis(2)).await;
+        // Vol: wachten tot het transport las. De termijn is een vangnet voor
+        // een transport dat wegviel vóór het de bel luidde.
+        let Some(bell) = owner.drained.get(worker) else {
+            return false;
+        };
+        let _ = select(
+            bell.get().wait(),
+            EXEC.get().after(Duration::from_millis(50)),
+        )
+        .await;
     }
 }
 fn start(
@@ -143,7 +169,7 @@ fn start(
     app: &'static App,
     env: &mut crate::environment::Environment,
 ) -> Result {
-    for input in &owner.input {
+    for (worker, input) in owner.input.iter().enumerate() {
         let mut dial = crate::network::Dial::new(app, &env.random());
         EXEC.get()
             .spawn(async move {
@@ -177,6 +203,7 @@ fn start(
                         _ => {
                             emit(
                                 owner,
+                                worker,
                                 g,
                                 Event::Closed(id, Error::Transport("stream connect failed")),
                             )
@@ -186,12 +213,13 @@ fn start(
                     };
                     let _ = conn.set_read_timeout(None);
                     let _ = conn.set_write_timeout(None);
-                    if !emit(owner, g, Event::Opened(id)).await {
+                    if !emit(owner, worker, g, Event::Opened(id)).await {
                         continue;
                     }
-                    let result = active(owner, g, id, &mut conn, input).await;
+                    let result = active(owner, worker, g, id, &mut conn, input).await;
                     emit(
                         owner,
+                        worker,
                         g,
                         Event::Closed(
                             id,
@@ -207,21 +235,36 @@ fn start(
 }
 async fn active(
     owner: &Queues,
+    worker: usize,
     g: u64,
     id: u64,
     conn: &mut crate::network::Connection,
     input: &Mailbox<(u64, Command), 32>,
 ) -> Result {
+    /// Waarvoor de werker wakker werd.
+    enum Woke {
+        Command((u64, Command)),
+        Wrote(core::result::Result<usize, leanhttp::IoError>),
+        Read(core::result::Result<usize, leanhttp::IoError>),
+        Stalled,
+        Drained,
+    }
     let mut writes = VecDeque::<Vec<u8>>::new();
     let mut offset = 0;
     let mut queued = 0;
     let mut last = applib::clock::now_ns();
+    let mut buf = [0; 16384];
+    let mut carried: Option<(u64, Command)> = None;
+    let drained = owner
+        .drained
+        .get(worker)
+        .ok_or(Error::Invalid("stream worker index out of range"))?;
     loop {
         if owner.generation.get().get() != g {
             return Ok(());
         }
         for _ in 0..4 {
-            let Some((generation, c)) = input.try_recv() else {
+            let Some((generation, c)) = carried.take().or_else(|| input.try_recv()) else {
                 break;
             };
             if generation != g {
@@ -245,55 +288,66 @@ async fn active(
                 _ => return Err(Error::Invalid("stream ownership changed")),
             }
         }
-        if let Some(bytes) = writes.front() {
-            match core::future::poll_fn(|cx| {
-                core::task::Poll::Ready(conn.poll_write(cx, &bytes[offset..]))
-            })
-            .await
-            {
-                core::task::Poll::Ready(Ok(0)) => {
-                    return Err(Error::Transport("stream write closed"));
-                }
-                core::task::Poll::Ready(Ok(n)) => {
-                    offset += n;
-                    last = applib::clock::now_ns();
-                    if offset == bytes.len() {
-                        queued -= bytes.len();
-                        offset = 0;
-                        writes.pop_front();
-                    }
-                }
-                core::task::Poll::Ready(Err(_)) => {
-                    return Err(Error::Transport("stream write failed"));
-                }
-                core::task::Poll::Pending => (),
-            };
-            if applib::clock::now_ns().saturating_sub(last) > 10_000_000_000 {
-                return Err(Error::Timeout);
+        // Slapen tot er iets te doen is (HopOS docs/apps.md): een opdracht,
+        // ruimte om te schrijven, bytes om te lezen zolang de uitvoerrij niet
+        // vol is (anders: tot het transport las), of de stiltetermijn van een
+        // schrijf die niet opschiet. Geen dutje van 2 ms meer.
+        let stall = last
+            .saturating_add(10_000_000_000)
+            .saturating_sub(applib::clock::now_ns());
+        let mut recv = core::pin::pin!(input.recv());
+        let mut room = core::pin::pin!(drained.get().wait());
+        let mut stalled = core::pin::pin!(EXEC.get().after(Duration::from_nanos(stall)));
+        let woke = core::future::poll_fn(|cx| {
+            use core::task::Poll;
+            if let Poll::Ready(v) = recv.as_mut().poll(cx) {
+                return Poll::Ready(Woke::Command(v));
             }
-        }
-        if owner.output.len() < 63 {
-            let mut buf = [0; 16384];
-            match core::future::poll_fn(|cx| core::task::Poll::Ready(conn.poll_read(cx, &mut buf)))
-                .await
-            {
-                core::task::Poll::Ready(Ok(0)) => return Ok(()),
-                core::task::Poll::Ready(Ok(n)) => {
-                    let mut data = Vec::new();
-                    data.try_reserve_exact(n)
-                        .map_err(|_| stulp_core::Error::Memory)?;
-                    data.extend_from_slice(&buf[..n]);
-                    if !emit(owner, g, Event::Data(id, data)).await {
-                        return Ok(());
-                    }
+            if let Some(bytes) = writes.front() {
+                if let Poll::Ready(r) = conn.poll_write(cx, &bytes[offset..]) {
+                    return Poll::Ready(Woke::Wrote(r));
                 }
-                core::task::Poll::Ready(Err(_)) => {
-                    return Err(Error::Transport("stream read failed"));
+                if stalled.as_mut().poll(cx).is_ready() {
+                    return Poll::Ready(Woke::Stalled);
                 }
-                core::task::Poll::Pending => (),
             }
+            if owner.output.len() < 63 {
+                if let Poll::Ready(r) = conn.poll_read(cx, &mut buf) {
+                    return Poll::Ready(Woke::Read(r));
+                }
+            } else if room.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(Woke::Drained);
+            }
+            Poll::Pending
+        })
+        .await;
+        match woke {
+            Woke::Command(v) => carried = Some(v),
+            Woke::Wrote(Ok(0)) => return Err(Error::Transport("stream write closed")),
+            Woke::Wrote(Ok(n)) => {
+                offset += n;
+                last = applib::clock::now_ns();
+                if writes.front().is_some_and(|b| offset == b.len()) {
+                    queued -= offset;
+                    offset = 0;
+                    writes.pop_front();
+                }
+            }
+            Woke::Wrote(Err(_)) => return Err(Error::Transport("stream write failed")),
+            Woke::Stalled => return Err(Error::Timeout),
+            Woke::Read(Ok(0)) => return Ok(()),
+            Woke::Read(Ok(n)) => {
+                let mut data = Vec::new();
+                data.try_reserve_exact(n)
+                    .map_err(|_| stulp_core::Error::Memory)?;
+                data.extend_from_slice(&buf[..n]);
+                if !emit(owner, worker, g, Event::Data(id, data)).await {
+                    return Ok(());
+                }
+            }
+            Woke::Read(Err(_)) => return Err(Error::Transport("stream read failed")),
+            Woke::Drained => (),
         }
-        EXEC.get().after(Duration::from_millis(2)).await;
     }
 }
 

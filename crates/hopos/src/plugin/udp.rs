@@ -105,7 +105,30 @@ impl Socket {
         }
         .map_err(|_| Error::Transport("UDP receive failed"))
     }
+    /// Wacht tot er een datagram klaarligt, zonder het te lezen (docs/apps.md
+    /// van HopOS: slapen op de socket, niet op de klok).
+    pub(super) async fn readable(&self) -> Result {
+        match self {
+            Self::V4(s) => s.readable().await,
+            Self::V6(s) => s.readable().await,
+        }
+        .map_err(|_| Error::Transport("UDP readiness failed"))
+    }
 }
+/// Klaar zodra één van `sockets` leesbaar is; zonder sockets nooit (de
+/// aanroeper zet er zijn eigen termijn naast).
+pub(super) async fn any_readable(sockets: &[Socket]) {
+    core::future::poll_fn(|cx| {
+        for s in sockets {
+            if core::pin::pin!(s.readable()).poll(cx).is_ready() {
+                return core::task::Poll::Ready(());
+            }
+        }
+        core::task::Poll::Pending
+    })
+    .await;
+}
+impl Socket {}
 struct Slot {
     id: u64,
     socket: Socket,
@@ -145,6 +168,23 @@ impl Sockets {
     }
     pub(super) fn poll(&mut self) -> Option<Event> {
         self.output.pop_front()
+    }
+    /// Klaar zodra er werk is: een opdracht of gebeurtenis in de rij, of een
+    /// datagram op één van de sockets. Zonder sockets en zonder werk wacht
+    /// hij; de aanroeper zet er zijn tik naast.
+    pub(super) async fn wait(&self) {
+        if !self.input.is_empty() || !self.output.is_empty() {
+            return;
+        }
+        core::future::poll_fn(|cx| {
+            for s in &self.slots {
+                if core::pin::pin!(s.socket.readable()).poll(cx).is_ready() {
+                    return core::task::Poll::Ready(());
+                }
+            }
+            core::task::Poll::Pending
+        })
+        .await;
     }
     pub(super) fn tick(&mut self) -> Result {
         if self.output.len() >= 64 {

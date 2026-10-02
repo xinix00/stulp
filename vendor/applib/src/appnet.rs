@@ -617,6 +617,28 @@ impl Net {
         .await
     }
 
+    /// Eén readiness-vraag als future: `check` zegt of een op nu zonder
+    /// `WouldBlock` zou slagen, en zo niet registreert `register` de waker
+    /// van deze taak. Verbruikt niets; de `readable()`'s van de sockets zijn
+    /// hierop één regel. `deadline` als bij [`Net::wait`].
+    async fn ready(
+        &self,
+        deadline: Option<u64>,
+        mut check: impl FnMut(&mut Stack) -> leannet::Result<bool>,
+        register: impl FnMut(&mut Stack, &Waker) -> leannet::Result,
+    ) -> Result<()> {
+        self.wait(
+            deadline,
+            |st, _| match check(st) {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(StackError::WouldBlock),
+                Err(e) => Err(e),
+            },
+            register,
+        )
+        .await
+    }
+
     /// Eén stack-op als future: `op` proberen, en bij `WouldBlock` de waker
     /// van deze taak via `register` op het handvat zetten en wachten. Op
     /// `deadline` (absolute nanoseconden) wint de timer met
@@ -1115,13 +1137,9 @@ impl TcpStream {
     pub async fn readable(&mut self) -> Result<()> {
         let h = self.h;
         self.net
-            .wait(
+            .ready(
                 self.deadline,
-                |st, _| match st.tcp_readable(h) {
-                    Ok(true) => Ok(()),
-                    Ok(false) => Err(StackError::WouldBlock),
-                    Err(e) => Err(e),
-                },
+                |st| st.tcp_readable(h),
                 |st, w| st.tcp_register_read_waker(h, w),
             )
             .await
@@ -1302,13 +1320,9 @@ impl UdpSocket {
     pub async fn readable(&self) -> Result<()> {
         let h = self.h;
         self.net
-            .wait(
+            .ready(
                 self.deadline,
-                |st, _| match st.udp_readable(h) {
-                    Ok(true) => Ok(()),
-                    Ok(false) => Err(StackError::WouldBlock),
-                    Err(e) => Err(e),
-                },
+                |st| st.udp_readable(h),
                 |st, w| st.udp_register_read_waker(h, w),
             )
             .await
@@ -1375,6 +1389,19 @@ impl Udp6Socket {
             .wait(
                 self.deadline,
                 |st, now| st.udp6_recv_from(h, buf, now),
+                |st, w| st.udp6_register_read_waker(h, w),
+            )
+            .await
+    }
+
+    /// Wacht tot er een datagram klaarligt, zonder het te lezen: de
+    /// IPv6-tegenhanger van [`UdpSocket::readable`].
+    pub async fn readable(&self) -> Result<()> {
+        let h = self.h;
+        self.net
+            .ready(
+                self.deadline,
+                |st| st.udp6_readable(h),
                 |st, w| st.udp6_register_read_waker(h, w),
             )
             .await

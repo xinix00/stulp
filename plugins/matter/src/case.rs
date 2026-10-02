@@ -243,7 +243,20 @@ impl<'a> Start<'a> {
         &self.sigma1
     }
     /// Consumeert Sigma2 één keer en geeft Sigma3 terug, opcode 0x32.
+    /// Sigma2 verwerken en Sigma3 maken in één keer: de drie stappen van
+    /// [`Start::shared`], [`Shared::verify`] en [`Shared::sign`] achter elkaar.
+    /// De netwerklaag roept de stappen los aan, met een adempauze ertussen,
+    /// want elke stap is één tot twee P-256-bewerkingen en op de LicheeRV
+    /// hield de hele handshake in één poll het gedeelde core honderden
+    /// milliseconden vast (02-10).
     pub fn response(self, sigma2: &[u8]) -> Result<(Confirming, Vec<u8>)> {
+        let shared = self.shared(sigma2)?;
+        shared.verify()?;
+        shared.sign()
+    }
+    /// Stap één: ECDH op de efemere sleutel van de peer, Sigma2 ontcijferen
+    /// en de inhoud toetsen aan de gecommissioneerde NOC.
+    pub fn shared(self, sigma2: &[u8]) -> Result<Shared<'a>> {
         let n = root(sigma2)?;
         let random = bytes(&n, 1, 32, 32)?;
         let peer = u16::try_from(n.uint(2)?)
@@ -286,24 +299,72 @@ impl<'a> Start<'a> {
         bytes(&tbe, 4, 16, 16)?;
         let signature = Signature::from_slice(bytes(&tbe, 3, 64, 64)?)
             .map_err(|_| Error::Invalid("CASE peer signature encoding"))?;
-        identity
-            .key
-            .verify(&tbs(noc, icac, peer_public, &self.public)?, &signature)
-            .map_err(|_| Error::Invalid("CASE peer signature invalid"))?;
-        let signed = tbs(&self.fabric.noc, &[], &self.public, peer_public)?;
-        let signature: Signature = self
+        let mut sigma2_copy = Vec::new();
+        sigma2_copy
+            .try_reserve_exact(sigma2.len())
+            .map_err(|_| stulp_core::Error::Memory)?;
+        sigma2_copy.extend_from_slice(sigma2);
+        let tbs2 = tbs(noc, icac, peer_public, &self.public)?;
+        let mut peer_public_copy = [0; 65];
+        peer_public_copy.copy_from_slice(peer_public);
+        Ok(Shared {
+            start: self,
+            shared,
+            ipk,
+            peer,
+            peer_key: identity.key,
+            peer_public: peer_public_copy,
+            signature,
+            tbs2,
+            sigma2: sigma2_copy,
+        })
+    }
+}
+/// Een CASE-handshake na stap één: het gedeelde geheim staat vast, de
+/// handtekening van de peer is nog niet geverifieerd en Sigma3 nog niet gemaakt.
+pub struct Shared<'a> {
+    start: Start<'a>,
+    shared: p256::ecdh::SharedSecret,
+    ipk: Zeroizing<[u8; 16]>,
+    peer: u16,
+    peer_key: VerifyingKey,
+    peer_public: [u8; 65],
+    signature: Signature,
+    tbs2: Vec<u8>,
+    sigma2: Vec<u8>,
+}
+impl Shared<'_> {
+    /// Stap twee: de handtekening van de peer over Sigma2 (één ECDSA-verificatie).
+    pub fn verify(&self) -> Result {
+        self.peer_key
+            .verify(&self.tbs2, &self.signature)
+            .map_err(|_| Error::Invalid("CASE peer signature invalid"))
+    }
+    /// Stap drie: Sigma3 tekenen en versleutelen, en de sessiesleutels afleiden.
+    pub fn sign(self) -> Result<(Confirming, Vec<u8>)> {
+        let Self {
+            start: this,
+            shared,
+            ipk,
+            peer,
+            peer_public,
+            sigma2,
+            ..
+        } = self;
+        let signed = tbs(&this.fabric.noc, &[], &this.public, &peer_public)?;
+        let signature: Signature = this
             .fabric
             .key
             .try_sign(&signed)
             .map_err(|_| Error::Invalid("CASE signing failed"))?;
         let mut w = start()?;
-        w.bytes(Tag::Context(1), &self.fabric.noc)?;
+        w.bytes(Tag::Context(1), &this.fabric.noc)?;
         w.bytes(Tag::Context(3), &signature.to_bytes())?;
         w.end()?;
         let tbe3 = Zeroizing::new(w.finish()?);
         let mut hash = Sha256::new();
-        hash.update(&self.sigma1);
-        hash.update(sigma2);
+        hash.update(&this.sigma1);
+        hash.update(&sigma2);
         let mut salt = Zeroizing::new([0; 48]);
         salt[..16].copy_from_slice(&*ipk);
         salt[16..].copy_from_slice(&hash.clone().finalize());
@@ -327,7 +388,7 @@ impl<'a> Start<'a> {
         Ok((
             Confirming {
                 session: Session {
-                    local: self.local,
+                    local: this.local,
                     peer,
                     keys: k,
                 },

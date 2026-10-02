@@ -427,9 +427,18 @@ impl Network {
         )?;
         let h = self.initiate(c, peer.address, 0, 0, peer.timing.idle)?;
         let result = async {
+            // Elke P-256-stap krijgt een adempauze (`idle`: één beurt van het
+            // transport, met hartslag), zodat het slot zijn core tussendoor
+            // loslaat; één handshake in één poll hield op de LicheeRV de
+            // controller honderden milliseconden stil (HopOS docs/apps.md).
+            c.idle().await?;
             self.send(c, h, 0x30, start.request())?;
             let response = self.expected(c, h, 0x31, deadline).await?;
-            let (confirming, sigma3) = start.response(&response)?;
+            let shared = start.shared(&response)?;
+            c.idle().await?;
+            shared.verify()?;
+            c.idle().await?;
+            let (confirming, sigma3) = shared.sign()?;
             self.send(c, h, 0x32, &sigma3)?;
             let status = self.expected(c, h, 0x40, deadline).await?;
             self.acknowledge(c, h)?;

@@ -397,6 +397,8 @@ pub struct Client<T> {
     discard_resolve: bool,
     interrupted_job: bool,
 }
+/// Hoe lang een ping op zijn antwoord mag wachten (zie `Client::pump`).
+pub(crate) const HEARTBEAT_DEADLINE_MS: u64 = 20_000;
 impl<T: Transport> Client<T> {
     /// De attach-begroeting is al door de transportadapter geverifieerd.
     pub fn new(transport: T) -> Self {
@@ -598,7 +600,12 @@ impl<T: Transport> Client<T> {
             self.transport
                 .send(&Frame::request(id, "$appproto.ping", &Value::Null)?)
                 .await?;
-            self.heartbeat = Some((id, self.now().saturating_add(5000)));
+            // De termijn is ruim: op een gedeeld core beslist de buur hoe snel
+            // het antwoord komt, en een te krappe termijn maakte van elke drukke
+            // minuut een storm van tien herverbindingen (LicheeRV, 02-10). De
+            // controller zelf geeft een app 15 s; deze kant mag niet eerder
+            // opgeven dan hij.
+            self.heartbeat = Some((id, self.now().saturating_add(HEARTBEAT_DEADLINE_MS)));
         }
         let Event::Frame(frame) = self.transport.next().await? else {
             // Drain already received replies before declaring silence. On a

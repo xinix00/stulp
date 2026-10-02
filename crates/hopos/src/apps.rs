@@ -206,61 +206,93 @@ impl Apps {
                     }
                     self.connections.push(connection);
                 }
-                Err(e) => {
-                    self.platform.log(format_args!(
-                        "[stulp:app-disconnected] app={} error={e}",
-                        connection
-                            .app
-                            .as_ref()
-                            .map(App::id)
-                            .unwrap_or("unidentified")
-                    ));
-                    if let Some(mut app) = connection.app {
-                        for owner in app.disconnect().filter(|owner| *owner != 0) {
-                            json::push(
-                                &mut completed,
-                                Completion {
-                                    owner,
-                                    failed: true,
-                                    value: json::fields(&[(
-                                        "message",
-                                        json::string("app disconnected")?,
-                                    )])?,
-                                },
-                                MAX_COMPLETIONS,
-                            )?;
-                        }
-                        let enabled = store
-                            .document()
-                            .record("apps", app.id())
-                            .is_ok_and(|a| json::boolean(a, "enabled"));
-                        if store.document().record("apps", app.id()).is_ok() {
-                            store.set_app_status(
-                                app.id(),
-                                if enabled { "waiting" } else { "stopped" },
-                            )?;
-                        }
-                        let mut ids = Vec::new();
-                        for device in store
-                            .document()
-                            .records("devices")
-                            .iter()
-                            .filter(|d| json::text(d, "appId") == app.id())
-                        {
-                            json::push(&mut ids, json::copy(json::text(device, "id"))?, 4096)?;
-                        }
-                        for id in ids {
-                            let device = store.device(&id)?;
-                            let state = json::get(&device, "state")
-                                .unwrap_or(&Value::Null)
-                                .try_clone()?;
-                            store.observe(app.id(), &id, state, false, "app disconnected")?;
-                        }
-                    }
-                }
+                Err(e) => self.closed(store, connection, &e, &mut completed)?,
+            }
+        }
+        // Een verse welkomst van een app die al een verbinding had: de oude
+        // gaat dicht, met dezelfde opruiming als bij een verbroken verbinding.
+        let mut fresh = Vec::new();
+        for c in &self.connections {
+            if let Some(app) = &c.app
+                && self.connections.iter().any(|o| {
+                    o.accepted < c.accepted && o.app.as_ref().is_some_and(|a| a.id() == app.id())
+                })
+            {
+                json::push(&mut fresh, (json::copy(app.id())?, c.accepted), MAX_APPS)?;
+            }
+        }
+        for (id, accepted) in fresh {
+            while let Some(at) = self
+                .connections
+                .iter()
+                .position(|o| o.accepted < accepted && o.app.as_ref().is_some_and(|a| a.id() == id))
+            {
+                let stale = self.connections.remove(at);
+                self.closed(
+                    store,
+                    stale,
+                    &Error::Conflict("superseded by a fresh attach"),
+                    &mut completed,
+                )?;
             }
         }
         Ok(completed)
+    }
+
+    /// Een verbinding die wegvalt: melden, lopende callbacks laten falen, de
+    /// app op wachtend of gestopt zetten en zijn apparaten onbereikbaar melden.
+    fn closed<S: Storage>(
+        &mut self,
+        store: &mut Store<S>,
+        connection: Connection,
+        e: &dyn core::fmt::Display,
+        completed: &mut Vec<Completion>,
+    ) -> Result {
+        self.platform.log(format_args!(
+            "[stulp:app-disconnected] app={} error={e}",
+            connection
+                .app
+                .as_ref()
+                .map(App::id)
+                .unwrap_or("unidentified")
+        ));
+        if let Some(mut app) = connection.app {
+            for owner in app.disconnect().filter(|owner| *owner != 0) {
+                json::push(
+                    completed,
+                    Completion {
+                        owner,
+                        failed: true,
+                        value: json::fields(&[("message", json::string("app disconnected")?)])?,
+                    },
+                    MAX_COMPLETIONS,
+                )?;
+            }
+            let enabled = store
+                .document()
+                .record("apps", app.id())
+                .is_ok_and(|a| json::boolean(a, "enabled"));
+            if store.document().record("apps", app.id()).is_ok() {
+                store.set_app_status(app.id(), if enabled { "waiting" } else { "stopped" })?;
+            }
+            let mut ids = Vec::new();
+            for device in store
+                .document()
+                .records("devices")
+                .iter()
+                .filter(|d| json::text(d, "appId") == app.id())
+            {
+                json::push(&mut ids, json::copy(json::text(device, "id"))?, 4096)?;
+            }
+            for id in ids {
+                let device = store.device(&id)?;
+                let state = json::get(&device, "state")
+                    .unwrap_or(&Value::Null)
+                    .try_clone()?;
+                store.observe(app.id(), &id, state, false, "app disconnected")?;
+            }
+        }
+        Ok(())
     }
 
     /// Announce an adopted device to its plugin.
@@ -477,12 +509,12 @@ impl Connection {
         {
             return Err(Error::Invalid("invalid attach protocol or nonce"));
         }
-        if others
-            .iter()
-            .any(|c| c.app.as_ref().is_some_and(|app| app.id() == id))
-        {
-            return Err(Error::Conflict("app is already connected"));
-        }
+        // Een tweede attach van dezelfde app wint: de vorige verbinding is
+        // vrijwel altijd een dode die de hartslag nog niet heeft afgeschreven
+        // (15 s), en zolang hij er zat kwam de verse elke 1, 2, 4, 8 s terug
+        // met "already connected" (LicheeRV, 02-10). `Apps::poll` ruimt de
+        // oude op zodra deze is verwelkomd.
+        let _ = others;
         let manifest = match json::get(&greeting, "manifest").filter(|v| !v.is_null()) {
             Some(m) => m.try_clone()?,
             None => match store.manifest(id) {

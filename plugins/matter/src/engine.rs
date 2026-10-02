@@ -26,6 +26,8 @@ pub(crate) struct Node {
     model_failures: u64,
 }
 /// De oudste vervallen deadline gaat voor; een vroege offline node mag latere nodes niet verdringen.
+/// De pauze tussen twee verbindingspogingen; zie [`Engine::settle`].
+const SETTLE_MS: u64 = 250;
 fn next_node(nodes: &[Node], now: u64, route: u64) -> Option<usize> {
     nodes
         .iter()
@@ -46,6 +48,9 @@ pub(crate) struct Engine {
     pub(crate) network: Network,
     nodes: Vec<Node>,
     next_discovery: u64,
+    /// Niet vóór dit moment aan de volgende node beginnen: tussen twee
+    /// handshakes krijgen de buren op het gedeelde core een paar beurten.
+    settle: u64,
     pending: Option<Event>,
     route: crate::route::Recovery,
 }
@@ -175,6 +180,7 @@ impl Engine {
             network: Network::open(c).await?,
             nodes: Vec::new(),
             next_discovery: c.now().saturating_add(1000),
+            settle: 0,
             pending: None,
             route: crate::route::Recovery::default(),
         })
@@ -819,9 +825,13 @@ impl Engine {
             return Ok(());
         }
         let now = c.now();
+        if now < self.settle {
+            return Ok(());
+        }
         let Some(i) = next_node(&self.nodes, now, self.route.next) else {
             return Ok(());
         };
+        self.settle = now.saturating_add(SETTLE_MS);
         if self.nodes[i].subscription.is_some() {
             self.expire(i, now)?;
         }

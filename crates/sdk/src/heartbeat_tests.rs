@@ -67,5 +67,8 @@ fn heartbeat_reply_budget_starts_after_the_write_completes() {
     let mut c = client();
     c.transport.send_delay = 6000;
     assert!(hostnet::block_on(c.pump()).unwrap().is_none());
-    assert_eq!(c.heartbeat.unwrap().1, c.now() + 5000);
+    assert_eq!(
+        c.heartbeat.unwrap().1,
+        c.now() + super::HEARTBEAT_DEADLINE_MS
+    );
 }

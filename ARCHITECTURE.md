@@ -444,6 +444,26 @@ viewers, 1 s as the SSE reader probe. The kernel prints
 slot; on hardware a quiet Stulp slot should sit above 95% idle with wakes in
 the tens per second.
 
+### Load on a shared core: who breathes
+
+Sleeping on events fixed the idle case (a trivial request fell from 0.2 to 2 s
+to 15 ms on the LicheeRV), but with the house loaded the controller still
+stalled 0.4 to 1.5 s, and once 10 s. Stopping the plugin bundle for 40 s
+brought the controller to 19 ms with the same house, so the bundle was the
+one holding the core: a CASE handshake ran one ephemeral key, one ECDH, one
+ECDSA verification and one signature in a single poll, node after node, and
+each of its heartbeat timeouts (5 s) tore down all ten plugin attaches, after
+which the controller refused the fresh attach for up to 15 s ("already
+connected") and every Matter session had to be rebuilt. Three measures:
+
+- The plugin heartbeat deadline is 20 s, longer than the controller's 15 s, so
+  the plugin never gives up first on a slow neighbour.
+- A fresh attach of an app supersedes its stale connection at once, with the
+  same cleanup as a dropped connection.
+- The CASE handshake runs in three steps (shared secret, verify, sign) with a
+  transport turn between them (`Client::idle`), and the engine waits 250 ms
+  between two nodes, so the slot yields its core between the heavy steps.
+
 ## IPv6 and Thread follow-up
 
 No extra enable flag is needed: Matter opens separate IPv4/IPv6 UDP sockets,

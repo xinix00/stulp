@@ -339,7 +339,17 @@ pub fn run<S: Storage>(
             }
             None => continue,
         };
-        match web.handle(&mut store, &call.request, &mut env) {
+        let handle0 = applib::clock::now_ns();
+        let handled = web.handle(&mut store, &call.request, &mut env);
+        let handle_ms = applib::clock::now_ns().saturating_sub(handle0) / 1_000_000;
+        if handle_ms >= SLOW_MS {
+            log!(
+                "[stulp:slow-handle] {} {} ms={handle_ms}",
+                call.request.method,
+                call.request.path
+            );
+        }
+        match handled {
             Ok(response) => {
                 if response.status == 200 && response.content_type == "text/event-stream" {
                     if subscribers.len() + media.len() >= WORKERS - 2 {
@@ -400,7 +410,12 @@ pub fn run<S: Storage>(
                         ("GET", "/api/stulp/backup") | ("POST", "/api/stulp/restore")
                     ) {
                         let restoring = call.request.method == "POST";
+                        let archive0 = applib::clock::now_ns();
                         let response = crate::archive::route(&mut store, call.request, &env);
+                        log!(
+                            "[stulp:archive] restore={restoring} ms={}",
+                            applib::clock::now_ns().saturating_sub(archive0) / 1_000_000
+                        );
                         if restoring && response.as_ref().is_ok_and(|r| r.status == 200) {
                             apps.reset();
                             pending.clear();
@@ -719,6 +734,10 @@ async fn worker(queue: &'static Local<Mailbox<TcpStream, 1>>, mut dial: crate::n
                     origin: copy(exchange.req.header.get("Origin").unwrap_or(""))?,
                     body,
                 };
+                // De meetlat van de aanvraag: hoe lang de eigenaar erover deed en hoe
+                // lang het hele antwoord duurde. Alles boven SLOW_MS komt op de console,
+                // zodat "traag" op de node een pad en een getal heeft.
+                let t0 = applib::clock::now_ns();
                 if WORK
                     .try_send(Work::Request(Call {
                         request,
@@ -732,6 +751,7 @@ async fn worker(queue: &'static Local<Mailbox<TcpStream, 1>>, mut dial: crate::n
                     Ok(response) => response,
                     Err(_) => return exchange.error(503, "controller stopped").await,
                 };
+                let owner_ms = applib::clock::now_ns().saturating_sub(t0) / 1_000_000;
                 if let stulp_web::Body::Proxy { url, mime, owner } = &response.body {
                     let _guard = MediaGuard { owner: *owner };
                     return crate::media::pipe(exchange, &mut dial, url, mime).await;
@@ -762,7 +782,17 @@ async fn worker(queue: &'static Local<Mailbox<TcpStream, 1>>, mut dial: crate::n
                     };
                     return exchange.stream(response.status, &mut events).await;
                 }
+                let status = response.status;
+                let bytes = response.body.bytes().len();
                 exchange.write(response.body.bytes()).await?;
+                let total_ms = applib::clock::now_ns().saturating_sub(t0) / 1_000_000;
+                if total_ms >= SLOW_MS {
+                    log!(
+                        "[stulp:slow] {} {} status={status} bytes={bytes} owner_ms={owner_ms} total_ms={total_ms}",
+                        exchange.req.method,
+                        exchange.req.path
+                    );
+                }
                 Ok(())
             },
         )
@@ -772,3 +802,5 @@ async fn worker(queue: &'static Local<Mailbox<TcpStream, 1>>, mut dial: crate::n
         }
     }
 }
+/// Vanaf deze duur is een aanvraag of een eigenaarsstap een consoleregel waard.
+const SLOW_MS: u64 = 200;

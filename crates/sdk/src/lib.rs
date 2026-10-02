@@ -399,6 +399,8 @@ pub struct Client<T> {
 }
 /// Hoe lang een ping op zijn antwoord mag wachten (zie `Client::pump`).
 pub(crate) const HEARTBEAT_DEADLINE_MS: u64 = 20_000;
+/// Vanaf deze duur is een plugin-callback een waarschuwing op de console waard.
+const SLOW_CALLBACK_MS: u64 = 500;
 impl<T: Transport> Client<T> {
     /// De attach-begroeting is al door de transportadapter geverifieerd.
     pub fn new(transport: T) -> Self {
@@ -816,6 +818,7 @@ impl<T: Transport> Client<T> {
                 continue;
             }
             let params = json::get(&frame.value, "p").unwrap_or(&Value::Null);
+            let callback0 = self.now();
             let handled =
                 if frame.method() == "ui.asset" && !valid_asset(json::text(params, "path")) {
                     Err(Error::Invalid("invalid app asset path"))
@@ -830,6 +833,21 @@ impl<T: Transport> Client<T> {
                 } else {
                     plugin.handle(self, frame.method(), params).await
                 };
+            let callback_ms = self.now().saturating_sub(callback0);
+            if callback_ms >= SLOW_CALLBACK_MS {
+                // De meetlat van een plugin op de node: een callback die zo lang
+                // duurt, houdt op een gedeeld core de buren even stil.
+                let mut line = String::new();
+                if line.try_reserve(128).is_ok() {
+                    use core::fmt::Write as _;
+                    let _ = write!(
+                        line,
+                        "STULP_SLOW_CALLBACK method={} ms={callback_ms}",
+                        frame.method()
+                    );
+                    self.log("warn", &line)?;
+                }
+            }
             let response = match handled {
                 Ok(value) => Frame::response(frame.id, Ok(value))?,
                 Err(error) => Frame::response(frame.id, Err(&message(&error)?))?,

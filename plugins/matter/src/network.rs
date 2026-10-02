@@ -426,6 +426,7 @@ impl Network {
             c.random()?,
         )?;
         let h = self.initiate(c, peer.address, 0, 0, peer.timing.idle)?;
+        let case0 = c.now();
         let result = async {
             // Elke P-256-stap krijgt een adempauze (`idle`: één beurt van het
             // transport, met hartslag), zodat het slot zijn core tussendoor
@@ -454,6 +455,22 @@ impl Network {
         .await;
         let _ = self.acknowledge(c, h);
         self.close(h);
+        // De meetlat van de handshake op de node: duur per node en uitkomst.
+        let mut line = String::new();
+        if line.try_reserve(160).is_ok() {
+            let _ = write!(
+                line,
+                "MATTER_CASE node={:016X} ms={} result={}",
+                peer.node,
+                c.now().saturating_sub(case0),
+                match &result {
+                    Ok(_) => "ok",
+                    Err(Error::Remote(text)) => text.as_str(),
+                    Err(_) => "failed",
+                }
+            );
+            c.log("info", &line)?;
+        }
         result
     }
     async fn expected<T: Transport>(

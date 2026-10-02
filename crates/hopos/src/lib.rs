@@ -7,6 +7,7 @@ mod archive;
 pub mod environment;
 mod files;
 mod media;
+pub mod meter;
 mod network;
 mod poll;
 pub mod replies;

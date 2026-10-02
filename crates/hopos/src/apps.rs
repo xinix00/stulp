@@ -59,6 +59,10 @@ impl Apps {
     pub fn now(&self) -> u64 {
         applib::clock::now_ns() / 1_000_000
     }
+    /// De app van dit slot, voor de meetlat.
+    pub fn platform(&self) -> &'static applib::App {
+        self.platform
+    }
     /// Whether the plugin completed initialization.
     pub fn running(&self, id: &str) -> bool {
         self.connections.iter().any(|c| {

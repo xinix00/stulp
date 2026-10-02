@@ -143,6 +143,7 @@ impl leanhttp::Dial for Dial {
         };
         let mut seed = [0; 96];
         self.random.fill(&mut seed);
+        let tls0 = applib::clock::now_ns();
         let result = stulp_tls::connect(
             Wire(conn),
             &stulp_tls::Trust::Chain(&verifier),
@@ -151,6 +152,14 @@ impl leanhttp::Dial for Dial {
         )
         .await;
         seed.fill(0);
+        // De meetlat van de handshake: op de LicheeRV is dit het rekenwerk
+        // dat de bundel het langst in één adem laat doen.
+        self.app.log(format_args!(
+            "STULP_TLS host={} ms={} result={}",
+            target.host,
+            applib::clock::now_ns().saturating_sub(tls0) / 1_000_000,
+            if result.is_ok() { "ok" } else { "failed" }
+        ));
         let conn = result.map_err(|_| leanhttp::Error::Connect)?;
         Ok(Connection(Some(Transport::Tls(conn))))
     }

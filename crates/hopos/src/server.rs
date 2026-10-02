@@ -124,6 +124,8 @@ pub fn run<S: Storage>(
     let mut pairing = Pairing::<Sender>::new();
     let mut subscribers: Vec<Subscriber> = Vec::new();
     let mut media: Vec<(u64, Sender)> = Vec::new();
+    let mut meter = crate::meter::Meter::new();
+    let mut next_meter = 0_u64;
     loop {
         // Slapen op gebeurtenissen (HopOS docs/apps.md): bytes van een app,
         // een nieuwe attach, werk van een HTTP-werker, of de tik waarop de
@@ -133,6 +135,16 @@ pub fn run<S: Storage>(
             Either::Right(work) => (None, Some(work)),
         };
         media.retain(|(_, reply)| !reply.closed());
+        if apps.now() >= next_meter {
+            next_meter = apps
+                .now()
+                .saturating_add(crate::meter::EVERY.as_millis() as u64);
+            match meter.line(apps.platform()) {
+                Ok(Some(line)) => log!("{line}"),
+                Ok(None) => (),
+                Err(e) => log!("STULP_LOAD meter failed: {e}"),
+            }
+        }
         if let Ok(now) = env.unix_ms() {
             store.tick(now);
         }

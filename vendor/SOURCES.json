@@ -6,7 +6,7 @@
     "applib/LICENSE": "c4682280dd6729516cf0078c73e90f33edfcbf858aeaab5ded80490bdcdf3f6a",
     "applib/build.rs": "6ab2dcf2f7ed8420aeda613abd813028704f720866de4eaf423f68b3eaa778b3",
     "applib/link.ld": "7f84f8fec6442e8f6ba8dbabfbe1b204f9488eccf398b8915932e4c2567a60f1",
-    "applib/src/app.rs": "1d8a28be1fa3e19e31c3ecc24e2a690cd426b8d794f32844e1b9722b7e6efc34",
+    "applib/src/app.rs": "67e32dc2ba3bac4f6c3db80642c88179366208566e647aefe3b3488efa870544",
     "applib/src/appnet/dns.rs": "01f193de9b798f6220eadb2bdf0e9140ea23ab988f43fcb5b4c408e8f3959cd2",
     "applib/src/appnet/tests.rs": "9fb9565567c7b8f5e33430857dc3440ee6e5fb5049a1e8429bf67cc995c1108d",
     "applib/src/appnet.rs": "10d4568b0d3848f5a0cf3e5fca957aa4db5fe9db228798ac5ad1bc820c0ec555",

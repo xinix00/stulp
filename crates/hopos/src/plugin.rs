@@ -259,6 +259,7 @@ impl Transport for Connection {
 /// Run one of the original plugin implementations and recreate its state after reconnect.
 pub async fn run<P: Plugin>(app: &'static App, factory: impl Fn() -> P) -> Result {
     applib::appnet::up(app).map_err(|_| Error::Transport("plugin network unavailable"))?;
+    crate::meter::spawn(app)?;
     let mut env = crate::environment::Environment::open(app)?;
     let queues = requests::start(0, app, &mut env)?;
     run_in(app, 0, queues, factory).await

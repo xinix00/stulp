@@ -14,6 +14,7 @@ async fn bundle(app: &'static applib::App) {
 fn start(app: &'static applib::App) -> stulp_core::Result {
     applib::appnet::up(app)
         .map_err(|_| stulp_core::Error::Invalid("bundle network unavailable"))?;
+    stulp_hopos::meter::spawn(app).map_err(|_| stulp_core::Error::Invalid("meter unavailable"))?;
     stulp_hopos::plugin::spawn(app, 0, stulp_virtualdevices::VirtualDevices::default)
         .map_err(|_| stulp_core::Error::Invalid("virtualdevices bundle startup failed"))?;
     stulp_hopos::plugin::spawn(app, 1, stulp_weather::WeatherPlugin::default)

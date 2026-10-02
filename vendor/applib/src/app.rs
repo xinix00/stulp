@@ -174,6 +174,16 @@ impl App {
         }
     }
 
+    /// De idle-ticks die de slaper van deze app publiceerde (`CTRL_IDLE`,
+    /// ticks van de teller van [`crate::clock::hz`], alle cores samen): de
+    /// meetlat van HopOS docs/apps.md, leesbaar door de app zelf.
+    pub fn idle_ticks(&self) -> u64 {
+        self.ctrl.idle_ticks()
+    }
+    /// Hoe vaak de slaper is aangeroepen (`CTRL_WAKES`).
+    pub fn wakes(&self) -> u64 {
+        self.ctrl.idle_rounds()
+    }
     /// Eén hartslag: de teller op de pagina, de kill-vlag gelezen, en om de
     /// [`MEM_EVERY`] slagen de geheugen-draw `mem`.
     pub fn beat(&self, beat: u64, mem: u64) -> Beat {

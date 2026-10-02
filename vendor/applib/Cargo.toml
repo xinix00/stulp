@@ -1,0 +1,33 @@
+[package]
+name = "applib"
+version = "3.0.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+description = "De app-runtime: executor, ringen, system-API-client, de main-schil. Rust-apps linken hiertegen."
+build = "build.rs"
+
+[dependencies]
+dev = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
+abi = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
+sync = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
+executor = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
+bounded = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
+netdev = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
+# Eén netstackbron in de naast Stulp uitgecheckte Lean-repo.
+leannet = { path = "../../../lean/leannet" }
+# De codec-namen en -nummers (feature `media`, src/codec.rs): dezelfde
+# nummering als de kern, uit het contract zelf.
+driver-codec = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18", optional = true }
+# De brug naar leanhttp (feature `http`, src/tcp.rs): dezelfde tag als Hop,
+# zodat `hop-http` en de apps één `AsyncRead` kennen.
+leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.5", optional = true }
+
+[features]
+default = []
+# De codec-client (src/codec.rs, docs/media.md).
+media = ["dep:driver-codec"]
+# De `TcpConn`-brug tussen `appnet::TcpStream` en leanhttp (src/tcp.rs).
+http = ["dep:leanhttp"]
+
+[workspace]

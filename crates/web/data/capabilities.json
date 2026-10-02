@@ -1,0 +1,255 @@
+{
+  "air_quality_state": {
+    "type": "enum",
+    "values": [
+      {
+        "id": "unknown",
+        "title": {
+          "en": "Unknown",
+          "nl": "Onbekend"
+        }
+      },
+      {
+        "id": "good",
+        "title": {
+          "en": "Good",
+          "nl": "Goed"
+        }
+      },
+      {
+        "id": "fair",
+        "title": {
+          "en": "Fair",
+          "nl": "Redelijk"
+        }
+      },
+      {
+        "id": "moderate",
+        "title": {
+          "en": "Moderate",
+          "nl": "Matig"
+        }
+      },
+      {
+        "id": "poor",
+        "title": {
+          "en": "Poor",
+          "nl": "Slecht"
+        }
+      },
+      {
+        "id": "very_poor",
+        "title": {
+          "en": "Very poor",
+          "nl": "Zeer slecht"
+        }
+      },
+      {
+        "id": "extremely_poor",
+        "title": {
+          "en": "Extremely poor",
+          "nl": "Extreem slecht"
+        }
+      }
+    ]
+  },
+  "button": {
+    "type": "boolean"
+  },
+  "dim": {
+    "max": 1,
+    "min": 0,
+    "step": 0.01,
+    "type": "number"
+  },
+  "light_hue": {
+    "max": 1,
+    "min": 0,
+    "step": 0.01,
+    "type": "number"
+  },
+  "light_saturation": {
+    "max": 1,
+    "min": 0,
+    "step": 0.01,
+    "type": "number"
+  },
+  "locked": {
+    "type": "boolean"
+  },
+  "measure_battery": {
+    "max": 100,
+    "min": 0,
+    "step": 0.01,
+    "type": "number",
+    "units": "%"
+  },
+  "measure_co": {
+    "min": 0,
+    "step": 1,
+    "type": "number",
+    "units": "ppm"
+  },
+  "measure_co2": {
+    "min": 0,
+    "step": 1,
+    "type": "number",
+    "units": "ppm"
+  },
+  "measure_current": {
+    "min": 0,
+    "step": 0.001,
+    "type": "number",
+    "units": "A"
+  },
+  "measure_humidity": {
+    "max": 100,
+    "min": 0,
+    "step": 0.01,
+    "type": "number",
+    "units": "%"
+  },
+  "measure_luminance": {
+    "min": 0,
+    "step": 1,
+    "type": "number",
+    "units": "lx"
+  },
+  "measure_pm25": {
+    "min": 0,
+    "step": 0.1,
+    "type": "number",
+    "units": "µg/m³"
+  },
+  "measure_power": {
+    "step": 0.001,
+    "type": "number",
+    "units": "W"
+  },
+  "measure_pressure": {
+    "step": 0.1,
+    "type": "number",
+    "units": "hPa"
+  },
+  "measure_temperature": {
+    "step": 0.01,
+    "type": "number",
+    "units": "°C"
+  },
+  "measure_voltage": {
+    "min": 0,
+    "step": 0.001,
+    "type": "number",
+    "units": "V"
+  },
+  "meter_power": {
+    "min": 0,
+    "step": 0.001,
+    "type": "number",
+    "units": "kWh"
+  },
+  "onoff": {
+    "type": "boolean"
+  },
+  "speaker_duration": {
+    "min": 0,
+    "step": 1,
+    "type": "number",
+    "units": "s"
+  },
+  "speaker_next": {
+    "getable": false,
+    "setable": true,
+    "type": "boolean"
+  },
+  "speaker_playing": {
+    "type": "boolean"
+  },
+  "speaker_position": {
+    "min": 0,
+    "step": 1,
+    "type": "number",
+    "units": "s"
+  },
+  "speaker_prev": {
+    "getable": false,
+    "setable": true,
+    "type": "boolean"
+  },
+  "speaker_repeat": {
+    "setable": true,
+    "type": "enum",
+    "values": [
+      {
+        "id": "none",
+        "title": {
+          "en": "Off",
+          "nl": "Uit"
+        }
+      },
+      {
+        "id": "track",
+        "title": {
+          "en": "One track",
+          "nl": "Eén nummer"
+        }
+      },
+      {
+        "id": "playlist",
+        "title": {
+          "en": "Playlist",
+          "nl": "Afspeellijst"
+        }
+      }
+    ]
+  },
+  "speaker_shuffle": {
+    "type": "boolean"
+  },
+  "target_temperature": {
+    "step": 0.01,
+    "type": "number",
+    "units": "°C"
+  },
+  "volume_mute": {
+    "type": "boolean"
+  },
+  "volume_set": {
+    "max": 1,
+    "min": 0,
+    "step": 0.01,
+    "type": "number"
+  },
+  "windowcoverings_set": {
+    "max": 1,
+    "min": 0,
+    "step": 0.01,
+    "type": "number"
+  },
+  "windowcoverings_state": {
+    "type": "enum",
+    "values": [
+      {
+        "id": "up",
+        "title": {
+          "en": "Up",
+          "nl": "Omhoog"
+        }
+      },
+      {
+        "id": "idle",
+        "title": {
+          "en": "Stop",
+          "nl": "Stop"
+        }
+      },
+      {
+        "id": "down",
+        "title": {
+          "en": "Down",
+          "nl": "Omlaag"
+        }
+      }
+    ]
+  }
+}

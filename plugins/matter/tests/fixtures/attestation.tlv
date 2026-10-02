@@ -1,0 +1,1 @@
+0#synthetic certification declaration0 ********************************

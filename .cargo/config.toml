@@ -1,0 +1,15 @@
+[source.crates-io]
+replace-with = "stulp-vendor"
+
+[source.stulp-vendor]
+directory = "crates/webpush/vendor"
+
+# Linux-hostbinaries worden vanaf elke host statisch gelinkt met de meegeleverde
+# lld; er is geen C-toolchain of sysroot nodig.
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes", "-C", "target-feature=+crt-static"]
+
+[target.riscv64gc-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes", "-C", "target-feature=+crt-static"]

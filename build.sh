@@ -1,125 +1,122 @@
 #!/bin/sh
-# Bouwt Stulp en elke app in plugins/*.
+# Bouwt Stulp: de controller (stulp-host) en elke app in plugins/*.
 #
-# Eén app is één map: de binary heet zijn eigen app-id en staat naast app.json,
-# want dat is precies waar Stulp hem zoekt (internal/plugin/process.go).
+#   ./build.sh            native release-binaries in target/release/
+#   ./build.sh linux      statische linux-binaries voor arm64 en riscv64 in out/
+#   ./build.sh hopos      HopOS-slot-ELF's per arch in out/ (gestript, laadbaar)
+#   ./build.sh check      formattering, clippy, tests, procestests en no_std-checks
+#   ./build.sh miri       de platformlaag onder Miri (nightly)
+#   ./build.sh qemu-persist | qemu-controller | qemu-ipv6
 #
-#   ./build.sh              alles
-#   ./build.sh matter nibe  alleen die apps
-#   ./build.sh stulp        alleen de controller
-#   ./build.sh hopos        de HopOS-images (ELF per slot, in out/)
-#
-# GOOS/GOARCH uit de omgeving werken gewoon, dus cross-compilen kan zonder
-# hier iets aan te passen: GOOS=linux GOARCH=arm64 ./build.sh
-set -e
+# De versie komt uit Cargo.toml ([workspace.package].version); tools/release.sh
+# controleert dat die overeenkomt met de release die hij publiceert.
+# Raakt geen HopOS-bronnen en geen huisconfig aan; tests gebruiken wegwerpstaat.
+set -eu
+stulp_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$stulp_root"
 
-cd "$(dirname "$0")"
+plugins="virtualdevices weather somfy nibe spotify notify wiim sigenergy unifi matter"
 
-# Eén stempel voor controller en apps. CI/releasebouw kan hem blijven
-# overschrijven met STULP_VERSION; een gewone build hoort bij deze bronversie.
-stulp_version=${STULP_VERSION:-v0.12.5}
+# De objcopy uit de eigen toolchain: geen binutils nodig op de host.
+objcopy() {
+    set -- "$(rustc --print sysroot)"/lib/rustlib/*/bin/rust-objcopy
+    [ -x "$1" ] || { echo 'build: rust-objcopy ontbreekt (rustup component add llvm-tools)' >&2; exit 1; }
+    echo "$1"
+}
 
-# ---- HopOS ------------------------------------------------------------------
-#
-# Op een HopOS-node is er geen besturingssysteem onder de binary: geen fork, geen
-# bestandssysteem in het proces, geen shell die argumenten meegeeft. Elk
-# programma is een ELF dat HOP in een slot plaatst, met een eigen IP.
-#
-# Dat verandert precies één ding aan Stulp, en dat is hoe apps starten. Stulp kan
-# ze daar niet zelf starten (starten is fork+exec), dus is elke app zijn EIGEN
-# slot-app die zich over de attach-poort meldt met zijn token -- hetzelfde pad als
-# een app in een pod. Zie cmd/stulp/main_tamago.go en
-# examples/virtual/start_tamago.go.
-#
-# Wat er meedoet, bepaalt de boom zelf: elke map met een *_tamago.go bestand.
-# Zo verschijnt een plugin in dit doel op het moment dat hij een HopOS-start
-# krijgt, en niet doordat iemand deze lijst bijwerkt.
-#
-# De link is canoniek (HopOS docs/app.md): één artifact draait in élk slot.
-# arm64 op SlotBase(1)+0x10000, riscv64 op de fysieke partitie -- daar is geen
-# tweede translatiefase.
+# HopOS-ELF's: alles eruit behalve de vier symbolen die de plaatser van HOP
+# patcht. Alleen debuginfo strippen laat een symbooltabel over die het geheugen
+# van de LicheeRV-loader opmaakte.
+package_hopos() {
+    "$(objcopy)" --strip-all \
+        --keep-symbol=runtime/goos.RamStart \
+        --keep-symbol=runtime/goos.RamSize \
+        --keep-symbol=github.com/xinix00/HopOS/metal/v2/board/hopslot.slotHint \
+        --keep-symbol=github.com/xinix00/HopOS/metal/v2/app/applib.abiVersion \
+        "$1" "$2"
+    echo "$2 ($(( $(wc -c < "$2") / 1024 )) kB)"
+}
+
+build_linux() {
+    mkdir -p out
+    for stulp_arch in arm64 riscv64; do
+        case "$stulp_arch" in
+            arm64) stulp_target=aarch64-unknown-linux-musl ;;
+            riscv64) stulp_target=riscv64gc-unknown-linux-musl ;;
+        esac
+        cargo build --locked --release --workspace --exclude stulp-persist-check --exclude stulp-hopos-app --exclude stulp-hopos-plugins --bins --target "$stulp_target"
+        "$(objcopy)" --strip-all "target/$stulp_target/release/stulp-host" "out/stulp-linux-$stulp_arch"
+        echo "out/stulp-linux-$stulp_arch"
+        for stulp_plugin in $plugins; do
+            "$(objcopy)" --strip-all "target/$stulp_target/release/stulp-$stulp_plugin" "out/$stulp_plugin-linux-$stulp_arch"
+            echo "out/$stulp_plugin-linux-$stulp_arch"
+        done
+    done
+}
+
+# De namen zijn die van de startup-files op de nodes: stulp-<arch>-tamago.elf,
+# <app>-<arch>-tamago.elf en all-plugins-<arch>-tamago.elf. Het achtervoegsel
+# is historisch; de URL op de rollende release is wat telt.
 build_hopos() {
-	tamago="${TAMAGO:-$HOME/tamago-go/bin/go}"
-	if [ ! -x "$tamago" ]; then
-		echo "build: $tamago ontbreekt -- zet TAMAGO=/pad/naar/go" >&2
-		exit 1
-	fi
-	mkdir -p out
-	for dir in $(find cmd examples plugins -name '*_tamago.go' -exec dirname {} \; | sort -u); do
-		name=$(basename "$dir")
-		for arch in riscv64 arm64; do
-			case "$arch" in
-			# stulp_notls: op het node-netwerk bewijst het token wie er aanklopt,
-			# en TLS erbovenop kost een app een hele TLS-stapel voor geheimhouding
-			# tegen iets dat al in dat netwerk zit.
-			# GEEN -s: HOP's plaatser (leanelf) leest de symboltabel van het
-			# image (versiewacht, entry) — met -s weigert élk slot het ELF.
-			# -w (DWARF eruit) is de grootte-winst die wél kan.
-			riscv64) tags="linkramsize linkcpuinit stulp_notls"; ld="-w -T 0x88010000 -R 0x1000" ;;
-			arm64)   tags="linkcpuinit stulp_notls";             ld="-w -T 0x50010000 -R 0x1000" ;;
-			esac
-			elf="out/$name-$arch-tamago.elf"
-			GOWORK=off GOTOOLCHAIN=local GOFLAGS=-mod=mod \
-				GOOS=tamago GOOSPKG=github.com/usbarmory/tamago GOARCH="$arch" \
-				"$tamago" build -tags "$tags" -trimpath \
-				-ldflags "$ld -X main.version=$stulp_version -X github.com/xinix00/stulp/internal/appsdk.BuildVersion=$stulp_version" \
-				-o "$elf" "./$dir"
-			echo "$elf ($(( $(wc -c < "$elf") / 1024 )) kB)"
-		done
-	done
+    mkdir -p out
+    for stulp_arch in arm64 riscv64; do
+        case "$stulp_arch" in
+            arm64) stulp_target=aarch64-unknown-none-softfloat ;;
+            riscv64) stulp_target=riscv64gc-unknown-none-elf ;;
+        esac
+        cargo build --locked --release -p stulp-hopos-app -p stulp-hopos-plugins --bins --target "$stulp_target"
+        stulp_out="target/$stulp_target/release"
+        package_hopos "$stulp_out/stulp-hopos-app" "out/stulp-$stulp_arch-tamago.elf"
+        package_hopos "$stulp_out/stulp-all-plugins-hopos" "out/all-plugins-$stulp_arch-tamago.elf"
+        for stulp_plugin in $plugins; do
+            package_hopos "$stulp_out/stulp-$stulp_plugin-hopos" "out/$stulp_plugin-$stulp_arch-tamago.elf"
+        done
+    done
 }
 
-if [ "${1:-}" = "hopos" ]; then
-	build_hopos
-	exit 0
-fi
-
-# -s -w gooit de DWARF- en symbooltabel eruit: scheelt zo'n 30% en doet niets
-# tijdens het draaien. Panic-traces houden hun functienamen, want die komen uit
-# de pclntab. Laat ze weg als je een debugger wilt aanhaken.
-ldflags='-s -w'
-
-# app_id leest de id uit een app.json. Geen jq nodig: het manifest is met de
-# hand geschreven en de id staat er altijd als platte string in.
-app_id() {
-	sed -n 's/^[[:space:]]*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -1
-}
-
-wants() {
-	[ $# -eq 1 ] && return 0 # geen filter opgegeven: alles bouwen
-	name=$1
-	shift
-	for arg in "$@"; do
-		[ "$arg" = "$name" ] && return 0
-	done
-	return 1
-}
-
-built=0
-
-if wants stulp "$@"; then
-	go build -ldflags="$ldflags -X main.version=$stulp_version" -o stulp ./cmd/stulp
-	echo "stulp"
-	built=$((built + 1))
-fi
-
-for dir in plugins/*/; do
-	name=$(basename "$dir")
-	[ -f "$dir/app.json" ] || continue
-	wants "$name" "$@" || continue
-
-	id=$(app_id "$dir/app.json")
-	if [ -z "$id" ]; then
-		echo "build: $dir/app.json heeft geen id" >&2
-		exit 1
-	fi
-
-	go build -ldflags="$ldflags -X github.com/xinix00/stulp/internal/appsdk.BuildVersion=$stulp_version" -o "$dir$id" "./$dir"
-	echo "$name -> $dir$id"
-	built=$((built + 1))
-done
-
-if [ "$built" -eq 0 ]; then
-	echo "build: niets gebouwd -- onbekende naam? $*" >&2
-	exit 1
-fi
+case "${1:-build}" in
+    build)
+        exec cargo build --locked --release --workspace --exclude stulp-persist-check --exclude stulp-hopos-app --exclude stulp-hopos-plugins --bins
+        ;;
+    linux)
+        build_linux
+        ;;
+    hopos)
+        build_hopos
+        ;;
+    check)
+        python3 tests/vendor_check.py
+        cargo test --locked -p applib -p leannet --lib
+        cargo fmt --all --check
+        cargo clippy --locked --workspace --all-targets -- -D warnings
+        cargo test --locked --workspace
+        cargo build --locked -p stulp-host -p stulp-virtualdevices -p stulp-somfy -p stulp-unifi
+        python3 tests/plugins.py
+        python3 tests/media.py
+        for stulp_target in aarch64-unknown-none-softfloat riscv64gc-unknown-none-elf; do
+            cargo check --locked -p stulp-tls -p stulp-hopos -p stulp-controller -p stulp-core -p stulp-protocol -p stulp-runtime -p stulp-web -p stulp-sdk -p stulp-virtualdevices -p stulp-weather -p stulp-somfy -p stulp-nibe -p stulp-spotify -p stulp-notify -p stulp-wiim -p stulp-sigenergy -p stulp-unifi -p stulp-matter -p stulp-webpush --no-default-features --lib --target "$stulp_target"
+            cargo build --locked --release -p stulp-persist-check --bins --target "$stulp_target"
+        done
+        build_hopos
+        ;;
+    qemu-ipv6)
+        exec python3 tests/qemu_ipv6.py
+        ;;
+    qemu-controller)
+        exec python3 tests/qemu_controller.py
+        ;;
+    qemu-persist)
+        exec python3 tests/qemu_persist.py
+        ;;
+    miri)
+        # De nightly-sysroot heeft eigen dependencies; bouw die buiten onze vendormap.
+        (cd /tmp && cargo +nightly miri setup)
+        cargo +nightly miri test --locked -p stulp-platform
+        (cd /tmp && cargo +nightly miri setup --target aarch64-unknown-linux-gnu)
+        cargo +nightly miri test --locked -p stulp-platform --target aarch64-unknown-linux-gnu
+        ;;
+    *)
+        echo 'usage: ./build.sh [build|linux|hopos|check|miri|qemu-persist|qemu-controller|qemu-ipv6]' >&2
+        exit 2
+        ;;
+esac

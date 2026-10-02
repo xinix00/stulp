@@ -1,0 +1,19 @@
+[package]
+name = "stulp-webpush"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+stulp-sdk = { path = "../sdk" }
+stulp-core = { path = "../core" }
+stulp-protocol = { path = "../protocol" }
+p256 = { version = "=0.13.2", default-features = false, features = ["ecdh", "ecdsa"] }
+aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes"] }
+hkdf = { version = "=0.12.4", default-features = false }
+sha2 = { version = "=0.10.9", default-features = false }
+zeroize = { version = "=1.9.0", default-features = false }
+
+[lints]
+workspace = true

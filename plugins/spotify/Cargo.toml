@@ -1,0 +1,30 @@
+[package]
+name = "stulp-spotify"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+auth = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }
+stulp-protocol = { path = "../../crates/protocol" }
+stulp-sdk = { path = "../../crates/sdk" }
+stulp-core = { path = "../../crates/core" }
+stulp-plugin-host = { path = "../../crates/plugin-host", optional = true }
+
+[lints]
+workspace = true
+
+[features]
+default = ["host"]
+host = ["dep:stulp-plugin-host"]
+
+[[bin]]
+name = "stulp-spotify"
+path = "src/main.rs"
+required-features = ["host"]
+
+[dev-dependencies]
+stulp-runtime = { path = "../../crates/runtime" }
+stulp-protocol = { path = "../../crates/protocol" }
+hostnet = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }

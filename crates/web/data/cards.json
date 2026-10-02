@@ -1,0 +1,439 @@
+{
+  "actions": [
+    {
+      "appId": "stulp",
+      "appName": "Stulp",
+      "args": [
+        {
+          "name": "device",
+          "title": "Apparaat",
+          "type": "device"
+        },
+        {
+          "name": "capability",
+          "optional": false,
+          "title": "Waarde",
+          "type": "capability"
+        },
+        {
+          "name": "value",
+          "title": "Zet op",
+          "type": "capability-value"
+        }
+      ],
+      "available": true,
+      "id": "set_device_capability",
+      "title": "Zet een apparaatwaarde",
+      "type": "action"
+    },
+    {
+      "appId": "stulp",
+      "appName": "Stulp",
+      "args": [
+        {
+          "max": 30,
+          "min": 0,
+          "name": "seconds",
+          "step": 0.1,
+          "title": "Seconden",
+          "type": "number"
+        }
+      ],
+      "available": true,
+      "id": "delay",
+      "title": "Wacht even",
+      "type": "action"
+    },
+    {
+      "appId": "stulp",
+      "appName": "Stulp",
+      "args": [
+        {
+          "name": "excerpt",
+          "title": "Bericht",
+          "type": "text"
+        }
+      ],
+      "available": true,
+      "id": "notification",
+      "title": "Maak een melding",
+      "type": "action"
+    }
+  ],
+  "conditions": [
+    {
+      "appId": "stulp",
+      "appName": "Stulp",
+      "args": [
+        {
+          "name": "device",
+          "title": "Apparaat",
+          "type": "device"
+        },
+        {
+          "name": "capability",
+          "optional": false,
+          "title": "Waarde",
+          "type": "capability"
+        },
+        {
+          "name": "value",
+          "title": "Is gelijk aan",
+          "type": "capability-value"
+        }
+      ],
+      "available": true,
+      "id": "device_capability_equals",
+      "title": "Een apparaatwaarde is gelijk aan",
+      "type": "condition"
+    }
+  ],
+  "triggers": [
+    {
+      "appId": "stulp",
+      "appName": "Stulp",
+      "args": [
+        {
+          "name": "device",
+          "title": "Apparaat",
+          "type": "device"
+        },
+        {
+          "name": "capability",
+          "optional": true,
+          "title": "Waarde",
+          "type": "capability"
+        }
+      ],
+      "available": true,
+      "id": "device_capability_changed",
+      "title": "Een apparaatwaarde is veranderd",
+      "tokens": [
+        {
+          "name": "device",
+          "title": "Apparaat",
+          "type": "string"
+        },
+        {
+          "name": "capability",
+          "title": "Capability",
+          "type": "string"
+        },
+        {
+          "name": "value",
+          "title": "Nieuwe waarde",
+          "type": "string"
+        },
+        {
+          "name": "oldValue",
+          "title": "Vorige waarde",
+          "type": "string"
+        }
+      ],
+      "type": "trigger"
+    },
+    {
+      "appId": "stulp",
+      "appName": "Stulp",
+      "args": [
+        {
+          "name": "device",
+          "title": "Apparaat",
+          "type": "device"
+        },
+        {
+          "name": "capability",
+          "optional": false,
+          "title": "Waarde",
+          "type": "capability"
+        },
+        {
+          "name": "value",
+          "title": "Blijft gelijk aan",
+          "type": "capability-value"
+        },
+        {
+          "max": 86400,
+          "min": 1,
+          "name": "seconds",
+          "step": 1,
+          "title": "Seconden",
+          "type": "number"
+        }
+      ],
+      "available": true,
+      "id": "device_capability_stays",
+      "title": "Een apparaatwaarde blijft gelijk",
+      "titleFormatted": "Een apparaatwaarde blijft [[seconds]] seconden gelijk aan [[value]]",
+      "tokens": [
+        {
+          "name": "device",
+          "title": "Apparaat",
+          "type": "string"
+        },
+        {
+          "name": "capability",
+          "title": "Capability",
+          "type": "string"
+        },
+        {
+          "name": "value",
+          "title": "Waarde",
+          "type": "string"
+        },
+        {
+          "name": "seconds",
+          "title": "Seconden",
+          "type": "number"
+        }
+      ],
+      "type": "trigger"
+    },
+    {
+      "appId": "stulp",
+      "appName": "Stulp",
+      "args": [
+        {
+          "name": "device",
+          "title": "Apparaat",
+          "type": "device"
+        },
+        {
+          "name": "capability",
+          "optional": true,
+          "title": "Capability",
+          "type": "capability"
+        },
+        {
+          "name": "event",
+          "title": "Event",
+          "type": "dropdown",
+          "values": [
+            {
+              "id": "",
+              "title": "Elk event"
+            },
+            {
+              "id": "initial_press",
+              "title": "Knop ingedrukt"
+            },
+            {
+              "id": "short_release",
+              "title": "Knop losgelaten"
+            },
+            {
+              "id": "long_press",
+              "title": "Knop lang ingedrukt"
+            },
+            {
+              "id": "long_release",
+              "title": "Lange druk losgelaten"
+            },
+            {
+              "id": "multi_press_ongoing",
+              "title": "Meervoudige druk bezig"
+            },
+            {
+              "id": "multi_press_complete",
+              "title": "Meervoudige druk voltooid"
+            },
+            {
+              "id": "switch_latched",
+              "title": "Schakelaar vergrendeld"
+            },
+            {
+              "id": "lock_operation",
+              "title": "Slot bediend"
+            },
+            {
+              "id": "lock_operation_error",
+              "title": "Slotbediening mislukt"
+            },
+            {
+              "id": "door_state_change",
+              "title": "Deurstand veranderd"
+            },
+            {
+              "id": "door_lock_alarm",
+              "title": "Slotalarm"
+            },
+            {
+              "id": "lock_user_change",
+              "title": "Slotgebruiker gewijzigd"
+            }
+          ]
+        }
+      ],
+      "available": true,
+      "id": "matter_event",
+      "title": "Een Matter-event is ontvangen",
+      "tokens": [
+        {
+          "name": "device",
+          "title": "Apparaat",
+          "type": "string"
+        },
+        {
+          "name": "event",
+          "title": "Event",
+          "type": "string"
+        },
+        {
+          "name": "capability",
+          "title": "Capability",
+          "type": "string"
+        },
+        {
+          "name": "endpoint",
+          "title": "Endpoint",
+          "type": "number"
+        },
+        {
+          "name": "pressed",
+          "title": "Ingedrukt",
+          "type": "boolean"
+        },
+        {
+          "name": "eventNumber",
+          "title": "Eventnummer",
+          "type": "number"
+        },
+        {
+          "name": "cluster",
+          "title": "Cluster",
+          "type": "string"
+        },
+        {
+          "name": "eventId",
+          "title": "Event-ID",
+          "type": "string"
+        },
+        {
+          "name": "data",
+          "title": "Data",
+          "type": "json"
+        }
+      ],
+      "type": "trigger"
+    },
+    {
+      "appId": "stulp",
+      "appName": "Stulp",
+      "args": [
+        {
+          "name": "time",
+          "title": "Tijd",
+          "type": "time"
+        }
+      ],
+      "available": true,
+      "id": "time_at",
+      "title": "Het is een bepaald tijdstip",
+      "tokens": [
+        {
+          "name": "time",
+          "title": "Tijd",
+          "type": "string"
+        },
+        {
+          "name": "date",
+          "title": "Datum",
+          "type": "string"
+        }
+      ],
+      "type": "trigger"
+    },
+    {
+      "appId": "stulp",
+      "appName": "Stulp",
+      "args": [
+        {
+          "max": 90,
+          "min": -90,
+          "name": "latitude",
+          "step": 0.0001,
+          "title": "Breedtegraad",
+          "type": "number"
+        },
+        {
+          "max": 180,
+          "min": -180,
+          "name": "longitude",
+          "step": 0.0001,
+          "title": "Lengtegraad",
+          "type": "number"
+        },
+        {
+          "max": 180,
+          "min": -180,
+          "name": "offset",
+          "step": 1,
+          "title": "Verschuiving in minuten",
+          "type": "number"
+        }
+      ],
+      "available": true,
+      "id": "sunrise",
+      "title": "De zon komt op",
+      "tokens": [
+        {
+          "name": "time",
+          "title": "Tijd",
+          "type": "string"
+        },
+        {
+          "name": "date",
+          "title": "Datum",
+          "type": "string"
+        }
+      ],
+      "type": "trigger"
+    },
+    {
+      "appId": "stulp",
+      "appName": "Stulp",
+      "args": [
+        {
+          "max": 90,
+          "min": -90,
+          "name": "latitude",
+          "step": 0.0001,
+          "title": "Breedtegraad",
+          "type": "number"
+        },
+        {
+          "max": 180,
+          "min": -180,
+          "name": "longitude",
+          "step": 0.0001,
+          "title": "Lengtegraad",
+          "type": "number"
+        },
+        {
+          "max": 180,
+          "min": -180,
+          "name": "offset",
+          "step": 1,
+          "title": "Verschuiving in minuten",
+          "type": "number"
+        }
+      ],
+      "available": true,
+      "id": "sunset",
+      "title": "De zon gaat onder",
+      "tokens": [
+        {
+          "name": "time",
+          "title": "Tijd",
+          "type": "string"
+        },
+        {
+          "name": "date",
+          "title": "Datum",
+          "type": "string"
+        }
+      ],
+      "type": "trigger"
+    }
+  ]
+}

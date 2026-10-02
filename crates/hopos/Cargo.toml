@@ -1,0 +1,25 @@
+[package]
+name = "stulp-hopos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+stulp-tls = { path = "../tls" }
+stulp-core = { path = "../core" }
+stulp-controller = { path = "../controller" }
+stulp-runtime = { path = "../runtime" }
+stulp-protocol = { path = "../protocol" }
+stulp-sdk = { path = "../sdk" }
+stulp-web = { path = "../web" }
+stulp-matter = { path = "../../plugins/matter", default-features = false }
+hop-sync = { package = "sync", git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
+leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.5" }
+applib = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18", features = ["http"] }
+
+[dev-dependencies]
+hostnet = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }
+
+[lints]
+workspace = true

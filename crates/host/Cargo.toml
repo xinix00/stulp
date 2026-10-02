@@ -1,0 +1,24 @@
+[package]
+name = "stulp-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+stulp-controller = { path = "../controller", features = ["std"] }
+stulp-matter = { path = "../../plugins/matter", default-features = false }
+stulp-transport = { path = "../transport" }
+stulp-platform = { path = "../platform" }
+stulp-sdk = { path = "../sdk" }
+stulp-core = { path = "../core" }
+stulp-protocol = { path = "../protocol" }
+
+stulp-web = { path = "../web" }
+hostnet = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }
+leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.5" }
+
+stulp-runtime = { path = "../runtime" }
+
+[lints]
+workspace = true

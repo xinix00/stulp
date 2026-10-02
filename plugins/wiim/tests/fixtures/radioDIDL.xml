@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">
+<item id="">
+<dc:subtitle>David Guetta &amp; Sia - Floating through space</dc:subtitle>
+<dc:title>SWR3</dc:title>
+<upnp:artist></upnp:artist>
+<upnp:album></upnp:album>
+<upnp:albumArtURI>http://cdn-albums.tunein.com/gn/RLVRT1LV8Ng.jpg</upnp:albumArtURI>
+</item>
+</DIDL-Lite>

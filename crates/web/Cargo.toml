@@ -1,0 +1,14 @@
+[package]
+name = "stulp-web"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+stulp-core = { path = "../core" }
+stulp-protocol = { path = "../protocol" }
+auth = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }
+
+[lints]
+workspace = true

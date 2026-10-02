@@ -1,0 +1,27 @@
+[package]
+name = "stulp-hopos-plugins"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+stulp-hopos = { path = "../hopos" }
+stulp-core = { path = "../core" }
+applib = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
+
+stulp-virtualdevices = { path = "../../plugins/virtualdevices", default-features = false }
+stulp-weather = { path = "../../plugins/weather", default-features = false }
+stulp-somfy = { path = "../../plugins/somfy", default-features = false }
+stulp-nibe = { path = "../../plugins/nibe", default-features = false }
+stulp-spotify = { path = "../../plugins/spotify", default-features = false }
+stulp-notify = { path = "../../plugins/notify", default-features = false }
+stulp-wiim = { path = "../../plugins/wiim", default-features = false }
+stulp-sigenergy = { path = "../../plugins/sigenergy", default-features = false }
+stulp-unifi = { path = "../../plugins/unifi", default-features = false }
+stulp-matter = { path = "../../plugins/matter", default-features = false }
+
+[lints]
+workspace = true

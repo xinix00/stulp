@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <specVersion><major>1</major><minor>0</minor></specVersion>
+  <device>
+    <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+    <friendlyName>Büro Audio</friendlyName>
+    <manufacturer>Linkplay Technology Inc.</manufacturer>
+    <manufacturerURL>https://wiimhome.com</manufacturerURL>
+    <modelName>WiiM Pro Receiver</modelName>
+    <modelNumber>V01-Apr 16 2024</modelNumber>
+    <UDN>uuid:FF98F09C-74E9-46A5-07FF-155EFF98F09C</UDN>
+    <serviceList>
+      <service>
+        <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
+        <serviceId>urn:upnp-org:serviceId:AVTransport</serviceId>
+        <SCPDURL>/upnp/rendertransportSCPD.xml</SCPDURL>
+        <controlURL>/upnp/control/rendertransport1</controlURL>
+        <eventSubURL>/upnp/event/rendertransport1</eventSubURL>
+      </service>
+      <service>
+        <serviceType>urn:schemas-wiimu-com:service:PlayQueue:1</serviceType>
+        <serviceId>urn:wiimu-com:serviceId:PlayQueue</serviceId>
+        <SCPDURL>/upnp/PlayQueueSCPD.xml</SCPDURL>
+        <controlURL>/upnp/control/PlayQueue1</controlURL>
+        <eventSubURL>/upnp/event/PlayQueue1</eventSubURL>
+      </service>
+    </serviceList>
+  </device>
+</root>

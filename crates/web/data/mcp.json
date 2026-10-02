@@ -1,0 +1,883 @@
+{
+  "instructions": "Control this Stulp home through its devices and visual Flows. Start with system_context: it names the device groups (rooms) of this home. Then narrow with devices_list (groupId, capabilityId, search), read one exact device with devices_list(deviceId), and pass that deviceId to flow_cards_list before changing anything. Capability-derived Flow cards include boolean edges, continuous seconds, numeric threshold crossings and enum transitions; prefer those semantic cards over a generic value-changed card. Only set capabilities marked setable. When a Flow needs durable boolean memory, devices_create can add a virtual_switch; use its returned device id in Flow cards. A device with class=scene is a scene device. With capability onoff it is a switch scene: the first on saves the current target states and applies the scene, repeated on keeps that original snapshot, off restores it, and the scene turns itself off when a value it set is changed elsewhere. With capability button it is a one-shot scene: write button=true to apply it; it has no state and nothing to restore.",
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read Stulp's language, timezone, household units, version, statistics state and the device groups (rooms) of this home. Read it before anything that names a room, and before time- or unit-sensitive Flows.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "system_context",
+      "title": "Read home context"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Find devices. Without deviceId or capabilityId this returns compact summaries: identity, availability and the capability ids a device has. Pass deviceId for one device with full capability metadata, or capabilityId to read that one capability across devices. Only capabilities with setable=true may be changed.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "availableOnly": {
+            "default": false,
+            "description": "Skip devices the app reports as unavailable",
+            "type": "boolean"
+          },
+          "capabilityId": {
+            "description": "Only devices with this capability, and only this capability in the result",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "deviceId": {
+            "description": "One exact device, with full capability metadata",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "groupId": {
+            "description": "Only devices in this group or one nested under it; read system_context for the groups",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "search": {
+            "description": "Case-insensitive name, id or group search",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "writableOnly": {
+            "default": false,
+            "description": "Only devices with a setable capability",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "devices_list",
+      "title": "Read devices"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create one persistent virtual on/off switch. Use it as durable boolean memory (a variable) in Flows and Scenes. It starts off; the returned device id can immediately be used as {\"$device\":\"DEVICE_ID\"} in Flow cards or with devices_write. This only supports the installed Virtual devices app and cannot pair physical hardware. Each successful call creates a new independent switch, even when names match.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Name shown on the device and in Flow card selectors",
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "virtual_switch"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "devices_create",
+      "title": "Create a virtual device"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Request one writable capability change. Read devices_list first and use only setable=true. Values use household units; accepted does not mean the device has already reported the new state. For a class=scene device with onoff, the first onoff=true saves current target states and applies it; repeated true keeps that snapshot, false restores it, values a device already reports are skipped in both directions, and the scene turns itself off when a value it set is changed elsewhere. For a class=scene device with button, button=true applies it once; it has no state and cannot be turned off. Scene writes include sceneActivation; its active field is durable, and a partial restore with active=true may safely be retried.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilityId": {
+            "description": "Exact capability id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "deviceId": {
+            "description": "Exact device id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "value": {
+            "description": "Value matching the capability type, range or enum"
+          }
+        },
+        "required": [
+          "deviceId",
+          "capabilityId",
+          "value"
+        ],
+        "type": "object"
+      },
+      "name": "devices_write",
+      "title": "Set a device capability"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Find ALS/trigger, EN/condition and DAN/action cards. Without cardId this lists titles only; pass cardId to read one card's arguments and tokens before configuring it. Pass deviceId to include its semantic capability cards: boolean on/off and continuous seconds, numeric above/below crossings, enum transitions, current-value conditions and safe actions. Device arguments use {\"$device\":\"DEVICE_ID\"}; dropdowns store an id and tokens use {{token}}.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "appId": {
+            "description": "Only cards from this app",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "availableOnly": {
+            "default": true,
+            "description": "Skip cards whose app is not running",
+            "type": "boolean"
+          },
+          "cardId": {
+            "description": "One exact card id, with its argument and token definitions",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "deviceId": {
+            "description": "Only cards usable with this device, plus global cards",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "trigger",
+              "condition",
+              "action"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "search": {
+            "description": "Case-insensitive card id/title search",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "flow_cards_list",
+      "title": "Read Flow cards"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Get bounded choices for one autocomplete argument. args is the current step.args object; store the entire selected choice under args[argument].",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "appId": {
+            "description": "Card appId",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "args": {
+            "additionalProperties": true,
+            "description": "Current step.args values",
+            "type": "object"
+          },
+          "argument": {
+            "description": "Autocomplete argument name",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "cardId": {
+            "description": "Card id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "cardType": {
+            "enum": [
+              "trigger",
+              "device-trigger",
+              "condition",
+              "action"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "description": "Search text",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "appId",
+          "cardId",
+          "cardType",
+          "argument"
+        ],
+        "type": "object"
+      },
+      "name": "flow_card_autocomplete",
+      "title": "Complete a Flow card argument"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Run one available DAN/action card immediately without persisting a Flow. This can control physical devices, contact external services or send notifications.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "appId": {
+            "description": "Card appId from flow_cards_list",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "args": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "cardId": {
+            "description": "Action card id from flow_cards_list",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "appId",
+          "cardId",
+          "args"
+        ],
+        "type": "object"
+      },
+      "name": "flow_action_run",
+      "title": "Run one action card"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read a bounded page of Flow summaries. With flowId, return one full graph in the same flows array, including positions, public args and edges; hidden runtime state is omitted.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "flowId": {
+            "description": "Optional exact Flow id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "search": {
+            "description": "Case-insensitive name or id search",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "flows_list",
+      "title": "Read Flows"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a Flow, empty or complete. Build it further with flows_add_cards and flows_connect_cards, in any order. A Flow only runs once a path leads from an ALS/trigger card to a DAN/action card; every Flow tool reports what is still missing.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "edges": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "from": {
+                  "description": "Source card/node id",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "id": {
+                  "description": "Optional connection id; generated when omitted",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "to": {
+                  "description": "Destination card/node id",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "maxItems": 256,
+            "type": "array"
+          },
+          "enabled": {
+            "default": true,
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Flow name",
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "nodes": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "description": "Card id you choose, unique within the Flow; connections reference it",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "step": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "appId": {
+                      "description": "Card appId from flow_cards_list",
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "args": {
+                      "additionalProperties": true,
+                      "description": "Values keyed by the card argument names",
+                      "type": "object"
+                    },
+                    "cardId": {
+                      "description": "Card id from flow_cards_list",
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "cardType": {
+                      "enum": [
+                        "trigger",
+                        "device-trigger",
+                        "condition",
+                        "action"
+                      ],
+                      "type": "string"
+                    },
+                    "inverted": {
+                      "description": "Invert a condition",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "appId",
+                    "cardId",
+                    "cardType"
+                  ],
+                  "type": "object"
+                },
+                "x": {
+                  "description": "Horizontal canvas position",
+                  "type": "number"
+                },
+                "y": {
+                  "description": "Vertical canvas position",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "x",
+                "y",
+                "step"
+              ],
+              "type": "object"
+            },
+            "maxItems": 128,
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "flows_create",
+      "title": "Create a Flow"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Rename a Flow and/or enable or disable it without replacing its cards.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "flowId": {
+            "description": "Exact Flow id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "New name",
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "flowId"
+        ],
+        "type": "object"
+      },
+      "name": "flows_update",
+      "title": "Update Flow settings"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Add one card, or several at once, at their x/y canvas positions. Read the card with flow_cards_list first. You choose each card's id, so edges can reference it here or in a later flows_connect_cards.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "edges": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "from": {
+                  "description": "Source card/node id",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "id": {
+                  "description": "Optional connection id; generated when omitted",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "to": {
+                  "description": "Destination card/node id",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "maxItems": 256,
+            "type": "array"
+          },
+          "flowId": {
+            "description": "Exact Flow id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "nodes": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "description": "Card id you choose, unique within the Flow; connections reference it",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "step": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "appId": {
+                      "description": "Card appId from flow_cards_list",
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "args": {
+                      "additionalProperties": true,
+                      "description": "Values keyed by the card argument names",
+                      "type": "object"
+                    },
+                    "cardId": {
+                      "description": "Card id from flow_cards_list",
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "cardType": {
+                      "enum": [
+                        "trigger",
+                        "device-trigger",
+                        "condition",
+                        "action"
+                      ],
+                      "type": "string"
+                    },
+                    "inverted": {
+                      "description": "Invert a condition",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "appId",
+                    "cardId",
+                    "cardType"
+                  ],
+                  "type": "object"
+                },
+                "x": {
+                  "description": "Horizontal canvas position",
+                  "type": "number"
+                },
+                "y": {
+                  "description": "Vertical canvas position",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "x",
+                "y",
+                "step"
+              ],
+              "type": "object"
+            },
+            "maxItems": 128,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "flowId",
+          "nodes"
+        ],
+        "type": "object"
+      },
+      "name": "flows_add_cards",
+      "title": "Add Flow cards"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Merge args into one card and/or change inverted and its x/y position. Omitted args remain unchanged; an argument set to null is cleared.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "flowId": {
+            "description": "Exact Flow id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "inverted": {
+            "type": "boolean"
+          },
+          "nodeId": {
+            "description": "Exact card/node id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "flowId",
+          "nodeId"
+        ],
+        "type": "object"
+      },
+      "name": "flows_configure_card",
+      "title": "Configure a Flow card"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Add an acyclic connection from one card to another; a connection cannot point into a trigger.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "edgeId": {
+            "description": "Optional connection id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "flowId": {
+            "description": "Exact Flow id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "fromNodeId": {
+            "description": "Source card id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "toNodeId": {
+            "description": "Destination card id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "flowId",
+          "fromNodeId",
+          "toNodeId"
+        ],
+        "type": "object"
+      },
+      "name": "flows_connect_cards",
+      "title": "Connect Flow cards"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Remove a connection by edgeId, or by fromNodeId plus toNodeId.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "edgeId": {
+            "description": "Connection id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "flowId": {
+            "description": "Exact Flow id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "fromNodeId": {
+            "description": "Source card id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "toNodeId": {
+            "description": "Destination card id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "flowId"
+        ],
+        "type": "object"
+      },
+      "name": "flows_disconnect_cards",
+      "title": "Disconnect Flow cards"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Remove one card and every connection touching it. The Flow must remain valid.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "flowId": {
+            "description": "Exact Flow id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "Exact card/node id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "flowId",
+          "nodeId"
+        ],
+        "type": "object"
+      },
+      "name": "flows_remove_card",
+      "title": "Remove a Flow card"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Execute reachable conditions/actions immediately, ignoring triggers and enabled state. This can control devices, contact services or send notifications.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "flowId": {
+            "description": "Exact Flow id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "flowId"
+        ],
+        "type": "object"
+      },
+      "name": "flows_run",
+      "title": "Run a Flow"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Permanently delete a Flow.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "flowId": {
+            "description": "Exact Flow id",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "flowId"
+        ],
+        "type": "object"
+      },
+      "name": "flows_delete",
+      "title": "Delete a Flow"
+    }
+  ]
+}

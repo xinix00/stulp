@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">
+<item id="">
+<dc:title>Teardrop</dc:title>
+<upnp:artist>Massive Attack</upnp:artist>
+<upnp:album>Mezzanine</upnp:album>
+<upnp:albumArtURI>http://192.168.50.56/art.jpg</upnp:albumArtURI>
+</item>
+</DIDL-Lite>

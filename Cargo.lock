@@ -743,7 +743,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-controller"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "libm",
  "stulp-core",
@@ -755,14 +755,14 @@ dependencies = [
 
 [[package]]
 name = "stulp-core"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "types",
 ]
 
 [[package]]
 name = "stulp-hopos"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "applib",
  "hostnet",
@@ -780,7 +780,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-hopos-app"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "applib",
  "stulp-core",
@@ -789,7 +789,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-hopos-plugins"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "applib",
  "stulp-core",
@@ -808,7 +808,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-host"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "hostnet",
  "leanhttp 3.1.5",
@@ -825,7 +825,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-matter"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "aes",
  "der",
@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-nibe"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "auth",
  "hostnet",
@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-notify"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "hostnet",
  "stulp-core",
@@ -871,7 +871,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-persist-check"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "applib",
  "stulp-core",
@@ -880,14 +880,14 @@ dependencies = [
 
 [[package]]
 name = "stulp-platform"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "stulp-plugin-host"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "hostnet",
  "leanhttp 3.1.5",
@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-protocol"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "auth",
  "stulp-core",
@@ -909,7 +909,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-runtime"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "stulp-core",
  "stulp-protocol",
@@ -917,7 +917,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-sdk"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "hostnet",
  "rand_chacha",
@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-sigenergy"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "aes",
  "hostnet",
@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-somfy"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "hostnet",
  "leancookie",
@@ -956,7 +956,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-spotify"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "auth",
  "hostnet",
@@ -969,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-transport"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "ed25519-dalek",
  "hostnet",
@@ -987,7 +987,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-unifi"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "hostnet",
  "stulp-core",
@@ -999,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-virtualdevices"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "hostnet",
  "stulp-core",
@@ -1011,7 +1011,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-weather"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "hostnet",
  "stulp-core",
@@ -1023,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-web"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "auth",
  "stulp-core",
@@ -1032,7 +1032,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-webpush"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "aes-gcm",
  "hkdf",
@@ -1046,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-wiim"
-version = "3.0.11"
+version = "3.0.12"
 dependencies = [
  "hostnet",
  "stulp-core",

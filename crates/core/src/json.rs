@@ -49,40 +49,23 @@ pub fn array<'a>(value: &'a Value, key: &str) -> &'a [Value] {
     get(value, key).and_then(Value::as_array).unwrap_or(&[])
 }
 
-/// Vervangt een veld zonder verborgen, onbegrensde allocatie.
+/// Vervangt een veld ter plekke. Tot 3.0.12 bouwde dit het object opnieuw en
+/// kopieerde het elk ander veld met alles eronder; één apparaatupdate in de
+/// staat van een plugin kopieerde zo de hele staat (op de LicheeRV ~300 ms).
 pub fn set(value: &mut Value, key: &str, replacement: Value) -> Result {
-    let source = value.as_object().ok_or(Error::Invalid("expected object"))?;
-    let mut out = Object::new();
-    let mut replacement = Some(replacement);
-    for (name, item) in source.iter() {
-        if name == key {
-            out.push(
-                name,
-                replacement
-                    .take()
-                    .ok_or(Error::Conflict("duplicate JSON key"))?,
-            )?;
-        } else {
-            out.push(name, item.try_clone()?)?;
-        }
-    }
-    if let Some(replacement) = replacement {
-        out.push(key, replacement)?;
-    }
-    *value = Value::Object(out);
+    value
+        .as_object_mut()
+        .ok_or(Error::Invalid("expected object"))?
+        .insert(key, replacement)?;
     Ok(())
 }
 
-/// Verwijdert een veld, met behoud van onbekende velden.
+/// Verwijdert een veld ter plekke, met behoud van de andere velden en hun volgorde.
 pub fn remove(value: &mut Value, key: &str) -> Result {
-    let source = value.as_object().ok_or(Error::Invalid("expected object"))?;
-    let mut out = Object::new();
-    for (name, item) in source.iter() {
-        if name != key {
-            out.push(name, item.try_clone()?)?;
-        }
-    }
-    *value = Value::Object(out);
+    value
+        .as_object_mut()
+        .ok_or(Error::Invalid("expected object"))?
+        .remove(key);
     Ok(())
 }
 

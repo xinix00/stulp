@@ -351,6 +351,9 @@ impl State {
                 let id = json::copy(json::text(&self.root, "appId"))?;
                 self.load(&id, clone(params)?)?;
             }
+            "state.app" => {
+                json::set(&mut self.root, "appState", clone(params)?)?;
+            }
             "state.settings" => {
                 if params.as_object().is_none() {
                     return Err(Error::Invalid("invalid settings snapshot"));
@@ -364,18 +367,21 @@ impl State {
                 }
                 let value =
                     json::get(params, "device").ok_or(Error::Invalid("device snapshot missing"))?;
-                let mut devices = clone(
-                    json::get(&self.root, "devices").ok_or(Error::Invalid("welcome missing"))?,
-                )?;
-                if value.is_null() {
-                    json::remove(&mut devices, id)?;
-                } else {
-                    if value.as_object().is_none() {
-                        return Err(Error::Invalid("invalid device snapshot"));
-                    }
-                    json::set(&mut devices, id, clone(value)?)?;
+                if !value.is_null() && value.as_object().is_none() {
+                    return Err(Error::Invalid("invalid device snapshot"));
                 }
-                json::set(&mut self.root, "devices", devices)?;
+                // Ter plekke: alleen dit ene apparaat wordt gekopieerd, niet de
+                // hele lijst (en via json::set niet de rest van de staat).
+                let devices = self
+                    .root
+                    .as_object_mut()
+                    .and_then(|r| r.get_mut("devices"))
+                    .ok_or(Error::Invalid("welcome missing"))?;
+                if value.is_null() {
+                    json::remove(devices, id)?;
+                } else {
+                    json::set(devices, id, clone(value)?)?;
+                }
             }
             _ => (),
         }
@@ -384,6 +390,8 @@ impl State {
 }
 
 const MAX_INBOX: usize = 64;
+/// Zoveel staat-events houdt het journaal van een pool vast tussen twee rondes.
+const MAX_JOURNAL: usize = 256;
 /// Eén callback mag schrijven terwijl state-events zijn lokale kopie bijwerken.
 pub struct Client<T> {
     transport: T,
@@ -402,6 +410,11 @@ pub struct Client<T> {
     discard_datagrams: bool,
     discard_resolve: bool,
     interrupted_job: bool,
+    /// De toegepaste staat-events, voor een pool die ze aan zijn werkers
+    /// doorgeeft in plaats van telkens de hele staat te kopiëren.
+    journal: Option<Vec<Frame>>,
+    /// Het journaal liep over: de werkers hebben een volledige kopie nodig.
+    journal_lost: bool,
 }
 /// Hoe lang een ping op zijn antwoord mag wachten voordat de stilte gemeld
 /// wordt (zie `Client::pump`). Een gemiste hartslag sluit niets af.
@@ -434,6 +447,8 @@ impl<T: Transport> Client<T> {
             discard_datagrams: false,
             discard_resolve: false,
             interrupted_job: false,
+            journal: None,
+            journal_lost: false,
         }
     }
     /// Een begrensde diagnostiekregel, ook vanuit een coöperatieve protocoltaak.
@@ -466,8 +481,26 @@ impl<T: Transport> Client<T> {
     pub async fn app_state(&mut self, state: Value) -> Result {
         self.call("state.set", &json::fields(&[("state", clone(&state)?)])?)
             .await?;
+        let event = Frame {
+            kind: Kind::Event,
+            id: 0,
+            value: Frame::request(0, "state.app", &state)?,
+        };
         json::set(&mut self.state.root, "appState", state)?;
         self.state.revision = self.state.revision.wrapping_add(1);
+        self.record(event)
+    }
+    /// Onthoudt een toegepast staat-event als een pool erom vroeg (begrensd;
+    /// bij overloop krijgen de werkers weer een volledige kopie).
+    fn record(&mut self, frame: Frame) -> Result {
+        if let Some(journal) = &mut self.journal {
+            if journal.len() >= MAX_JOURNAL || journal.try_reserve(1).is_err() {
+                journal.clear();
+                self.journal_lost = true;
+            } else {
+                journal.push(frame);
+            }
+        }
         Ok(())
     }
     /// Start een zoekronde die de plugin naast bestaande netwerkprotocollen kan pollen.
@@ -675,6 +708,7 @@ impl<T: Transport> Client<T> {
         }
         if frame.kind == Kind::Event {
             self.state.apply(&frame)?;
+            self.record(frame)?;
             return Ok(None);
         }
         if frame.kind == Kind::Request && frame.method() == "$appproto.ping" {

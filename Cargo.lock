@@ -1098,7 +1098,6 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 [[package]]
 name = "types"
 version = "3.0.0"
-source = "git+https://github.com/xinix00/hop.git?tag=v3.0.0-alpha.10#998ebdc571a59ce62ea0e444cd33872e54f99732"
 
 [[package]]
 name = "unicode-ident"

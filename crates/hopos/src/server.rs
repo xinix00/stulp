@@ -51,6 +51,13 @@ static FREED: Local<Signal> = Local::new(Signal::new());
 /// (een paar cameratiles die elk 5 tot 9 s op de plugin wachten, plus een
 /// tabblad met live-updates), en kreeg de browser via de tunnel een 502.
 const BACKLOG: usize = 32;
+/// Langer wachten heeft geen zin: de tunnel geeft na 95 s zonder antwoordkop
+/// op (cloudflared-lean HEADER_TIMEOUT). Wat ouder is, wordt gesloten in
+/// plaats van een werker te bezetten voor een browser die al weg is.
+const STALE_NS: u64 = 90_000_000_000;
+/// Vanaf deze wachttijd in de rij komt een verbinding op de console, zodat
+/// een volle pool een getal heeft (tot 03-10 telde [stulp:slow] pas vanaf de werker).
+const QUEUE_SLOW_NS: u64 = 1_000_000_000;
 /// Geeft `stream` aan de eerste vrije werker vanaf `next`, of geeft hem terug.
 fn hand_off(stream: TcpStream, next: &mut usize) -> Option<TcpStream> {
     let mut available = Some(stream);
@@ -79,27 +86,60 @@ pub fn start_http(
     EXEC.get()
         .spawn(async move {
             let mut next = 0;
-            let mut backlog: VecDeque<TcpStream> = VecDeque::new();
+            let mut backlog: VecDeque<(TcpStream, u64)> = VecDeque::new();
             loop {
                 // Eerst wie al wacht, in volgorde, zolang er werkers vrij zijn.
-                while let Some(stream) = backlog.pop_front() {
+                while let Some((stream, since)) = backlog.pop_front() {
+                    let waited = applib::clock::now_ns().saturating_sub(since);
+                    if waited > STALE_NS {
+                        log!(
+                            "[stulp:http-queue] dropped waited_ms={} queued={}",
+                            waited / 1_000_000,
+                            backlog.len()
+                        );
+                        continue;
+                    }
                     if let Some(back) = hand_off(stream, &mut next) {
-                        backlog.push_front(back);
+                        backlog.push_front((back, since));
                         break;
+                    }
+                    if waited >= QUEUE_SLOW_NS {
+                        log!(
+                            "[stulp:http-queue] waited_ms={} queued={}",
+                            waited / 1_000_000,
+                            backlog.len()
+                        );
                     }
                 }
                 if backlog.len() >= BACKLOG {
                     // Vol: geen nieuwe verbindingen aannemen; die wachten in de
-                    // accept-rij van de stack tot hier weer plek is.
-                    FREED.get().wait().await;
+                    // accept-rij van de stack tot hier weer plek is. De tik
+                    // ruimt intussen wat te oud is.
+                    let _ =
+                        select(FREED.get().wait(), EXEC.get().after(Duration::from_secs(5))).await;
                     continue;
                 }
-                match select(listener.accept(), FREED.get().wait()).await {
+                // Met een wachtrij kijkt de acceptor ook zonder vrije werker
+                // af en toe, zodat te oude verbindingen niet blijven liggen.
+                let accepted = if backlog.is_empty() {
+                    select(listener.accept(), FREED.get().wait()).await
+                } else {
+                    match select(
+                        listener.accept(),
+                        select(FREED.get().wait(), EXEC.get().after(Duration::from_secs(5))),
+                    )
+                    .await
+                    {
+                        Either::Left(r) => Either::Left(r),
+                        Either::Right(_) => Either::Right(()),
+                    }
+                };
+                match accepted {
                     Either::Left(Ok(stream)) => {
                         if let Some(back) = hand_off(stream, &mut next)
                             && backlog.try_reserve(1).is_ok()
                         {
-                            backlog.push_back(back);
+                            backlog.push_back((back, applib::clock::now_ns()));
                         }
                     }
                     Either::Left(Err(e)) => {

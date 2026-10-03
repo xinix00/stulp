@@ -10,6 +10,12 @@ shared Cargo cache is edited.
   `src/appnet.rs`, `src/appnet/dns.rs` and `src/appnet/tests.rs`. Other runtime
   source, including the allocator, stays at that pinned version. Cargo metadata
   is standalone; sibling SDK dependencies retain alpha.18 git tags.
+- `types`: Hop v3.0.0-alpha.10 (commit `998ebdc`, the tag Stulp already pins),
+  plus `Object::get_mut`, `Object::insert`, `Object::remove` and
+  `Value::as_object_mut` in `src/json.rs`, with a test. Without them every
+  `json::set` rebuilt the object and deep-copied every other field; one device
+  update in a plugin's state copied the whole state (~300 ms on the LicheeRV,
+  03-10). The same four methods belong upstream in Hop's `types`.
 - `leannet` is not vendored. The SDK depends directly on
   `haas.software/lean/leannet`, using a relative path to the sibling checkout.
   HopOS uses that same source. IPv6, its shared UDP queues, source tests and

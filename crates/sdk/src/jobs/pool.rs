@@ -59,6 +59,44 @@ async fn snapshot<T: Transport>(c: &Client<T>, tx: &mut Sender<'_, In, CAP>) -> 
     .await;
     Ok(())
 }
+/// Geeft de staat-events sinds de vorige ronde door aan elke werker die bij
+/// was: één apparaat per event in plaats van de hele staat als JSON heen en
+/// terug (op de LicheeRV ~300 ms per kopie, twee per lampcommando, 03-10).
+/// Liep het journaal over, dan is wie bij was nu verouderd; de hoofdwerker en
+/// werkers met een callback krijgen meteen een kopie, de rest pas bij werk.
+async fn fan_out<T: Transport>(
+    c: &mut Client<T>,
+    writers: &mut [Sender<'_, In, CAP>],
+    sent: &mut [u64; OWNERS],
+    revision: &mut u64,
+    active: [bool; OWNERS],
+) -> Result {
+    if c.state.revision == *revision {
+        return Ok(());
+    }
+    let events = c.journal.as_mut().map(core::mem::take).unwrap_or_default();
+    let lost = core::mem::take(&mut c.journal_lost);
+    for (worker, tx) in writers.iter_mut().enumerate() {
+        if lost || sent[worker] != *revision {
+            if active[worker] {
+                snapshot(c, tx).await?;
+                sent[worker] = c.state.revision;
+            }
+            continue;
+        }
+        for event in &events {
+            tx.send(In::Frame(Frame {
+                kind: event.kind,
+                id: event.id,
+                value: clone(&event.value)?,
+            }))
+            .await;
+        }
+        sent[worker] = c.state.revision;
+    }
+    *revision = c.state.revision;
+    Ok(())
+}
 /// Serve lifecycle/UI and up to [`COMMAND_WORKERS`] physical nodes at once on
 /// the same executor. A node goes to the worker that served it last when that
 /// one is free, so its session there is reused instead of a new handshake.
@@ -108,6 +146,8 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
         return Err(Error::Invalid("worker count mismatch"));
     }
     let mut controller = clients.remove(0);
+    c.journal = Some(Vec::new());
+    c.journal_lost = false;
     let mut command_clients = clients;
     let pump = async {
         let mut leases: [Option<Lease>; OWNERS] = core::array::from_fn(|_| None);
@@ -168,6 +208,33 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
                                 resolve_queue.push_back((worker, address));
                             }
                         }
+                        Out::Frame(f) => {
+                            // Een aanroep van een werker naar de controller.
+                            // De staat die daarbij verandert gaat als events
+                            // naar iedereen, vóór het antwoord naar de vrager.
+                            if f.kind != Kind::Request {
+                                return Err(Error::Invalid("local task must send requests"));
+                            }
+                            let params = crate::util::field(&f.value, "p");
+                            let result = if f.method() == "state.set" {
+                                c.app_state(clone(crate::util::field(params, "state"))?)
+                                    .await
+                                    .map(|()| Value::Null)
+                            } else {
+                                c.call(f.method(), params).await
+                            };
+                            let response = match result {
+                                Ok(v) => Frame::response(f.id, Ok(v))?,
+                                Err(e) => Frame::response(f.id, Err(&message(&e)?))?,
+                            };
+                            let active = core::array::from_fn(|w| w == 0 || leases[w].is_some());
+                            fan_out(c, &mut writers, &mut sent, &mut revision, active).await?;
+                            if sent[worker] != c.state.revision {
+                                snapshot(c, &mut writers[worker]).await?;
+                                sent[worker] = c.state.revision;
+                            }
+                            writers[worker].send(In::Frame(decode(response)?)).await;
+                        }
                         out => relay(c, &mut writers[worker], out).await?,
                     }
                 }
@@ -205,19 +272,8 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
                 let owner = event_owner(&mut event)?;
                 writers[owner].send(In::Udp(event)).await;
             }
-            if c.state.revision != revision {
-                // Alleen wie nu iets doet, heeft de verse staat meteen nodig: de
-                // hoofdwerker (levenscyclus en achtergrondwerk) en een
-                // commandowerker met een lopende callback. Een vrije
-                // commandowerker krijgt hem pas als hij een callback krijgt.
-                for (worker, tx) in writers.iter_mut().enumerate() {
-                    if worker == 0 || leases[worker].is_some() {
-                        snapshot(c, tx).await?;
-                        sent[worker] = c.state.revision;
-                    }
-                }
-                revision = c.state.revision;
-            }
+            let active = core::array::from_fn(|w| w == 0 || leases[w].is_some());
+            fan_out(c, &mut writers, &mut sent, &mut revision, active).await?;
             for tx in &mut writers {
                 if tx.free() == CAP {
                     tx.send(In::Tick {
@@ -236,6 +292,10 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
             if let Some(frame) = frame.filter(|f| f.kind == Kind::Request) {
                 json::push(&mut pending, frame, super::super::MAX_INBOX)?;
             }
+            // Events van deze ronde eerst door, zodat een werker die nu een
+            // commando krijgt bij is en geen volledige kopie nodig heeft.
+            let active = core::array::from_fn(|w| w == 0 || leases[w].is_some());
+            fan_out(c, &mut writers, &mut sent, &mut revision, active).await?;
             let mut at = 0;
             while at < pending.len() {
                 let frame = &pending[at];
@@ -327,9 +387,12 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
         })
         .await
     };
-    match select(pump, workers).await {
+    let result = match select(pump, workers).await {
         Either::Left(r) | Either::Right(r) => r,
-    }
+    };
+    c.journal = None;
+    c.journal_lost = false;
+    result
 }
 
 #[cfg(test)]
@@ -446,5 +509,133 @@ mod tests {
         assert!(out[0].1 < 500);
         assert!(out[1].1 >= 1500);
         assert!(out[2].1 >= out[1].1);
+    }
+    use alloc::string::ToString;
+    /// Een transport dat de antwoorden zelf bewaart, om te zien wat een werker zag.
+    struct Seen {
+        now: u64,
+        input: VecDeque<Frame>,
+        answers: Vec<(u64, Value)>,
+    }
+    impl Transport for Seen {
+        fn now(&self) -> u64 {
+            self.now
+        }
+        fn wall_time(&self) -> Result<u64> {
+            Ok(1_790_000_000)
+        }
+        fn random(&mut self) -> Result<[u8; 32]> {
+            Ok([17; 32])
+        }
+        async fn send(&mut self, v: &Value) -> Result {
+            let frame = decode(clone(v)?)?;
+            if frame.kind == Kind::Request {
+                self.input
+                    .push_back(decode(Frame::response(frame.id, Ok(Value::Null))?)?);
+            } else {
+                self.answers
+                    .push((frame.id, clone(json::get(v, "r").unwrap_or(&Value::Null))?));
+            }
+            Ok(())
+        }
+        async fn next(&mut self) -> Result<crate::Event> {
+            self.now += 5;
+            if self.answers.len() == 3 || self.now > 10000 {
+                return Err(Error::Transport("finished"));
+            }
+            Ok(self
+                .input
+                .pop_front()
+                .map(crate::Event::Frame)
+                .unwrap_or(crate::Event::Tick))
+        }
+    }
+    /// Zegt welke naam het apparaat in de eigen staat van de werker heeft.
+    struct Reader;
+    impl Plugin for Reader {
+        fn manifest(&self) -> &'static [u8] {
+            br#"{"id":"com.test.pool"}"#
+        }
+        async fn handle<T: Transport>(
+            &mut self,
+            c: &mut Client<T>,
+            _: &str,
+            _: &Value,
+        ) -> Result<Value> {
+            clone(json::get(c.state().device("d")?, "name").unwrap_or(&Value::Null))
+        }
+    }
+    fn device(name: &str) -> Frame {
+        decode(
+            Frame::request(
+                0,
+                "state.device",
+                &json::fields(&[
+                    ("deviceId", json::string("d").unwrap()),
+                    (
+                        "device",
+                        json::fields(&[("name", json::string(name).unwrap())]).unwrap(),
+                    ),
+                ])
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+    fn command(id: u64, node: u64) -> Frame {
+        decode(
+            Frame::request(
+                id,
+                "command",
+                &json::fields(&[("node", Value::uint(node))]).unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+    #[test]
+    fn workers_follow_state_events_without_a_full_copy() {
+        // Elke werker, ook een die nog nooit werk had, ziet de staat zoals de
+        // controller hem net doorgaf: de events gaan naar iedereen.
+        let input = VecDeque::from([
+            device("one"),
+            command(100, 1),
+            device("two"),
+            command(101, 2),
+            device("three"),
+            command(102, 1),
+        ]);
+        let wire = Seen {
+            now: 0,
+            input,
+            answers: Vec::new(),
+        };
+        let snapshot = json::parse(
+            br#"{"protocol":1,"appId":"com.test.pool","devices":{"d":{"name":"zero"}},"settings":{},"manifest":{}}"#,
+        )
+        .unwrap();
+        let mut c = Client::from_snapshot(wire, snapshot).unwrap();
+        let result = hostnet::block_on(serve(
+            &mut c,
+            &mut Reader,
+            core::array::from_fn(|_| Reader),
+            Keys,
+        ));
+        assert!(matches!(result, Err(Error::Transport("finished"))));
+        assert!(c.journal.is_none());
+        let out = c.into_transport().answers;
+        let names: Vec<_> = out
+            .iter()
+            .map(|(id, v)| (*id, v.as_str().unwrap_or("").to_string()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                (100, "one".to_string()),
+                (101, "two".to_string()),
+                (102, "three".to_string())
+            ]
+        );
     }
 }

@@ -36,6 +36,16 @@
     "applib/src/sys.rs": "d63a5bff5c358ceb1865db23feab5d702f3956097ab284b9573dc2acf81122dc",
     "applib/src/tail.rs": "724ea239734c78271f35f8cae43163af38e7066329380b8b693134a5b6afb994",
     "applib/src/tcp/tests.rs": "e49e7ee30d4b35e81268bc1d7074502c2334e8d4df2d9fb36a781f8c7705cbf6",
-    "applib/src/tcp.rs": "4b568f34d0d98b57f8b81e8ba78ad68721ce1d043f07fb9b91f6366edff87b1d"
+    "applib/src/tcp.rs": "4b568f34d0d98b57f8b81e8ba78ad68721ce1d043f07fb9b91f6366edff87b1d",
+    "types/Cargo.toml": "05f673a894d81ae537125f7542d9f55e5e0d2ec89d83bc0bfd4f1cceff44026c",
+    "types/LICENSE": "fbda7ef9568e56532244f9457044218c460be4230b54f7396d73b81481efd92e",
+    "types/src/de.rs": "4b77471499d1631bdcfd2976a0776cd413b07f899d807913479eaa536d13d703",
+    "types/src/error.rs": "3089d40ea6458bee053510d7df72afa395a18a9cec2379d047ca003911f19255",
+    "types/src/job.rs": "970f8ede95b598ab23716345162b65cd98b6bc3cbac1a981fd2cde9ccb82a770",
+    "types/src/json.rs": "77a066bccefbc4891bc36805f53405625b8616d6ae432cc2bfa64685e94ee23a",
+    "types/src/lib.rs": "a732d97ff61b7a61317e387139b3fadf68d087d56fc7577ec9193f2ca6c276ca",
+    "types/src/map.rs": "70bfbd5735c9fcaa93f9fd6516a2c93400665afd68022e0991c858a3a606841d",
+    "types/src/task.rs": "b0b833cf0d2911f819be2a32069dfaf3dfd7f188fb06b236f8a05d395c13d5cf",
+    "types/src/time.rs": "479441b2426bc42a0522c92f112ab40f3821c84df8224aba818ea346a0b85be8"
   }
 }

@@ -11,6 +11,7 @@ use crate::{
     reports,
 };
 use alloc::{string::String, vec::Vec};
+use core::fmt::Write;
 use stulp_core::json::{self, Value};
 use stulp_sdk::{
     Client, Error, Result, Transport, clone,
@@ -24,6 +25,41 @@ pub(crate) struct Node {
     next: u64,
     backoff: u64,
     model_failures: u64,
+    /// Mislukte onderhoudspogingen op rij; bepaalt [`retry_delay`].
+    failures: u32,
+}
+/// Na de eerste mislukte achtergrondpoging een minuut wachten, daarna
+/// verdubbelen tot een half uur. Een uitgeschakeld apparaat kostte anders
+/// elke minuut een CASE-handshake van 40 s op de trage RISC-V-core.
+const RETRY_FIRST_MS: u64 = 60_000;
+const RETRY_LIMIT_MS: u64 = 1_800_000;
+/// Wachttijd na `failures` mislukte achtergrondpogingen op rij.
+fn retry_delay(failures: u32) -> u64 {
+    match failures {
+        0 => 0,
+        n => 1u64
+            .checked_shl(n - 1)
+            .map_or(RETRY_LIMIT_MS, |f| RETRY_FIRST_MS.saturating_mul(f))
+            .min(RETRY_LIMIT_MS),
+    }
+}
+impl Node {
+    /// Een mislukte achtergrondpoging: de node wacht langer; geeft de wachttijd terug.
+    fn failed(&mut self, now: u64) -> u64 {
+        self.failures = self.failures.saturating_add(1);
+        let delay = retry_delay(self.failures);
+        self.next = now.saturating_add(delay);
+        delay
+    }
+    /// Bereikbaar langs welk pad dan ook: de wachttijd vervalt meteen.
+    fn reachable(&mut self, now: u64) {
+        if self.failures > 0 {
+            self.failures = 0;
+            if self.subscription.is_none() {
+                self.next = self.next.min(now);
+            }
+        }
+    }
 }
 /// De oudste vervallen deadline gaat voor; een vroege offline node mag latere nodes niet verdringen.
 /// De pauze tussen twee verbindingspogingen; zie [`Engine::settle`].
@@ -189,9 +225,19 @@ impl Engine {
         let mut wanted = Vec::new();
         if let Some(devices) = field(root, "devices").as_object() {
             for (_, d) in devices.iter() {
-                if let Ok(id) = node_id(d)
-                    && !wanted.contains(&id)
+                let Ok(id) = node_id(d) else {
+                    continue;
+                };
+                // Commando's lopen in eigen werkers met eigen sessies; hun
+                // succes zien we hier alleen als `available` op het apparaat.
+                // Het onderhoud markeert alle apparaten van een mislukte node
+                // onbeschikbaar, dus beschikbaar betekent: weer bereikbaar.
+                if json::boolean(d, "available")
+                    && let Some(n) = self.nodes.iter_mut().find(|n| n.id == id)
                 {
+                    n.reachable(now);
+                }
+                if !wanted.contains(&id) {
                     json::push(&mut wanted, id, 64)?;
                 }
             }
@@ -216,6 +262,7 @@ impl Engine {
                         next: now.saturating_add(1000),
                         backoff: 1000,
                         model_failures: 0,
+                        failures: 0,
                     },
                     64,
                 )?;
@@ -923,12 +970,15 @@ impl Engine {
                 self.nodes[i].next = reports::watchdog(s.maximum);
                 self.nodes[i].expires = c.now().saturating_add(self.nodes[i].next);
                 self.nodes[i].backoff = 1000;
+                self.nodes[i].reachable(c.now());
                 self.publish(c, self.nodes[i].id, &s.reports).await?;
             }
             Err(Error::Core(e)) => return Err(Error::Core(e)),
             Err(e) => {
                 let text = stulp_sdk::message(&e)?;
-                if self.nodes[i].backoff == 1000 {
+                self.expire(i, c.now())?;
+                let delay = self.nodes[i].failed(c.now());
+                if self.nodes[i].failures == 1 {
                     c.log(
                         "warn",
                         &join(&[
@@ -939,7 +989,18 @@ impl Engine {
                         ])?,
                     )?;
                 }
-                self.expire(i, c.now())?;
+                // Eén regel per wachtperiode; opdrachten van de gebruiker
+                // lopen via de werkers en wachten hier niet op.
+                let mut line = String::new();
+                if line.try_reserve(64).is_ok() {
+                    let _ = write!(
+                        line,
+                        "MATTER_BACKOFF node={:016X} seconds={}",
+                        self.nodes[i].id,
+                        delay / 1000
+                    );
+                    c.log("info", &line)?;
+                }
                 for d in devices {
                     c.unavailable(json::text(&d, "id"), &text).await?;
                 }
@@ -1066,6 +1127,7 @@ mod address_tests {
             next: 1000,
             backoff: 1000,
             model_failures: 0,
+            failures: 0,
         }
     }
     #[test]
@@ -1080,6 +1142,31 @@ mod address_tests {
             nodes[index].next = now + 1000;
         }
         assert_eq!(next_node(&nodes, now, 0), Some(0));
+    }
+    #[test]
+    fn unreachable_node_backs_off_from_a_minute_to_half_an_hour() {
+        assert_eq!(retry_delay(0), 0);
+        let mut node = offline(1);
+        let mut now = 1000;
+        for expected in [60, 120, 240, 480, 960, 1800, 1800] {
+            assert_eq!(node.failed(now), expected * 1000);
+            assert_eq!(node.next, now + expected * 1000);
+            // Het onderhoud slaat de node over tot de wachttijd verstreken is.
+            assert_eq!(
+                next_node(core::slice::from_ref(&node), node.next - 1, 0),
+                None
+            );
+            now = node.next;
+            assert_eq!(next_node(core::slice::from_ref(&node), now, 0), Some(0));
+            now += 40000;
+        }
+        assert_eq!(retry_delay(u32::MAX), RETRY_LIMIT_MS);
+        // Succes langs welk pad dan ook: meteen weer aan de beurt, en de
+        // volgende mislukking begint opnieuw bij een minuut.
+        node.reachable(now);
+        assert_eq!(node.failures, 0);
+        assert_eq!(next_node(core::slice::from_ref(&node), now, 0), Some(0));
+        assert_eq!(node.failed(now), 60000);
     }
     #[test]
     fn route_backoff_blocks_reconnects_but_still_expires_subscriptions() {

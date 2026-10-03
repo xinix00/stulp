@@ -14,7 +14,19 @@ use stulp_sdk::{
 pub struct Matter {
     ui: Ui,
     engine: Option<Engine>,
+    /// Geen achtergrondonderhoud vóór dit moment: zolang de controller
+    /// app.init, driver.init en device.init stuurt, is de start bezig.
+    quiet_until: u64,
 }
+/// Zoveel stilte na de laatste startcallback voordat het onderhoud begint.
+///
+/// Het onderhoud (CASE en abonneren, node na node) draait als taak die elke
+/// startcallback afbreekt. Na een restore of herverbinding komen er ~70
+/// device.init's achter elkaar; tot 03-10 begon het onderhoud tussen elk
+/// tweetal opnieuw en werd het telkens midden in een handshake afgebroken
+/// (137 van 173 handshakes op de LicheeRV), zodat geen node ooit verbonden
+/// raakte en de apparaten kwamen en gingen.
+const STARTUP_QUIET_MS: u64 = 3000;
 impl Matter {
     fn engine(&mut self) -> Result<&mut Engine> {
         self.engine
@@ -94,6 +106,9 @@ impl Plugin for Matter {
         p: &Value,
     ) -> Result<Value> {
         self.topology(c)?;
+        if matches!(method, "app.init" | "driver.init" | "device.init") {
+            self.quiet_until = c.now().saturating_add(STARTUP_QUIET_MS);
+        }
         match self
             .ui
             .handle(c.state().root(), c.wall_time()?, method, p)?
@@ -349,7 +364,7 @@ impl Plugin for Matter {
                 }
             }
             self.ui.running = false;
-        } else if engine.ready(c)? {
+        } else if c.now() >= self.quiet_until && engine.ready(c)? {
             match jobs::run(c, &mut Background(&mut self.ui), async |worker| {
                 engine.tick(worker).await
             })
@@ -464,11 +479,12 @@ impl jobs::pool::Key for Nodes {
             .ok_or(Error::Invalid("Matter-apparaat ontbreekt."))?;
         crate::engine::node_id(device).map(Some)
     }
+    /// device.init en driver.init raken alleen de node-lijst van het
+    /// onderhoud, niet de sessies van de commandowerkers: een klik hoeft daar
+    /// niet achter te wachten. Tot 03-10 stonden ze hier wel, en wachtte een
+    /// klik na een start achter alle ~70 inits (15 tot 30 s op de LicheeRV).
     fn barrier(&self, method: &str) -> bool {
-        matches!(
-            method,
-            "app.init" | "driver.init" | "device.init" | "device.settings" | "device.delete"
-        )
+        matches!(method, "app.init" | "device.settings" | "device.delete")
     }
 }
 #[derive(Default)]

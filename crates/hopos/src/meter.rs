@@ -106,18 +106,44 @@ impl Meter {
 
 /// Een eigen taak die om de [`EVERY`] de regel logt: voor een slot zonder
 /// eigen lus met klok (de plugin-bundel en de losse plugin).
+///
+/// Dezelfde taak meet ook de langste executor-beurt: hij vraagt elke
+/// [`PROBE`] een beurt en noteert hoe laat hij die kreeg. Een beurt die meer
+/// dan [`STALL_MS`] te laat komt, betekent dat een andere taak de executor zo
+/// lang vasthield (een lange synchrone poll); dan meteen een regel
+/// `STULP_STALL`, zodat de buurregels op de console de dader aanwijzen.
 pub fn spawn(app: &'static App) -> Result {
     EXEC.get()
         .spawn(async move {
             let mut meter = Meter::new();
+            let mut next_line = applib::clock::now_ns();
+            let mut worst_ms = 0_u64;
             loop {
-                EXEC.get().after(EVERY).await;
+                let asked = applib::clock::now_ns();
+                EXEC.get().after(PROBE).await;
+                let late_ms = applib::clock::now_ns()
+                    .saturating_sub(asked)
+                    .saturating_sub(PROBE.as_nanos() as u64)
+                    / 1_000_000;
+                worst_ms = worst_ms.max(late_ms);
+                if late_ms >= STALL_MS {
+                    app.log(format_args!("STULP_STALL ms={late_ms}"));
+                }
+                if applib::clock::now_ns() < next_line {
+                    continue;
+                }
+                next_line = applib::clock::now_ns().saturating_add(EVERY.as_nanos() as u64);
                 match meter.line(app) {
-                    Ok(Some(line)) => app.log(format_args!("{line}")),
+                    Ok(Some(line)) => app.log(format_args!("{line} stall_max_ms={worst_ms}")),
                     Ok(None) => (),
                     Err(e) => app.log(format_args!("STULP_LOAD meter failed: {e}")),
                 }
+                worst_ms = 0;
             }
         })
         .map_err(|_| Error::Transport("meter task unavailable"))
 }
+/// Het ritme van de stallmeting.
+const PROBE: Duration = Duration::from_millis(250);
+/// Vanaf zoveel te laat is een beurt een `STULP_STALL`-regel waard.
+const STALL_MS: u64 = 1000;

@@ -1,6 +1,7 @@
 //! Fixed HTTP workers communicate with the single parked controller owner.
 use crate::replies::Sender;
 use alloc::{
+    collections::VecDeque,
     string::{String, ToString},
     vec::Vec,
 };
@@ -11,7 +12,7 @@ use applib::{
 };
 use core::future::Future;
 use core::time::Duration;
-use hop_sync::{Either, Local, mpsc::Mailbox, select};
+use hop_sync::{Either, Local, Signal, mpsc::Mailbox, select};
 use stulp_controller::{
     Reply,
     callbacks::callback,
@@ -43,6 +44,23 @@ pub(crate) struct Call {
 pub(crate) static WORK: Local<Mailbox<Work, 8>> = Local::new(Mailbox::new());
 static SOCKETS: [Local<Mailbox<TcpStream, 1>>; WORKERS] =
     [const { Local::new(Mailbox::new()) }; WORKERS];
+/// Gaat af zodra een werker vrij is: de acceptor deelt dan de wachtrij uit.
+static FREED: Local<Signal> = Local::new(Signal::new());
+/// Zoveel aangenomen verbindingen mogen wachten op een vrije werker. Tot
+/// 03-10 gooide de acceptor een verbinding weg als alle werkers bezet waren
+/// (een paar cameratiles die elk 5 tot 9 s op de plugin wachten, plus een
+/// tabblad met live-updates), en kreeg de browser via de tunnel een 502.
+const BACKLOG: usize = 32;
+/// Geeft `stream` aan de eerste vrije werker vanaf `next`, of geeft hem terug.
+fn hand_off(stream: TcpStream, next: &mut usize) -> Option<TcpStream> {
+    let mut available = Some(stream);
+    for _ in 0..WORKERS {
+        let stream = available.take()?;
+        available = SOCKETS[*next].try_send(stream).err().map(|e| e.0);
+        *next = (*next + 1) % WORKERS;
+    }
+    available
+}
 macro_rules! log {($($arg:tt)*)=>{applib::log!($($arg)*)}}
 /// Start a fixed number of workers and a bounded acceptor, once per slot.
 pub fn start_http(
@@ -61,25 +79,35 @@ pub fn start_http(
     EXEC.get()
         .spawn(async move {
             let mut next = 0;
+            let mut backlog: VecDeque<TcpStream> = VecDeque::new();
             loop {
-                let stream = match listener.accept().await {
-                    Ok(s) => s,
-                    Err(e) => {
+                // Eerst wie al wacht, in volgorde, zolang er werkers vrij zijn.
+                while let Some(stream) = backlog.pop_front() {
+                    if let Some(back) = hand_off(stream, &mut next) {
+                        backlog.push_front(back);
+                        break;
+                    }
+                }
+                if backlog.len() >= BACKLOG {
+                    // Vol: geen nieuwe verbindingen aannemen; die wachten in de
+                    // accept-rij van de stack tot hier weer plek is.
+                    FREED.get().wait().await;
+                    continue;
+                }
+                match select(listener.accept(), FREED.get().wait()).await {
+                    Either::Left(Ok(stream)) => {
+                        if let Some(back) = hand_off(stream, &mut next)
+                            && backlog.try_reserve(1).is_ok()
+                        {
+                            backlog.push_back(back);
+                        }
+                    }
+                    Either::Left(Err(e)) => {
                         log!("[stulp:http-accept] {e:?}");
                         EXEC.get().after(Duration::from_millis(10)).await;
-                        continue;
                     }
-                };
-                let mut available = Some(stream);
-                for _ in 0..WORKERS {
-                    let Some(stream) = available.take() else {
-                        break;
-                    };
-                    available = SOCKETS[next].try_send(stream).err().map(|e| e.0);
-                    next = (next + 1) % WORKERS;
+                    Either::Right(()) => (),
                 }
-                // A saturated fixed pool closes excess connections without allocating a task.
-                drop(available);
             }
         })
         .map_err(|_| stulp_core::Error::Memory)
@@ -681,6 +709,8 @@ impl Drop for MediaGuard {
 }
 async fn worker(queue: &'static Local<Mailbox<TcpStream, 1>>, mut dial: crate::network::Dial) {
     loop {
+        // Vrij: de acceptor mag een wachtende verbinding sturen.
+        FREED.get().set();
         let stream = queue.recv().await;
         let mut stream = match crate::upload::Prefix::open(stream).await {
             Ok(s) => s,

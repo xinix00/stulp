@@ -402,7 +402,7 @@ dependencies = [
 
 [[package]]
 name = "leannet"
-version = "3.1.6"
+version = "3.1.9"
 
 [[package]]
 name = "leans3"
@@ -416,8 +416,8 @@ source = "git+https://github.com/xinix00/lean.git?tag=v3.1.1#db6724745a2c579382c
 
 [[package]]
 name = "leantls"
-version = "3.1.5"
-source = "git+https://github.com/xinix00/lean.git?tag=v3.1.5#1bc86fcb0f7048017cce850a0169843c21b87cd1"
+version = "3.1.7"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.1.7#09df81b058597a548dbd2179553baab3ca6e5659"
 
 [[package]]
 name = "libc"
@@ -767,13 +767,13 @@ dependencies = [
  "applib",
  "hostnet",
  "leanhttp 3.1.5",
+ "leantls 3.1.7",
  "stulp-controller",
  "stulp-core",
  "stulp-matter",
  "stulp-protocol",
  "stulp-runtime",
  "stulp-sdk",
- "stulp-tls",
  "stulp-web",
  "sync",
 ]
@@ -891,7 +891,7 @@ version = "3.0.9"
 dependencies = [
  "hostnet",
  "leanhttp 3.1.5",
- "leantls 3.1.5",
+ "leantls 3.1.7",
  "stulp-core",
  "stulp-platform",
  "stulp-protocol",
@@ -968,27 +968,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "stulp-tls"
+name = "stulp-transport"
 version = "3.0.9"
 dependencies = [
  "ed25519-dalek",
+ "hostnet",
+ "leanhttp 3.1.5",
+ "leantls 3.1.7",
  "p256",
  "p384",
  "rand_chacha",
  "rsa",
  "sha2",
- "zeroize",
-]
-
-[[package]]
-name = "stulp-transport"
-version = "3.0.9"
-dependencies = [
- "hostnet",
- "leanhttp 3.1.5",
  "stulp-platform",
  "stulp-protocol",
- "stulp-tls",
  "zeroize",
 ]
 

@@ -32,7 +32,7 @@ impl VerifyPeer for DeviceCertificate {
 }
 /// De draad onder TLS: een blokkerende socket die voor elke lees of schrijf de
 /// resterende tijd tot de absolute termijn als kerneltermijn zet. hostnet's
-/// `StdConn` spreekt leanhttp 3.1.1 en past daarom niet onder leantls 3.1.5.
+/// `StdConn` spreekt leanhttp 3.1.1 en past daarom niet onder leantls 3.1.7.
 struct Wire {
     socket: TcpStream,
     deadline: Instant,

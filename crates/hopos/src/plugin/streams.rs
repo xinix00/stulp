@@ -90,11 +90,14 @@ impl Streams {
             Command::Write { bytes, .. } if bytes.is_empty() || bytes.len() > 65536 => {
                 return Err(Error::Invalid("stream write exceeds bounds"));
             }
-            _ => self
-                .ids
-                .iter()
-                .position(|i| *i == id)
-                .ok_or(Error::Invalid("stream missing"))?,
+            _ => match self.ids.iter().position(|i| *i == id) {
+                Some(index) => index,
+                // De stroom is al dicht (Closed is of wordt afgeleverd): een
+                // late write of close is dan niets. Tot 03-10 was dit
+                // "stream missing" en verbrak de UniFi-plugin daarmee zijn hele
+                // verbinding met de controller, midden in een camerabeeld.
+                None => return Ok(()),
+            },
         };
         let open = matches!(&c, Command::Open { .. });
         self.queues.input[index]
@@ -169,10 +172,14 @@ fn start(
     app: &'static App,
     env: &mut crate::environment::Environment,
 ) -> Result {
+    let index = QUEUES
+        .iter()
+        .position(|q| core::ptr::eq(q, owner))
+        .unwrap_or(0);
     for (worker, input) in owner.input.iter().enumerate() {
         let mut dial = crate::network::Dial::new(app, &env.random());
         EXEC.get()
-            .spawn(async move {
+            .spawn(super::timed(app, index, "io", async move {
                 loop {
                     let (g, c) = input.recv().await;
                     if g != owner.generation.get().get() {
@@ -228,7 +235,7 @@ fn start(
                     )
                     .await;
                 }
-            })
+            }))
             .map_err(|_| Error::Transport("stream worker unavailable"))?;
     }
     Ok(())

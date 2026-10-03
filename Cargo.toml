@@ -13,7 +13,6 @@ members = [
     "crates/protocol",
     "crates/runtime",
     "crates/sdk",
-    "crates/tls",
     "crates/transport",
     "crates/web",
     "crates/webpush",

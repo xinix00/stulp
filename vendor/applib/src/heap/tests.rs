@@ -286,3 +286,47 @@ fn seeded_random_stress_keeps_the_invariants() {
         stress(seed, 20_000);
     }
 }
+
+/// De werklast van Stulp (JSON-waarden, strings, staatskopieën): veel kleine
+/// blokken van wisselende maat, door elkaar terug en opnieuw. Geeft de
+/// gemiddelde tijd per alloc+free en het aantal lijststappen; draai met
+/// `cargo test -p applib --release -- --ignored json_like --nocapture`.
+#[test]
+#[ignore = "meting, geen toets"]
+fn json_like_churn_cost() {
+    let a = Arena::new(32 << 20);
+    let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let size = |r: u64| -> usize {
+        match r % 100 {
+            0..=69 => 8 + (r as usize >> 8) % 56,    // korte strings, kleine objecten
+            70..=94 => 64 + (r as usize >> 8) % 192, // grotere strings, vecs
+            _ => 256 + (r as usize >> 8) % 3840,     // buffers
+        }
+    };
+    let mut live: Vec<usize> = Vec::new();
+    for _ in 0..40_000 {
+        let r = next();
+        live.push(a.alloc(size(r), 8).unwrap());
+    }
+    let ops: u32 = 400_000;
+    let t0 = std::time::Instant::now();
+    for _ in 0..ops {
+        let r = next();
+        let i = (r as usize >> 3) % live.len();
+        a.free(live[i]);
+        live[i] = a.alloc(size(next()), 8).unwrap();
+    }
+    let dt = t0.elapsed();
+    let w = a.walk();
+    std::println!(
+        "json_like: {:.0} ns per free+alloc over {ops} ops; free blocks {}",
+        dt.as_nanos() as f64 / f64::from(ops),
+        w.free_blocks
+    );
+}

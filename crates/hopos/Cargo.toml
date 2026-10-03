@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-stulp-tls = { path = "../tls" }
+leantls = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.7" }
 stulp-core = { path = "../core" }
 stulp-controller = { path = "../controller" }
 stulp-runtime = { path = "../runtime" }

@@ -6,7 +6,7 @@ use core::{
     time::Duration,
 };
 use leanhttp::{AsyncRead as _, AsyncWrite as _, IoError};
-use stulp_tls::{AsyncRead as TlsRead, AsyncWrite as TlsWrite};
+use leantls::{AsyncRead as TlsRead, AsyncWrite as TlsWrite};
 struct Wire(TcpConn);
 impl TlsRead for Wire {
     type Error = IoError;
@@ -32,12 +32,12 @@ impl TlsWrite for Wire {
 #[allow(clippy::large_enum_variant)]
 enum Transport {
     Plain(TcpConn),
-    Tls(stulp_tls::Conn<Wire>),
+    Tls(leantls::Conn<Wire>),
 }
 pub(crate) struct Connection(Option<Transport>);
-fn error(e: stulp_tls::ConnError<IoError>) -> IoError {
+fn error(e: leantls::ConnError<IoError>) -> IoError {
     match e {
-        stulp_tls::ConnError::Transport(e) => e,
+        leantls::ConnError::Transport(e) => e,
         _ => IoError::Other,
     }
 }
@@ -132,23 +132,22 @@ impl leanhttp::Dial for Dial {
         if !target.https {
             return Ok(Connection(Some(Transport::Plain(conn))));
         }
-        let roots = stulp_tls::Roots::from_concatenated_der(include_bytes!(
-            "../../tls/testdata/github/mozilla-roots.der"
-        ))
-        .map_err(|_| leanhttp::Error::Connect)?;
+        let roots =
+            leantls::Roots::from_concatenated_der(include_bytes!("../data/mozilla-roots.der"))
+                .map_err(|_| leanhttp::Error::Connect)?;
         let now = self.app.wall_ns().ok_or(leanhttp::Error::Connect)? / 1_000_000_000;
         let verifier = Verification {
-            chain: stulp_tls::ChainVerifier::new(roots, now),
+            chain: leantls::ChainVerifier::new(roots, now),
             device: self.device,
         };
         let mut seed = [0; 96];
         self.random.fill(&mut seed);
         let tls0 = applib::clock::now_ns();
-        let result = stulp_tls::connect(
+        let result = leantls::connect(
             Wire(conn),
-            &stulp_tls::Trust::Chain(&verifier),
+            &leantls::Trust::Chain(&verifier),
             target.host,
-            stulp_tls::Entropy::new(seed),
+            leantls::Entropy::new(seed),
         )
         .await;
         seed.fill(0);
@@ -166,14 +165,14 @@ impl leanhttp::Dial for Dial {
 }
 
 struct Verification<'a> {
-    chain: stulp_tls::ChainVerifier<'a>,
+    chain: leantls::ChainVerifier<'a>,
     device: bool,
 }
-impl stulp_tls::VerifyPeer for Verification<'_> {
+impl leantls::VerifyPeer for Verification<'_> {
     fn signature_algorithms(&self) -> &[u16] {
         self.chain.signature_algorithms()
     }
-    fn verify_chain(&self, chain: stulp_tls::CertChain<'_>, name: &str) -> stulp_tls::Result {
+    fn verify_chain(&self, chain: leantls::CertChain<'_>, name: &str) -> leantls::Result {
         if self.device {
             Ok(())
         } else {
@@ -186,7 +185,7 @@ impl stulp_tls::VerifyPeer for Verification<'_> {
         alg: u16,
         signed: &[u8],
         sig: &[u8],
-    ) -> stulp_tls::Result {
+    ) -> leantls::Result {
         self.chain.verify_signature(leaf, alg, signed, sig)
     }
 }

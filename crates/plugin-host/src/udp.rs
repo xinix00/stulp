@@ -147,6 +147,9 @@ fn address(addr: SocketAddr) -> Result<String> {
     write!(&mut out, "{addr}").map_err(|_| Error::Invalid("UDP address formatting"))?;
     Ok(out)
 }
+/// Sockets per plugin: twee per werker (IPv4 en IPv6) voor de hoofdwerker en
+/// acht commandowerkers van Matter, plus ruimte voor discovery.
+const MAX_SOCKETS: usize = 24;
 fn execute(command: Command, slots: &mut Vec<Slot>, highest: &mut u64) -> Option<Event> {
     let id = match &command {
         Command::Bind { id, .. }
@@ -157,11 +160,13 @@ fn execute(command: Command, slots: &mut Vec<Slot>, highest: &mut u64) -> Option
     };
     let result = (|| match command {
         Command::Bind { id, address: bind } => {
-            if id == 0 || id <= *highest {
-                return Err(Error::Invalid("UDP socket ID must increase"));
+            // Werkers van één plugin binden in willekeurige volgorde; alleen
+            // een ID dat nu in gebruik is, is fout.
+            if id == 0 || slots.iter().any(|s| s.id == id) {
+                return Err(Error::Invalid("UDP socket ID in use"));
             }
-            *highest = id;
-            if slots.len() >= 8 {
+            *highest = (*highest).max(id);
+            if slots.len() >= MAX_SOCKETS {
                 return Err(Error::Invalid("UDP socket limit reached"));
             }
             let bind = bind
@@ -295,6 +300,15 @@ mod tests {
             assert!(matches!(receive(&mut worker), Event::Error(1, _)));
             worker.send(Command::Close { id: 1 }).unwrap();
             assert!(matches!(receive(&mut worker), Event::Closed(1)));
+            // Een gesloten ID mag weer: werkers binden in willekeurige volgorde.
+            worker
+                .send(Command::Bind {
+                    id: 1,
+                    address: bind.into(),
+                })
+                .unwrap();
+            assert!(matches!(receive(&mut worker), Event::Bound(1, _)));
+            // Een ID dat in gebruik is, niet.
             worker
                 .send(Command::Bind {
                     id: 1,

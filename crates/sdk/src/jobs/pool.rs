@@ -1,7 +1,16 @@
-//! Two command owners plus the main lifecycle owner, scoped to one controller attach.
+//! Command owners plus the main lifecycle owner, scoped to one controller attach.
 use super::*;
 use crate::Plugin;
-const OWNERS: usize = 3;
+use alloc::boxed::Box;
+use core::{future::Future, pin::Pin, task::Poll};
+/// Commando's naar verschillende nodes lopen tegelijk, tot dit aantal. Twee was
+/// te weinig: vier lampen gingen in twee golven, terwijl de grote core van de
+/// LicheeRV nauwelijks iets deed (03-10). Acht dekt een scène in één golf; de
+/// affiniteit houdt elke node bij één werker, dus één sessie per apparaat.
+pub const COMMAND_WORKERS: usize = 8;
+const OWNERS: usize = COMMAND_WORKERS + 1;
+/// Zoveel nodes onthoudt de pool bij welke werker ze het laatst waren.
+const AFFINITY: usize = 256;
 /// Route device operations by physical-node identity. None retains the main plugin's handling.
 pub trait Key {
     /// Identical keys are never executed concurrently, even for different logical endpoints.
@@ -34,7 +43,7 @@ fn event_owner(event: &mut UdpEvent) -> Result<usize> {
         | UdpEvent::Error(id, _)
         | UdpEvent::Data { id, .. } => id,
     };
-    if !(1..=6).contains(id) {
+    if !(1..=(OWNERS as u64 * 2)).contains(id) {
         return Err(Error::Invalid("UDP event outside worker leases"));
     }
     let worker = (*id - 1) / 2;
@@ -50,13 +59,14 @@ async fn snapshot<T: Transport>(c: &Client<T>, tx: &mut Sender<'_, In, CAP>) -> 
     .await;
     Ok(())
 }
-/// Serve lifecycle/UI and two independent physical nodes on the same executor.
+/// Serve lifecycle/UI and up to [`COMMAND_WORKERS`] physical nodes at once on
+/// the same executor. A node goes to the worker that served it last when that
+/// one is free, so its session there is reused instead of a new handshake.
 /// No command is canceled or replayed to make room for another node.
 pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
     c: &mut Client<T>,
     main: &mut P,
-    mut first: W,
-    mut second: W,
+    mut workers: [W; COMMAND_WORKERS],
     key: K,
 ) -> Result {
     let outgoing: [Channel<Out, CAP>; OWNERS] = core::array::from_fn(|_| Channel::new());
@@ -94,12 +104,15 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
             OWNERS,
         )?;
     }
-    let [mut controller, mut a, mut b]: [Client<Port<'_>>; OWNERS] = clients
-        .try_into()
-        .map_err(|_| Error::Invalid("worker count mismatch"))?;
+    if clients.len() != OWNERS {
+        return Err(Error::Invalid("worker count mismatch"));
+    }
+    let mut controller = clients.remove(0);
+    let mut command_clients = clients;
     let pump = async {
-        let mut leases: [Option<Lease>; OWNERS] = [None, None, None];
-        let mut sticky = [0; OWNERS];
+        let mut leases: [Option<Lease>; OWNERS] = core::array::from_fn(|_| None);
+        // Per node de werker die hem het laatst bediende (en dus zijn sessie heeft).
+        let mut affinity: VecDeque<(u64, usize)> = VecDeque::new();
         // De revisie van de staat die elke werker het laatst kreeg. Een kopie
         // van de staat is het hele huisdocument naar JSON en terug; tot 03-10
         // ging die vóór elke callback naar de werker en bij elke wijziging
@@ -248,8 +261,9 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
                         at += 1;
                         continue;
                     }
-                    let worker = (1..OWNERS)
-                        .find(|i| leases[*i].is_none() && sticky[*i] == node)
+                    let affine = affinity.iter().find(|(n, _)| *n == node).map(|(_, w)| *w);
+                    let worker = affine
+                        .filter(|w| leases[*w].is_none())
                         .or_else(|| (1..OWNERS).find(|i| leases[*i].is_none()));
                     let Some(worker) = worker else {
                         at += 1;
@@ -260,7 +274,12 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
                         request: frame.id,
                         key: node,
                     });
-                    sticky[worker] = node;
+                    affinity.retain(|(n, _)| *n != node);
+                    if affinity.len() >= AFFINITY {
+                        affinity.pop_front();
+                    }
+                    reserve(&mut affinity)?;
+                    affinity.push_back((node, worker));
                     if sent[worker] != c.state.revision {
                         snapshot(c, &mut writers[worker]).await?;
                         sent[worker] = c.state.revision;
@@ -288,14 +307,25 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
         Ok::<(), Error>(())
     };
     let workers = async {
-        match select(
-            controller.serve_serial(main),
-            select(a.serve_serial(&mut first), b.serve_serial(&mut second)),
-        )
-        .await
-        {
-            Either::Left(r) | Either::Right(Either::Left(r)) | Either::Right(Either::Right(r)) => r,
+        let mut running: Vec<Pin<Box<dyn Future<Output = Result> + '_>>> = Vec::new();
+        running
+            .try_reserve_exact(OWNERS)
+            .map_err(|_| stulp_core::Error::Memory)?;
+        running.push(Box::pin(controller.serve_serial(main)));
+        for (client, plugin) in command_clients.iter_mut().zip(workers.iter_mut()) {
+            running.push(Box::pin(client.serve_serial(plugin)));
         }
+        // Eén werker die stopt (een fout of het einde van de attach) beëindigt
+        // de pool, zoals de oude select over drie werkers.
+        core::future::poll_fn(|cx| {
+            for future in &mut running {
+                if let Poll::Ready(r) = future.as_mut().poll(cx) {
+                    return Poll::Ready(r);
+                }
+            }
+            Poll::Pending
+        })
+        .await
     };
     match select(pump, workers).await {
         Either::Left(r) | Either::Right(r) => r,
@@ -404,7 +434,12 @@ mod tests {
         )
         .unwrap();
         let mut c = Client::from_snapshot(wire, snapshot).unwrap();
-        let result = hostnet::block_on(serve(&mut c, &mut Worker, Worker, Worker, Keys));
+        let result = hostnet::block_on(serve(
+            &mut c,
+            &mut Worker,
+            core::array::from_fn(|_| Worker),
+            Keys,
+        ));
         assert!(matches!(result, Err(Error::Transport("finished"))));
         let out = c.into_transport().answers;
         assert_eq!(out.iter().map(|v| v.0).collect::<Vec<_>>(), [101, 100, 102]);

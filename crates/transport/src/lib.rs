@@ -9,8 +9,9 @@ use std::{
     time::{Duration, Instant},
 };
 use stulp_platform::socket::Socket;
-pub use stulp_tls::server::KeyPair;
-use stulp_tls::{AsyncRead, AsyncWrite, Conn, ConnError, Entropy};
+mod key;
+pub use key::KeyPair;
+use leantls::{AsyncRead, AsyncWrite, Conn, ConnError, Entropy};
 use zeroize::Zeroizing;
 
 fn invalid(message: &'static str) -> io::Error {
@@ -59,7 +60,7 @@ fn pem(bytes: &[u8], private: bool) -> io::Result<Vec<Zeroizing<Vec<u8>>>> {
         if !selected {
             continue;
         }
-        if result.len() == stulp_tls::x509::MAX_ROOTS {
+        if result.len() == leantls::x509::MAX_ROOTS {
             return Err(invalid("too many PEM blocks"));
         }
         let mut encoded = Zeroizing::new(String::new());
@@ -178,7 +179,7 @@ impl<'a> Stream<'a> {
         socket.nonblocking()?;
         let entropy = Entropy::new(hostnet::entropy()?);
         let future = async move {
-            stulp_tls::server::accept(Wire(socket), identity, entropy, http)
+            leantls::server::accept(Wire(socket), identity, entropy, http)
                 .await
                 .map_err(tls_error)
         };
@@ -206,18 +207,17 @@ impl<'a> Stream<'a> {
             roots.extend_from_slice(hostnet::ROOTS_DER);
         }
         // Validate before starting; an invalid custom CA must never silently use public roots.
-        stulp_tls::Roots::from_concatenated_der(&roots).map_err(io::Error::other)?;
+        leantls::Roots::from_concatenated_der(&roots).map_err(io::Error::other)?;
         let entropy = Entropy::new(hostnet::entropy()?);
         let future = async move {
-            let roots =
-                stulp_tls::Roots::from_concatenated_der(&roots).map_err(io::Error::other)?;
+            let roots = leantls::Roots::from_concatenated_der(&roots).map_err(io::Error::other)?;
             let verifier = Verification {
-                chain: stulp_tls::ChainVerifier::new(roots, hostnet::unix_secs()),
+                chain: leantls::ChainVerifier::new(roots, hostnet::unix_secs()),
                 insecure,
             };
-            stulp_tls::connect(
+            leantls::connect(
                 Wire(socket),
-                &stulp_tls::Trust::Chain(&verifier),
+                &leantls::Trust::Chain(&verifier),
                 &name,
                 entropy,
             )
@@ -426,14 +426,14 @@ impl leanhttp::Close for Http<'_> {
 }
 
 struct Verification<'a> {
-    chain: stulp_tls::ChainVerifier<'a>,
+    chain: leantls::ChainVerifier<'a>,
     insecure: bool,
 }
-impl stulp_tls::VerifyPeer for Verification<'_> {
+impl leantls::VerifyPeer for Verification<'_> {
     fn signature_algorithms(&self) -> &[u16] {
         self.chain.signature_algorithms()
     }
-    fn verify_chain(&self, chain: stulp_tls::CertChain<'_>, name: &str) -> stulp_tls::Result {
+    fn verify_chain(&self, chain: leantls::CertChain<'_>, name: &str) -> leantls::Result {
         if self.insecure {
             Ok(())
         } else {
@@ -446,7 +446,7 @@ impl stulp_tls::VerifyPeer for Verification<'_> {
         alg: u16,
         signed: &[u8],
         sig: &[u8],
-    ) -> stulp_tls::Result {
+    ) -> leantls::Result {
         self.chain.verify_signature(leaf, alg, signed, sig)
     }
 }

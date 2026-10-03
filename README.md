@@ -66,7 +66,7 @@ already in the house.
 | `crates/host` | `stulp-host`: the native controller binary, CLI, supervision, backup |
 | `crates/sdk` | what a plugin is written against |
 | `crates/plugin-host` | the native plugin process: HTTP, TLS, DNS, streams, media |
-| `crates/transport`, `crates/tls` | framed attach connections and the bounded TLS 1.3 stack |
+| `crates/transport` | framed attach connections and the server key for Lean's TLS 1.3 (`leantls`) |
 | `crates/platform` | the checked libc calls, isolated and Miri-tested |
 | `crates/webpush` | VAPID and encrypted Web Push, with vendored crypto |
 | `crates/hopos`, `hopos-app`, `hopos-plugins` | the HopOS slot controller, its image and the per-plugin and all-plugins images |

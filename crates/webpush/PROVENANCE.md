@@ -13,7 +13,7 @@ in the protocol crate: the SDK supplies fresh entropy. TLS remains in the host
 adapter and is verified normally for push services.
 
 `vendor/` also supplies the TLS server signing dependencies documented in
-`../tls/PROVENANCE.md`; it contains 73 original registry crates (about 36 MiB), including
+`../transport/PROVENANCE.md`; it contains 73 original registry crates (about 36 MiB), including
 conditional target dependencies. `.cargo/config.toml` selects this local source;
 Cargo.lock pins the complete set. The build does not fetch registry sources.
 

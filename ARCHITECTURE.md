@@ -57,9 +57,10 @@ configuration, while still checking TLS signatures and the separate HMAC proof.
 Certificate/key mismatches fail before listening. The fixed owner/pools enforce
 a ten-second handshake deadline; an idle peer does not block the app controller.
 
-The Stulp-local TLS extension supports TLS 1.3/AES-128-GCM, X25519/P-256 ECDH,
-P-256/P-384/Ed25519/RSA signing, PKCS#8/SEC1/PKCS#1 keys and verified DNS/IP SANs.
-See `crates/tls/PROVENANCE.md` for dependencies and explicit TLS-stack limits;
+TLS is Lean's `leantls`, client and server: TLS 1.3/AES-128-GCM, X25519/P-256 ECDH
+and verified DNS/IP SANs. The private key stays in Stulp (`crates/transport/src/key.rs`):
+P-256/P-384/Ed25519/RSA signing and PKCS#8/SEC1/PKCS#1 keys via RustCrypto.
+See `crates/transport/PROVENANCE.md` for dependencies and explicit TLS-stack limits;
 TLS 1.2, P-521 and HelloRetryRequest are not implemented. HTTPS uses the same
 large-upload, backup, SSE and media paths as HTTP.
 
@@ -195,9 +196,11 @@ certificates are checked; compact operational certificates support Stulp's
 root/direct-NOC profile and reject unrepresentable signed TBS data.
 
 A bounded cooperative SDK job pump keeps heartbeats, local snapshots, progress,
-UI assets and cancellation responsive during protocol work. Two additional scoped
+UI assets and cancellation responsive during protocol work. Eight additional scoped
 command owners keep independent CASE sessions: commands to one physical node are
-serialized, while commands to another can proceed. Lifecycle/settings barriers wait
+serialized, while commands to up to eight other nodes proceed at once. A node goes
+to the owner that served it last when that owner is free, so its session there is
+reused and each device keeps one command session. Lifecycle/settings barriers wait
 for active commands and prevent later commands from overtaking them. The main owner
 retains commissioning, fabric counters, subscriptions and background maintenance.
 Snapshots follow authoritative state revisions; no application state is shared behind
@@ -209,8 +212,9 @@ and hostname results are consumed without contaminating the next scan.
 A scheduler test proves same-node ordering and cross-node progress. An independent
 Go Matter device proves that an explicit command to a healthy node completes while
 another explicit command is still awaiting a silent node, including after orphan
-fabric cleanup. This is bounded concurrency (two active command nodes), not an
-unbounded worker per device.
+fabric cleanup. This is bounded concurrency (eight active command nodes), not an
+unbounded worker per device. Each plugin may hold 24 UDP sockets, two per owner,
+and a closed socket id may be bound again.
 
 Diagnostics read Basic Information, General, Thread and Wi-Fi diagnostics with
 strict typed bounds. Mesh scans grow through per-node work and combine neighbor
@@ -275,9 +279,9 @@ allowing the controller to proxy a plugin running in a separate slot.
 
 ## Remaining application parity
 
-- The application now serves HTTPS and TLS attach. The bounded TLS extension
+- The application now serves HTTPS and TLS attach. leantls
   does not implement every algorithm/version of Go's general TLS stack (see above).
-- Matter uses two concurrent command owners as described above; real accessories
+- Matter uses eight concurrent command owners as described above; real accessories
   and the iOS provisioning path still require hardware validation.
 - IPv6 UDP, NDP, SLAAC and PIO/RIO routing are now ported into Lean and the
   HopOS SDK. Stulp uses IPv4/IPv6 mDNS, numeric IPv6 scopes and A/AAAA resolution.
@@ -369,8 +373,8 @@ Process tests include ZIP round trips (stored and deflated entries), CLI
 management and real Unix/TCP plugin connections. Archive interoperability
 includes a document larger than 2 MiB. The independent Go protocol and crypto
 peers that validated the port (TLS, Web Push, Matter PASE/CASE/certificates,
-RTSP mux) are no longer part of this tree; the TLS crate still skips its
-optional Go peer tests when `go` is absent. Sigenergy scans test all 255 units over more than ten minutes of
+RTSP mux) are no longer part of this tree; the TLS server key test in
+`stulp-transport` still uses a Go client and needs `go`. Sigenergy scans test all 255 units over more than ten minutes of
 simulated time while retaining heartbeats. Media player checks require ffmpeg,
 ffprobe and openssl; their tests explicitly skip when those tools are absent.
 

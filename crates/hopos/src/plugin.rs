@@ -28,6 +28,33 @@ pub fn busy_ns(index: usize) -> u64 {
 }
 /// Vanaf zoveel is één beurt van een plugin een `STULP_LONG_POLL`-regel.
 const LONG_POLL_MS: u64 = 200;
+/// Meet elke beurt van `fut` en telt hem op bij plugin `index`: de plugin zelf
+/// (`what = "plugin"`) en zijn I/O-werkers (`"io"`), zodat `busy_ms` ook de
+/// TLS en de streams van een plugin toont.
+pub(super) async fn timed<F: core::future::Future>(
+    app: &'static App,
+    index: usize,
+    what: &'static str,
+    fut: F,
+) -> F::Output {
+    let mut inner = core::pin::pin!(fut);
+    core::future::poll_fn(|cx| {
+        let t0 = applib::clock::now_ns();
+        let poll = inner.as_mut().poll(cx);
+        let dt = applib::clock::now_ns().saturating_sub(t0);
+        if let Some(b) = BUSY_NS.get(index) {
+            b.fetch_add(dt, core::sync::atomic::Ordering::Relaxed);
+        }
+        if dt / 1_000_000 >= LONG_POLL_MS {
+            app.log(format_args!(
+                "STULP_LONG_POLL index={index} task={what} ms={}",
+                dt / 1_000_000
+            ));
+        }
+        poll
+    })
+    .await
+}
 /// De tik van het transport: de korrel van de termijnen die de plugin zelf
 /// bewaakt (hartslag 5 s, MRP-hertransmissies, Flow-timers). Werk komt
 /// eerder, via de wek van de controller-socket, een UDP-datagram, een
@@ -290,23 +317,7 @@ pub fn spawn<P: Plugin + 'static>(
             // Elke beurt van deze plugin gemeten: wie de executor lang
             // vasthoudt, staat met naam op de console (STULP_PLUGIN zegt bij de
             // start welke index welke app is).
-            let mut inner = core::pin::pin!(run_in(app, index, queues, factory));
-            let result = core::future::poll_fn(|cx| {
-                let t0 = applib::clock::now_ns();
-                let poll = inner.as_mut().poll(cx);
-                let dt = applib::clock::now_ns().saturating_sub(t0);
-                if let Some(b) = BUSY_NS.get(index) {
-                    b.fetch_add(dt, core::sync::atomic::Ordering::Relaxed);
-                }
-                if dt / 1_000_000 >= LONG_POLL_MS {
-                    app.log(format_args!(
-                        "STULP_LONG_POLL index={index} ms={}",
-                        dt / 1_000_000
-                    ));
-                }
-                poll
-            })
-            .await;
+            let result = timed(app, index, "plugin", run_in(app, index, queues, factory)).await;
             if let Err(error) = result {
                 app.log(format_args!(
                     "STULP_BUNDLE_PLUGIN_FAIL index={index} error={error}"

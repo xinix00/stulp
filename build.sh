@@ -94,7 +94,7 @@ case "${1:-build}" in
         python3 tests/plugins.py
         python3 tests/media.py
         for stulp_target in aarch64-unknown-none-softfloat riscv64gc-unknown-none-elf; do
-            cargo check --locked -p stulp-tls -p stulp-hopos -p stulp-controller -p stulp-core -p stulp-protocol -p stulp-runtime -p stulp-web -p stulp-sdk -p stulp-virtualdevices -p stulp-weather -p stulp-somfy -p stulp-nibe -p stulp-spotify -p stulp-notify -p stulp-wiim -p stulp-sigenergy -p stulp-unifi -p stulp-matter -p stulp-webpush --no-default-features --lib --target "$stulp_target"
+            cargo check --locked -p stulp-hopos -p stulp-controller -p stulp-core -p stulp-protocol -p stulp-runtime -p stulp-web -p stulp-sdk -p stulp-virtualdevices -p stulp-weather -p stulp-somfy -p stulp-nibe -p stulp-spotify -p stulp-notify -p stulp-wiim -p stulp-sigenergy -p stulp-unifi -p stulp-matter -p stulp-webpush --no-default-features --lib --target "$stulp_target"
             cargo build --locked --release -p stulp-persist-check --bins --target "$stulp_target"
         done
         build_hopos

@@ -133,6 +133,9 @@ struct Slot {
     id: u64,
     socket: Socket,
 }
+/// Sockets per plugin: twee per werker (IPv4 en IPv6) voor de hoofdwerker en
+/// acht commandowerkers van Matter, plus ruimte voor discovery.
+const MAX_SOCKETS: usize = 24;
 pub(super) struct Sockets {
     slots: Vec<Slot>,
     input: VecDeque<Command>,
@@ -204,14 +207,19 @@ impl Sockets {
             let result = (|| -> Result<Option<Event>> {
                 match c {
                     Command::Bind { id, address: a } => {
-                        if id == 0 || id <= self.highest || self.slots.len() >= 8 {
-                            return Err(Error::Invalid("UDP slot limit or reused id"));
+                        // Werkers van één plugin binden in willekeurige volgorde;
+                        // alleen een ID dat nu in gebruik is, is fout.
+                        if id == 0
+                            || self.slots.iter().any(|s| s.id == id)
+                            || self.slots.len() >= MAX_SOCKETS
+                        {
+                            return Err(Error::Invalid("UDP slot limit or id in use"));
                         }
-                        self.highest = id;
+                        self.highest = self.highest.max(id);
                         let e = endpoint(&a)?;
                         let socket = Socket::bind(e)?;
                         let local = socket.local()?;
-                        json::push(&mut self.slots, Slot { id, socket }, 8)?;
+                        json::push(&mut self.slots, Slot { id, socket }, MAX_SOCKETS)?;
                         Ok(Some(Event::Bound(id, address(local))))
                     }
                     Command::Close { id } => {

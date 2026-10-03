@@ -63,8 +63,23 @@ pub const MAX_ALIGN: usize = 4096;
 /// De bezet-vlag in het maatwoord.
 const USED: usize = 1;
 
-/// Het aantal klassen: één per bitpositie van een maat.
-const BINS: usize = usize::BITS as usize;
+/// Tot en met deze blokmaat heeft elke maat (een veelvoud van [`GRAIN`]) een
+/// eigen klasse, zodat het eerste blok in een lijst altijd past. Daarboven
+/// één klasse per bitpositie.
+///
+/// Waarom: met alleen klassen per macht van twee (32 tot 63 bytes in één
+/// lijst) liep een vraag van 48 bytes langs elk vrij blok van 32 dat er lag.
+/// JSON-werk laat duizenden van zulke blokken achter; Stulp mat op de host 505
+/// ns per vrijgave plus allocatie met 4547 vrije blokken, en op de LicheeRV
+/// werd dat een bootstrap van 250 ms en callbacks van een halve seconde
+/// (03-10). Met exacte klassen is dat een lijstkop pakken.
+const SMALL_LIMIT: usize = 1024;
+
+/// Het aantal exacte klassen: maat / [`GRAIN`] voor maten tot [`SMALL_LIMIT`].
+const SMALL_BINS: usize = SMALL_LIMIT / GRAIN + 1;
+
+/// Het aantal klassen: de exacte, en één per bitpositie boven [`SMALL_LIMIT`].
+const BINS: usize = SMALL_BINS + usize::BITS as usize;
 
 /// De lege schakel. Adres 0 is nooit een blok: [`Heap::init`] weigert een
 /// gebied dat daar begint.
@@ -147,6 +162,9 @@ struct State {
     end: usize,
     ceiling: usize,
     bins: [usize; BINS],
+    /// Bit `i` staat als klasse `i` een vrij blok heeft: het zoeken springt
+    /// meteen naar de eerste niet-lege klasse die groot genoeg is.
+    nonempty: [u64; BINS.div_ceil(64)],
     used: usize,
     peak: usize,
     allocs: u64,
@@ -162,6 +180,7 @@ impl State {
             end: 0,
             ceiling: 0,
             bins: [NIL; BINS],
+            nonempty: [0; BINS.div_ceil(64)],
             used: 0,
             peak: 0,
             allocs: 0,
@@ -256,9 +275,37 @@ impl State {
 
     // ---- De klassen ----
 
-    /// De klasse van maat `size` (> 0): de positie van de hoogste bit.
+    /// De klasse van maat `size` (> 0): exact tot en met [`SMALL_LIMIT`],
+    /// daarboven de positie van de hoogste bit.
     fn bin_of(size: usize) -> usize {
-        (usize::BITS - 1 - size.max(1).leading_zeros()) as usize
+        if size <= SMALL_LIMIT {
+            size / GRAIN
+        } else {
+            SMALL_BINS + (usize::BITS - 1 - size.leading_zeros()) as usize
+        }
+    }
+
+    fn mark(&mut self, i: usize, nonempty: bool) {
+        if let Some(word) = self.nonempty.get_mut(i / 64) {
+            if nonempty {
+                *word |= 1 << (i % 64);
+            } else {
+                *word &= !(1 << (i % 64));
+            }
+        }
+    }
+
+    /// De eerste niet-lege klasse vanaf `from`.
+    fn next_bin(&self, from: usize) -> Option<usize> {
+        let mut w = from / 64;
+        let mut bits = self.nonempty.get(w)? & (!0u64 << (from % 64));
+        loop {
+            if bits != 0 {
+                return Some(w * 64 + bits.trailing_zeros() as usize);
+            }
+            w += 1;
+            bits = *self.nonempty.get(w)?;
+        }
     }
 
     /// Zet vrij blok `b` vooraan in de lijst van zijn klasse.
@@ -275,6 +322,7 @@ impl State {
         if let Some(slot) = self.bins.get_mut(i) {
             *slot = b;
         }
+        self.mark(i, true);
     }
 
     /// Haalt vrij blok `b` uit zijn lijst. Vóór een maatwijziging, want de
@@ -285,6 +333,9 @@ impl State {
             let i = Self::bin_of(self.size(b));
             if let Some(slot) = self.bins.get_mut(i) {
                 *slot = n;
+            }
+            if n == NIL {
+                self.mark(i, false);
             }
         } else {
             let pp = self.prev_free(p);
@@ -334,11 +385,14 @@ impl State {
         (gap.checked_add(need)? <= self.size(b)).then_some(gap)
     }
 
-    /// Zoekt first-fit, eerst in de klasse van `need`, dan daarboven.
+    /// Zoekt first-fit, eerst in de klasse van `need`, dan in de eerstvolgende
+    /// niet-lege klassen daarboven. In een exacte klasse past het eerste blok
+    /// (behalve bij een uitlijning boven de korrel).
     fn find(&self, need: usize, align: usize) -> Option<(usize, usize)> {
         let mut steps = self.max_steps();
-        for &head in self.bins.get(Self::bin_of(need)..)? {
-            let mut b = head;
+        let mut from = Self::bin_of(need);
+        while let Some(i) = self.next_bin(from) {
+            let mut b = *self.bins.get(i)?;
             while b != NIL {
                 steps = steps.checked_sub(1)?;
                 if let Some(gap) = self.fit(b, need, align) {
@@ -346,6 +400,7 @@ impl State {
                 }
                 b = self.next_free(b);
             }
+            from = i + 1;
         }
         None
     }
@@ -518,6 +573,9 @@ impl State {
                 }
                 if Self::bin_of(self.size(b)) != i {
                     return bad(b, "free block in the wrong class");
+                }
+                if self.nonempty.get(i / 64).is_none_or(|w| w & (1 << (i % 64)) == 0) {
+                    return bad(b, "non-empty class not marked");
                 }
                 if self.prev_free(b) != back {
                     return bad(b, "broken back link");

@@ -91,7 +91,13 @@ mod tests {
 }
 impl Plugin for Matter {
     async fn serve<T: Transport>(&mut self, c: &mut Client<T>) -> Result {
-        jobs::pool::serve(c, self, Commands::default(), Commands::default(), Nodes).await
+        jobs::pool::serve(
+            c,
+            self,
+            core::array::from_fn(|_| Commands::default()),
+            Nodes,
+        )
+        .await
     }
     fn manifest(&self) -> &'static [u8] {
         ui::MANIFEST

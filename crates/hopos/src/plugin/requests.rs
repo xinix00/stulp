@@ -290,7 +290,7 @@ pub(super) fn start(
     }
     let dial = crate::network::Dial::new(app, &env.random());
     EXEC.get()
-        .spawn(async move {
+        .spawn(super::timed(app, index, "io", async move {
             // Keep-alive: de pool van leanhttp (twee ruststaande verbindingen
             // per host, acht totaal, dertig seconden) spaart per poll een
             // TLS-handshake uit. Op de LicheeRV kostte elke handshake naar
@@ -303,10 +303,10 @@ pub(super) fn start(
                 let result = until(owner, HTTP, id, ms, http(&mut client, r)).await;
                 answer(owner, &owner.http_out, id, result);
             }
-        })
+        }))
         .map_err(|_| Error::Transport("HTTP worker unavailable"))?;
     EXEC.get()
-        .spawn(async move {
+        .spawn(super::timed(app, index, "io", async move {
             let mut socket = None;
             let mut identity = (0, String::new(), 0);
             loop {
@@ -331,25 +331,25 @@ pub(super) fn start(
                 }
                 answer(owner, &owner.tcp_out, id, result);
             }
-        })
+        }))
         .map_err(|_| Error::Transport("TCP worker unavailable"))?;
     EXEC.get()
-        .spawn(async move {
+        .spawn(super::timed(app, index, "io", async move {
             loop {
                 let (id, r) = owner.dns.recv().await;
                 let result = until(owner, DNS, id, 5000, resolve_addresses(&r)).await;
                 answer(owner, &owner.dns_out, id, result);
             }
-        })
+        }))
         .map_err(|_| Error::Transport("DNS worker unavailable"))?;
     EXEC.get()
-        .spawn(async move {
+        .spawn(super::timed(app, index, "io", async move {
             loop {
                 let (id, r) = owner.browse.recv().await;
                 let result = browse(owner, id, r).await;
                 answer(owner, &owner.browse_out, id, result);
             }
-        })
+        }))
         .map_err(|_| Error::Transport("discovery worker unavailable"))?;
     Ok(owner)
 }

@@ -15,7 +15,9 @@ executor = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.1
 bounded = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
 netdev = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
 # Eén netstackbron in de naast Stulp uitgecheckte Lean-repo.
-leannet = { path = "../../../lean/leannet" }
+# IPv6 staat sinds Lean v3.1.9 achter een feature; Matter heeft hem nodig,
+# net als de applib van HopOS.
+leannet = { path = "../../../lean/leannet", features = ["ipv6"] }
 # De codec-namen en -nummers (feature `media`, src/codec.rs): dezelfde
 # nummering als de kern, uit het contract zelf.
 driver-codec = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18", optional = true }

@@ -370,7 +370,7 @@ impl Connection {
         }
         if self
             .last_ping
-            .is_some_and(|last| now.saturating_sub(last) > 15_000)
+            .is_some_and(|last| now.saturating_sub(last) > 30_000)
         {
             return Err(Error::Invalid("app heartbeat timed out"));
         }

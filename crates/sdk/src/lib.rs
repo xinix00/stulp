@@ -398,7 +398,7 @@ pub struct Client<T> {
     interrupted_job: bool,
 }
 /// Hoe lang een ping op zijn antwoord mag wachten (zie `Client::pump`).
-pub(crate) const HEARTBEAT_DEADLINE_MS: u64 = 20_000;
+pub(crate) const HEARTBEAT_DEADLINE_MS: u64 = 35_000;
 /// Vanaf deze duur is een plugin-callback een waarschuwing op de console waard.
 const SLOW_CALLBACK_MS: u64 = 500;
 impl<T: Transport> Client<T> {

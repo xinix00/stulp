@@ -464,9 +464,8 @@ impl Network {
                 peer.node,
                 c.now().saturating_sub(case0),
                 match &result {
-                    Ok(_) => "ok",
-                    Err(Error::Remote(text)) => text.as_str(),
-                    Err(_) => "failed",
+                    Ok(_) => String::from("ok"),
+                    Err(e) => stulp_sdk::message(e).unwrap_or_else(|_| String::from("failed")),
                 }
             );
             c.log("info", &line)?;

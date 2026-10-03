@@ -100,6 +100,13 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
     let pump = async {
         let mut leases: [Option<Lease>; OWNERS] = [None, None, None];
         let mut sticky = [0; OWNERS];
+        // De revisie van de staat die elke werker het laatst kreeg. Een kopie
+        // van de staat is het hele huisdocument naar JSON en terug; tot 03-10
+        // ging die vóór elke callback naar de werker en bij elke wijziging
+        // naar alle drie, honderden keren bij een start met ~70
+        // Matter-apparaten (0,6 tot 1,7 s per callback op de LicheeRV). Nu
+        // krijgt een werker een kopie alleen als de zijne verouderd is.
+        let mut sent = [c.state.revision; OWNERS];
         let mut pending = Vec::new();
         let mut barrier = None;
         let mut revision = c.state.revision;
@@ -186,8 +193,15 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
                 writers[owner].send(In::Udp(event)).await;
             }
             if c.state.revision != revision {
-                for tx in &mut writers {
-                    snapshot(c, tx).await?;
+                // Alleen wie nu iets doet, heeft de verse staat meteen nodig: de
+                // hoofdwerker (levenscyclus en achtergrondwerk) en een
+                // commandowerker met een lopende callback. Een vrije
+                // commandowerker krijgt hem pas als hij een callback krijgt.
+                for (worker, tx) in writers.iter_mut().enumerate() {
+                    if worker == 0 || leases[worker].is_some() {
+                        snapshot(c, tx).await?;
+                        sent[worker] = c.state.revision;
+                    }
                 }
                 revision = c.state.revision;
             }
@@ -247,7 +261,10 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
                         key: node,
                     });
                     sticky[worker] = node;
-                    snapshot(c, &mut writers[worker]).await?;
+                    if sent[worker] != c.state.revision {
+                        snapshot(c, &mut writers[worker]).await?;
+                        sent[worker] = c.state.revision;
+                    }
                     writers[worker].send(In::Frame(frame)).await;
                 } else {
                     let is_barrier = key.barrier(frame.method());
@@ -258,7 +275,10 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
                     if is_barrier {
                         barrier = Some(frame.id);
                     }
-                    snapshot(c, &mut writers[0]).await?;
+                    if sent[0] != c.state.revision {
+                        snapshot(c, &mut writers[0]).await?;
+                        sent[0] = c.state.revision;
+                    }
                     writers[0].send(In::Frame(frame)).await;
                 }
             }

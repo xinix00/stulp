@@ -15,6 +15,19 @@ mod streams;
 mod udp;
 /// De tien plugins delen een netstack, maar nooit hun I/O-antwoorden.
 pub const BUNDLE_CAP: usize = 10;
+/// Rekentijd per plugin in de bundel, in nanoseconden: de som van zijn
+/// executor-beurten. De meter zet het verschil per 30 s in `STULP_LOAD`.
+static BUSY_NS: [core::sync::atomic::AtomicU64; BUNDLE_CAP] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; BUNDLE_CAP];
+/// De rekentijd van plugin `index` tot nu toe.
+#[must_use]
+pub fn busy_ns(index: usize) -> u64 {
+    BUSY_NS
+        .get(index)
+        .map_or(0, |b| b.load(core::sync::atomic::Ordering::Relaxed))
+}
+/// Vanaf zoveel is één beurt van een plugin een `STULP_LONG_POLL`-regel.
+const LONG_POLL_MS: u64 = 200;
 /// De tik van het transport: de korrel van de termijnen die de plugin zelf
 /// bewaakt (hartslag 5 s, MRP-hertransmissies, Flow-timers). Werk komt
 /// eerder, via de wek van de controller-socket, een UDP-datagram, een
@@ -274,7 +287,27 @@ pub fn spawn<P: Plugin + 'static>(
     let queues = requests::start(index, app, &mut env)?;
     EXEC.get()
         .spawn(async move {
-            if let Err(error) = run_in(app, index, queues, factory).await {
+            // Elke beurt van deze plugin gemeten: wie de executor lang
+            // vasthoudt, staat met naam op de console (STULP_PLUGIN zegt bij de
+            // start welke index welke app is).
+            let mut inner = core::pin::pin!(run_in(app, index, queues, factory));
+            let result = core::future::poll_fn(|cx| {
+                let t0 = applib::clock::now_ns();
+                let poll = inner.as_mut().poll(cx);
+                let dt = applib::clock::now_ns().saturating_sub(t0);
+                if let Some(b) = BUSY_NS.get(index) {
+                    b.fetch_add(dt, core::sync::atomic::Ordering::Relaxed);
+                }
+                if dt / 1_000_000 >= LONG_POLL_MS {
+                    app.log(format_args!(
+                        "STULP_LONG_POLL index={index} ms={}",
+                        dt / 1_000_000
+                    ));
+                }
+                poll
+            })
+            .await;
+            if let Err(error) = result {
                 app.log(format_args!(
                     "STULP_BUNDLE_PLUGIN_FAIL index={index} error={error}"
                 ));
@@ -289,9 +322,19 @@ async fn run_in<P: Plugin>(
     factory: impl Fn() -> P,
 ) -> Result {
     let mut delay = 1;
+    let mut announced = false;
     loop {
         let plugin = factory();
         let manifest = stulp_sdk::manifest(&plugin)?;
+        if !announced {
+            announced = true;
+            if let Ok(m) = json::parse(manifest.as_bytes()) {
+                app.log(format_args!(
+                    "STULP_PLUGIN index={index} id={}",
+                    json::text(&m, "id")
+                ));
+            }
+        }
         let result = match Connection::attach_in(app, manifest.as_bytes(), index, queues).await {
             Ok(connection) => {
                 delay = 1;

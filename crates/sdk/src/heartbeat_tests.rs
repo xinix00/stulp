@@ -56,9 +56,20 @@ fn queued_heartbeat_reply_survives_a_delayed_executor_turn() {
 }
 
 #[test]
+fn a_missed_heartbeat_is_slow_not_dead() {
+    let mut c = client();
+    c.heartbeat = Some((7, 10_000));
+    assert!(hostnet::block_on(c.pump()).unwrap().is_none());
+    assert!(c.heartbeat.is_none(), "a new ping goes out next round");
+    assert!(c.slow);
+}
+
+#[test]
 fn silent_controller_still_times_out() {
     let mut c = client();
     c.heartbeat = Some((7, 10_000));
+    c.last_heard = 0;
+    c.transport.now = super::SILENCE_LIMIT_MS + 1;
     assert!(matches!(hostnet::block_on(c.pump()), Err(Error::Timeout)));
 }
 

@@ -392,18 +392,34 @@ pub struct Client<T> {
     next_id: u64,
     heartbeat: Option<(u64, u64)>,
     next_heartbeat: u64,
+    /// Wanneer de controller het laatst iets stuurde.
+    last_heard: u64,
+    /// Of de huidige stilte al gemeld is.
+    slow: bool,
+    /// Protocolbeurten sinds de laatste verplichte yield.
+    turns: u32,
     udp_inbox: VecDeque<UdpEvent>,
     discard_datagrams: bool,
     discard_resolve: bool,
     interrupted_job: bool,
 }
-/// Hoe lang een ping op zijn antwoord mag wachten (zie `Client::pump`).
+/// Hoe lang een ping op zijn antwoord mag wachten voordat de stilte gemeld
+/// wordt (zie `Client::pump`). Een gemiste hartslag sluit niets af.
 pub(crate) const HEARTBEAT_DEADLINE_MS: u64 = 35_000;
+/// Pas na zoveel volledige stilte van de controller geeft de plugin de
+/// verbinding op. Een afsluiting kost ~70 inits en tientallen
+/// Matter-handshakes, en die kosten veroorzaakten op de LicheeRV de volgende
+/// afsluiting; daarom is een trage controller geen dode controller.
+pub(crate) const SILENCE_LIMIT_MS: u64 = 300_000;
+/// Na zoveel protocolbeurten geeft een plugin de executor verplicht terug,
+/// ook als elke await meteen klaar was (het coöperatieve budget).
+const COOP_TURNS: u32 = 32;
 /// Vanaf deze duur is een plugin-callback een waarschuwing op de console waard.
 const SLOW_CALLBACK_MS: u64 = 500;
 impl<T: Transport> Client<T> {
     /// De attach-begroeting is al door de transportadapter geverifieerd.
     pub fn new(transport: T) -> Self {
+        let last_heard = transport.now();
         Self {
             transport,
             state: State::empty(),
@@ -411,6 +427,9 @@ impl<T: Transport> Client<T> {
             next_id: 0,
             heartbeat: None,
             next_heartbeat: 5000,
+            last_heard,
+            slow: false,
+            turns: 0,
             udp_inbox: VecDeque::new(),
             discard_datagrams: false,
             discard_resolve: false,
@@ -596,6 +615,13 @@ impl<T: Transport> Client<T> {
                 "protocol owner was interrupted; reconnect required",
             ));
         }
+        // Het coöperatieve budget: elke lus van elke plugin loopt hierlangs,
+        // dus hier krijgen de andere taken op de executor gegarandeerd een
+        // beurt, ook als deze plugin alleen maar meteen-klare awaits ziet.
+        self.turns = self.turns.wrapping_add(1);
+        if self.turns.is_multiple_of(COOP_TURNS) {
+            hop_sync::yield_now().await;
+        }
         let now = self.now();
         if self.heartbeat.is_none() && now >= self.next_heartbeat {
             let id = self.id()?;
@@ -613,15 +639,30 @@ impl<T: Transport> Client<T> {
             // Drain already received replies before declaring silence. On a
             // shared core another task may have delayed our turn past the
             // deadline even though the controller answered in time.
-            if self
-                .heartbeat
-                .is_some_and(|(_, deadline)| self.now() >= deadline)
-            {
-                self.log("warn", "STULP_HEARTBEAT_TIMEOUT controller reply missing")?;
+            let now = self.now();
+            if now.saturating_sub(self.last_heard) >= SILENCE_LIMIT_MS {
+                self.log(
+                    "warn",
+                    "STULP_HEARTBEAT_TIMEOUT controller silent for 5 minutes",
+                )?;
                 return Err(Error::Timeout);
+            }
+            if self.heartbeat.is_some_and(|(_, deadline)| now >= deadline) {
+                // Traag, niet dood: melden, en de volgende ping gaat gewoon uit.
+                if !self.slow {
+                    self.slow = true;
+                    self.log("warn", "STULP_HEARTBEAT_SLOW controller reply missing")?;
+                }
+                self.heartbeat = None;
+                self.next_heartbeat = now.saturating_add(5000);
             }
             return Ok(None);
         };
+        self.last_heard = self.now();
+        if self.slow {
+            self.slow = false;
+            self.log("info", "STULP_HEARTBEAT_RECOVERED")?;
+        }
         if matches!(frame.kind, Kind::Response | Kind::Error)
             && self.heartbeat.is_some_and(|(id, _)| id == frame.id)
         {

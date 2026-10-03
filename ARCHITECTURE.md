@@ -484,6 +484,41 @@ measures:
   executor and heartbeat, so UniFi, Spotify and TaHoma work and Matter work
   no longer queue behind each other.
 
+## Attention model: everyone gets a turn, nobody drags the rest along
+
+Ten plugins share one cooperative executor in the HopOS bundle; HopOS does
+not preempt within a slot, and the kernel only rotates slots that yield. On
+the LicheeRV every failure mode of October 2026 had the same shape: one plugin
+held the executor (a 30 s stall after a Matter handshake, a camera snapshot,
+full-document copies per callback), every heartbeat stalled, the controller
+dropped all ten attaches, and the reconnect (about 70 inits and dozens of
+Matter handshakes) produced the next stall. The model breaks that at four
+levels:
+
+1. **Fair turns (SDK).** Every plugin loop goes through `Client::pump`. After
+   32 protocol turns it yields the executor unconditionally (`COOP_TURNS`), so
+   a loop whose awaits all complete immediately can no longer monopolise the
+   bundle. Heavy synchronous steps yield explicitly: the Matter CASE steps,
+   the TLS handshake after chain verification and after the signature.
+2. **Visible attention (runtime).** Each bundled plugin task is wrapped in a
+   meter. A single executor turn of 200 ms or more is logged as
+   `STULP_LONG_POLL index= ms=`; `STULP_PLUGIN index= id=` maps indices to
+   apps at start; `STULP_LOAD` carries `busy_ms=[index:ms ...]` per 30 s and
+   `stall_max_ms`, and a turn more than 1 s late is `STULP_STALL ms=`.
+3. **No amplification (protocol).** A missed heartbeat is slow, not dead: the
+   plugin logs `STULP_HEARTBEAT_SLOW` and keeps pinging, the controller logs
+   `[stulp:app-slow]` and keeps the session. A connection closes on a real
+   transport error or after five minutes of complete silence; initialisation
+   may take three minutes. A busy minute therefore costs a busy minute, not a
+   full restart of every plugin.
+4. **Isolation by core (deployment).** On the two-core LicheeRV the controller
+   and tunnel share the small core (`sharegroup: hop`) and the bundle has the
+   big core (`sharegroup: system`).
+
+Within Matter, maintenance (CASE and subscribe, one node per step) waits until
+startup callbacks have been quiet for 3 s, `device.init`/`driver.init` are not
+pool barriers, and workers receive a state snapshot only when theirs is stale.
+
 ## IPv6 and Thread follow-up
 
 No extra enable flag is needed: Matter opens separate IPv4/IPv6 UDP sockets,

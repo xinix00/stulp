@@ -33,6 +33,8 @@ struct Connection {
     queued: usize,
     accepted: u64,
     last_ping: Option<u64>,
+    /// Of de huidige stilte van deze app al gemeld is.
+    slow: bool,
 }
 /// Bounded external plugin listener; Hop starts each plugin in its own slot.
 pub struct Apps {
@@ -153,6 +155,7 @@ impl Apps {
                 queued: 0,
                 accepted: self.now(),
                 last_ping: None,
+                slow: false,
             };
             let challenge = json::fields(&[
                 ("protocol", Value::uint(1)),
@@ -364,15 +367,26 @@ impl Connection {
             return Err(Error::Invalid("attach greeting timed out"));
         }
         if self.app.as_ref().is_some_and(|a| !a.is_running())
-            && now.saturating_sub(self.accepted) > 60_000
+            && now.saturating_sub(self.accepted) > 180_000
         {
             return Err(Error::Invalid("app initialization timed out"));
         }
-        if self
-            .last_ping
-            .is_some_and(|last| now.saturating_sub(last) > 30_000)
-        {
-            return Err(Error::Invalid("app heartbeat timed out"));
+        // Een stille app is traag, niet dood: melden en de verbinding houden.
+        // Afsluiten kost een volle herstart van de app (inits, handshakes),
+        // en die kosten veroorzaakten de volgende stilte. Pas na vijf minuten
+        // volledige stilte, of bij een echte TCP-fout, gaat hij dicht.
+        if let Some(last) = self.last_ping {
+            let silent = now.saturating_sub(last);
+            if silent > 300_000 {
+                return Err(Error::Invalid("app silent for 5 minutes"));
+            }
+            if silent > 30_000 && !self.slow {
+                self.slow = true;
+                applib::log!(
+                    "[stulp:app-slow] app={} silent_ms={silent}",
+                    self.app.as_ref().map(App::id).unwrap_or("unidentified")
+                );
+            }
         }
         if let Some(app) = &mut self.app {
             let record = store.document().record("apps", app.id())?;
@@ -473,6 +487,7 @@ impl Connection {
         let frame = Frame::decode(bytes)?;
         if frame.method() == "$appproto.ping" {
             self.last_ping = Some(now);
+            self.slow = false;
         }
         let new_id = if matches!(frame.method(), "notification" | "image.url") {
             env.id()?

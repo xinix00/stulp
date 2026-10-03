@@ -118,6 +118,7 @@ pub fn spawn(app: &'static App) -> Result {
             let mut meter = Meter::new();
             let mut next_line = applib::clock::now_ns();
             let mut worst_ms = 0_u64;
+            let mut busy = [0_u64; crate::plugin::BUNDLE_CAP];
             loop {
                 let asked = applib::clock::now_ns();
                 EXEC.get().after(PROBE).await;
@@ -133,8 +134,21 @@ pub fn spawn(app: &'static App) -> Result {
                     continue;
                 }
                 next_line = applib::clock::now_ns().saturating_add(EVERY.as_nanos() as u64);
+                // Rekentijd per plugin sinds de vorige regel: wie de aandacht pakt.
+                let mut per = String::new();
+                for (index, prev) in busy.iter_mut().enumerate() {
+                    let now = crate::plugin::busy_ns(index);
+                    let ms = now.saturating_sub(*prev) / 1_000_000;
+                    *prev = now;
+                    if ms > 0 && per.try_reserve(16).is_ok() {
+                        let _ = write!(per, " {index}:{ms}");
+                    }
+                }
                 match meter.line(app) {
-                    Ok(Some(line)) => app.log(format_args!("{line} stall_max_ms={worst_ms}")),
+                    Ok(Some(line)) => app.log(format_args!(
+                        "{line} stall_max_ms={worst_ms} busy_ms=[{}]",
+                        per.trim_start()
+                    )),
                     Ok(None) => (),
                     Err(e) => app.log(format_args!("STULP_LOAD meter failed: {e}")),
                 }

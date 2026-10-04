@@ -68,7 +68,7 @@ fn run(input: Receiver<Command>, output: SyncSender<Event>) {
     let mut pending = VecDeque::<Event>::new();
     let mut highest = 0u64;
     let mut cursor = 0usize;
-    if slots.try_reserve(8).is_err() || pending.try_reserve(2).is_err() {
+    if slots.try_reserve(MAX_SOCKETS).is_err() || pending.try_reserve(2).is_err() {
         return;
     }
     let mut buffer = [0; MAX + 1];
@@ -148,7 +148,8 @@ fn address(addr: SocketAddr) -> Result<String> {
     Ok(out)
 }
 /// Sockets per plugin: twee per werker (IPv4 en IPv6) voor de hoofdwerker en
-/// acht commandowerkers van Matter, plus ruimte voor discovery.
+/// acht commandowerkers van Matter, plus ruimte voor discovery. Dezelfde grens
+/// als de HopOS-adapter (crates/hopos/src/plugin/udp.rs).
 const MAX_SOCKETS: usize = 24;
 fn execute(command: Command, slots: &mut Vec<Slot>, highest: &mut u64) -> Option<Event> {
     let id = match &command {
@@ -186,7 +187,9 @@ fn execute(command: Command, slots: &mut Vec<Slot>, highest: &mut u64) -> Option
                     .local_addr()
                     .map_err(|_| Error::Transport("UDP local address failed"))?,
             )?;
-            json::push(slots, Slot { id, socket }, 8)?;
+            // Tot 04-10 stond hier nog 8: met een Matter-werker per node-eigenaar
+            // (twee sockets elk) kregen werkers 4 tot 8 geen socket, stil.
+            json::push(slots, Slot { id, socket }, MAX_SOCKETS)?;
             Ok(Some(Event::Bound(id, local)))
         }
         Command::Close { id } => {
@@ -328,5 +331,22 @@ mod tests {
             address("[fe80::1%42]:5540".parse().unwrap()).unwrap(),
             "[fe80::1%42]:5540"
         );
+    }
+    #[test]
+    fn every_matter_worker_gets_its_two_sockets() {
+        // De hoofdwerker en acht werkers: achttien sockets, alle gebonden.
+        let mut worker = Worker::new().unwrap();
+        for id in 1..=18 {
+            worker
+                .send(Command::Bind {
+                    id,
+                    address: "127.0.0.1:0".into(),
+                })
+                .unwrap();
+            assert!(
+                matches!(receive(&mut worker), Event::Bound(bound, _) if bound == id),
+                "socket {id} was refused"
+            );
+        }
     }
 }

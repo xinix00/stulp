@@ -7,7 +7,7 @@ use stulp_core::json::{self, Value};
 use stulp_sdk::{
     Client, Error, Plugin, Result, Transport, clone,
     jobs::{self, Action, Gate},
-    util::field,
+    util::{field, join},
 };
 /// Eén appinstantie per geauthenticeerde attach; fabric staat uitsluitend in appState.
 #[derive(Default)]
@@ -578,7 +578,13 @@ impl Plugin for Commands {
             match self.open(c).await {
                 Ok(_) => (),
                 Err(Error::Core(e)) => return Err(Error::Core(e)),
-                Err(_) => {
+                Err(e) => {
+                    // Zonder engine heeft deze werker geen abonnementen; dat
+                    // moet op de console staan (04-10: zonder socket bleef het stil).
+                    c.log(
+                        "warn",
+                        &join(&["MATTER_WORKER_OPEN_FAILED error=", &stulp_sdk::message(&e)?])?,
+                    )?;
                     self.retry = c.now().saturating_add(10000);
                     return Ok(());
                 }

@@ -153,8 +153,14 @@ impl Interaction<'_> {
                 self.network.acknowledge(c, h)?;
             } else {
                 self.network.send(c, h, 1, &im::status(0)?)?;
-                // De laatste StatusResponse blijft betrouwbaar tot zijn echte ACK.
-                self.network.wait_ack(c, h, deadline).await?;
+                // Bij een live rapport wacht de eigenaar niet op de ACK van de
+                // laatste StatusResponse: die blijft betrouwbaar (de exchange
+                // blijft open tot zijn ACK, zie Engine), maar de waarden en
+                // flowtriggers gaan meteen door. Tot 03-10 kostte dat wachten
+                // elk rapport 550 tot 600 ms, ook een bewegingsmelding.
+                if more || !matches!(kind, ReportKind::Update(_)) {
+                    self.network.wait_ack(c, h, deadline).await?;
+                }
             }
             if !more {
                 return Ok(combined);
@@ -205,8 +211,12 @@ impl Interaction<'_> {
             ));
         }
         let result = self.reports(c, h, ReportKind::Update(id), deadline).await;
-        let _ = self.network.acknowledge(c, h);
-        self.network.close(h);
+        if result.is_err() {
+            let _ = self.network.acknowledge(c, h);
+            self.network.close(h);
+        }
+        // Bij succes blijft de exchange open tot de ACK of het opgeven van
+        // MRP; de Engine sluit hem dan (Event::Acknowledged of Failed).
         result
     }
     /// Iedere attribuutstatus wordt afzonderlijk teruggegeven, zonder optimistische devicewaarden.

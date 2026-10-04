@@ -256,13 +256,31 @@ async fn relay<T: Transport>(c: &mut Client<T>, tx: &mut Sender<'_, In, CAP>, ou
                 Ok(v) => Frame::response(f.id, Ok(v))?,
                 Err(e) => Frame::response(f.id, Err(&message(&e)?))?,
             };
+            // Wat de aanroep aan de staat veranderde, gaat vóór het antwoord mee.
+            forward(c, tx).await?;
+            tx.send(In::Frame(decode(response)?)).await;
+        }
+    }
+    Ok(())
+}
+/// Geeft de taak de staat-events die de eigenaar sinds de vorige keer toepaste
+/// (meestal één apparaat), in plaats van de hele staat als JSON heen en terug.
+/// Zonder journaal, of als het overliep, gaat de volledige staat mee.
+async fn forward<T: Transport>(c: &mut Client<T>, tx: &mut Sender<'_, In, CAP>) -> Result {
+    let lost = core::mem::take(&mut c.journal_lost);
+    match c.journal.as_mut().map(core::mem::take) {
+        Some(events) if !lost => {
+            for event in events {
+                tx.send(In::Frame(event)).await;
+            }
+        }
+        _ => {
             tx.send(In::Frame(decode(Frame::request(
                 0,
                 "state.snapshot",
                 c.state().root(),
             )?)?))
             .await;
-            tx.send(In::Frame(decode(response)?)).await;
         }
     }
     Ok(())
@@ -298,6 +316,13 @@ pub async fn run<T: Transport, G: Gate, R>(
         resolved: None,
     };
     let mut client = Client::from_snapshot(port, clone(c.state().root())?)?;
+    // De taak volgt de staat via events (zie `forward`); een omringende pool
+    // of taak die al een journaal bijhoudt, houdt het zijne.
+    let journaled = c.journal.is_none();
+    if journaled {
+        c.journal = Some(Vec::new());
+        c.journal_lost = false;
+    }
     let mut deferred = Vec::new();
     let (result, interrupted) = {
         let pump = async {
@@ -332,6 +357,9 @@ pub async fn run<T: Transport, G: Gate, R>(
                 } else {
                     Some(c.inbox.remove(0))
                 };
+                if c.journal.as_ref().is_some_and(|j| !j.is_empty()) || c.journal_lost {
+                    forward(c, &mut to_work).await?;
+                }
                 if let Some(f) = frame.filter(|f| f.kind == Kind::Request) {
                     let params = crate::util::field(&f.value, "p");
                     let action = gate
@@ -375,6 +403,10 @@ pub async fn run<T: Transport, G: Gate, R>(
         }
     };
     c.interrupted_job |= interrupted;
+    if journaled {
+        c.journal = None;
+        c.journal_lost = false;
+    }
     let cleaned = (|| -> Result {
         let mut port = client.into_transport();
         while let Some(input) = port.rx.try_recv() {

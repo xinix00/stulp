@@ -107,6 +107,10 @@ impl Run {
     pub fn id(&self) -> &str {
         json::text(&self.definition, "id")
     }
+    /// De naam van de Flow, voor logregels.
+    pub fn name(&self) -> &str {
+        json::text(&self.definition, "name")
+    }
     /// Historie wordt geordend op starttijd, niet op de volgorde van callbacks.
     pub fn ran_at(&self) -> &str {
         &self.ran_at

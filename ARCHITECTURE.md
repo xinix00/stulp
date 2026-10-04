@@ -189,22 +189,27 @@ confirmed by the controller before use. Existing Go PKCS#8/X.509 fabric state
 imports without replacing identity; corrupt state fails initialization.
 
 MRP, persistent IPv4/scoped-IPv6 UDP, chunked IM reads/writes/timed invokes,
-subscriptions and report watchdog/backoff run under the main protocol owner. Event
-markers are persisted before triggering Flows. Grouped color/level/power plans
+subscriptions and report watchdog/backoff run under each node's command owner (see
+below). Event markers are persisted before triggering Flows; the priming report of a
+new subscription advances the marker but starts no Flows, so a restore cannot replay
+buffered button presses. A live report's values and Flow triggers go out right after
+its StatusResponse; the MRP ACK of that response completes in the background. Grouped color/level/power plans
 and full-patch sensitivity validation match the Go logic. DAC/PAI and operational
 certificates are checked; compact operational certificates support Stulp's
 root/direct-NOC profile and reject unrepresentable signed TBS data.
 
 A bounded cooperative SDK job pump keeps heartbeats, local snapshots, progress,
-UI assets and cancellation responsive during protocol work. Eight additional scoped
-command owners keep independent CASE sessions: commands to one physical node are
-serialized, while commands to up to eight other nodes proceed at once. A node goes
-to the owner that served it last when that owner is free, so its session there is
-reused and each device keeps one command session. Lifecycle/settings barriers wait
-for active commands and prevent later commands from overtaking them. The main owner
-retains commissioning, fabric counters, subscriptions and background maintenance.
-Snapshots follow authoritative state revisions; no application state is shared behind
-a lock. Each scoped job uses a separate platform-seeded ChaCha20 entropy stream,
+UI assets and cancellation responsive during protocol work. Eight additional command
+owners each own a fixed share of the nodes (`jobs::pool::owner`, node id modulo
+eight): its subscription, reconnects and commands, over one CASE session per device,
+as the Go version shared one session per node. Commands to one node are serialized;
+commands to nodes of different owners proceed at once. A command preempts its
+owner's background reconnect work, which resumes later; reports are handled inline.
+Lifecycle/settings barriers wait for active commands and prevent later commands from
+overtaking them. The main owner retains commissioning, fabric counters, discovery and
+diagnostics. Owners follow the authoritative state through the controller's state
+events (usually one device) rather than full copies; no application state is shared
+behind a lock. Each scoped job uses a separate platform-seeded ChaCha20 entropy stream,
 rekeyed with fresh parent entropy, so nested jobs cannot exhaust a seed queue.
 A transport interruption ends all owners and forces reconnect. Cancelled discovery
 and hostname results are consumed without contaminating the next scan.
@@ -281,7 +286,7 @@ allowing the controller to proxy a plugin running in a separate slot.
 
 - The application now serves HTTPS and TLS attach. leantls
   does not implement every algorithm/version of Go's general TLS stack (see above).
-- Matter uses eight concurrent command owners as described above; real accessories
+- Matter uses eight node owners as described above; real accessories
   and the iOS provisioning path still require hardware validation.
 - IPv6 UDP, NDP, SLAAC and PIO/RIO routing are now ported into Lean and the
   HopOS SDK. Stulp uses IPv4/IPv6 mDNS, numeric IPv6 scopes and A/AAAA resolution.

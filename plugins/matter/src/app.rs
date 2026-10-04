@@ -1,6 +1,6 @@
 //! Draaiende Matter-plugin: UI en protocoltaken hebben afzonderlijke eigenaars.
 use crate::{
-    engine::Engine,
+    engine::{Engine, Scope},
     ui::{self, Job, Ui},
 };
 use stulp_core::json::{self, Value};
@@ -71,30 +71,12 @@ impl Gate for Background<'_> {
     }
 }
 
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_startup_callback_preempts_network_maintenance() {
-        let mut ui = Ui::default();
-        let mut gate = Background(&mut ui);
-        for method in ["app.init", "driver.init", "device.init"] {
-            assert!(matches!(
-                gate.handle(&json::object(), 0, method, &json::object())
-                    .unwrap(),
-                Action::Preempt
-            ));
-        }
-    }
-}
 impl Plugin for Matter {
     async fn serve<T: Transport>(&mut self, c: &mut Client<T>) -> Result {
         jobs::pool::serve(
             c,
             self,
-            core::array::from_fn(|_| Commands::default()),
+            core::array::from_fn(|i| Commands::new(i + 1)),
             Nodes,
         )
         .await
@@ -127,10 +109,12 @@ impl Plugin for Matter {
             "app.init" => {
                 crate::maintenance::upgrade(c).await?;
                 if self.engine.is_none() {
-                    self.engine = Some(
+                    let mut engine =
                         jobs::run(c, &mut self.ui, async |worker| Engine::open(worker).await)
-                            .await?,
-                    );
+                            .await?;
+                    // Abonnementen en commando's horen bij de vaste werker van elke node.
+                    engine.scope = Scope::Lifecycle;
+                    self.engine = Some(engine);
                 }
                 self.topology(c)?;
                 Ok(Value::Null)
@@ -493,9 +477,46 @@ impl jobs::pool::Key for Nodes {
         matches!(method, "app.init" | "device.settings" | "device.delete")
     }
 }
-#[derive(Default)]
+/// Een commandowerker bezit zijn nodes ([`jobs::pool::owner`]): hun abonnement,
+/// onderhoud en commando's, over één sessie per apparaat.
 struct Commands {
+    index: usize,
     engine: Option<Engine>,
+    /// Niet opnieuw proberen te openen vóór dit moment.
+    retry: u64,
+}
+impl Commands {
+    fn new(index: usize) -> Self {
+        Self {
+            index,
+            engine: None,
+            retry: 0,
+        }
+    }
+    async fn open<T: Transport>(&mut self, c: &mut Client<T>) -> Result<&mut Engine> {
+        if self.engine.is_none() {
+            let mut engine = Engine::open(c).await?;
+            engine.scope = Scope::Owner(self.index);
+            self.engine = Some(engine);
+        }
+        self.engine
+            .as_mut()
+            .ok_or(Error::Invalid("Matter command owner missing"))
+    }
+}
+/// Een commando gaat voor: het onderhoud van de werker stopt netjes en loopt
+/// later verder; de rest wacht tot het onderhoud klaar is.
+struct CommandsFirst;
+impl Gate for CommandsFirst {
+    fn handle(&mut self, _: &Value, _: u64, method: &str, _: &Value) -> Result<Action> {
+        Ok(
+            if matches!(method, "capability.invoke" | "capabilities.invoke") {
+                Action::Preempt
+            } else {
+                Action::Defer
+            },
+        )
+    }
 }
 impl Plugin for Commands {
     fn manifest(&self) -> &'static [u8] {
@@ -513,9 +534,7 @@ impl Plugin for Commands {
         if field(field(c.state().root(), "appState"), "fabric").is_null() {
             return Err(Error::Invalid("Matter fabric is not initialized"));
         }
-        if self.engine.is_none() {
-            self.engine = Some(Engine::open(c).await?);
-        }
+        self.open(c).await?;
         let mut values = json::object();
         if method == "capability.invoke" {
             json::set(
@@ -550,10 +569,81 @@ impl Plugin for Commands {
         }
     }
     async fn tick<T: Transport>(&mut self, c: &mut Client<T>) -> Result {
-        if let Some(engine) = &mut self.engine {
-            engine.sync(c.state().root(), c.now())?;
-            engine.network.tick(c)?;
+        if self.engine.is_none() {
+            if field(field(c.state().root(), "appState"), "fabric").is_null()
+                || c.now() < self.retry
+            {
+                return Ok(());
+            }
+            match self.open(c).await {
+                Ok(_) => (),
+                Err(Error::Core(e)) => return Err(Error::Core(e)),
+                Err(_) => {
+                    self.retry = c.now().saturating_add(10000);
+                    return Ok(());
+                }
+            }
+        }
+        let Some(engine) = self.engine.as_mut() else {
+            return Ok(());
+        };
+        if !engine.ready(c)? {
+            return Ok(());
+        }
+        // Rapporten direct: kort, en elke achtergrondtaak begint met een kopie
+        // van de hele staat (03-10: acht werkers die dat per rapport deden,
+        // hielden het plugin-slot op 11 tot 40% idle).
+        if engine.has_report() {
+            match engine.reports(c).await {
+                Ok(()) | Err(Error::Cancelled) => (),
+                Err(e) => return Err(e),
+            }
+        }
+        if engine.maintenance_due(c.now()) {
+            match jobs::run(c, &mut CommandsFirst, async |worker| {
+                engine.maintain(worker).await
+            })
+            .await
+            {
+                Ok(()) | Err(Error::Cancelled) => (),
+                Err(e) => return Err(e),
+            }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_startup_callback_preempts_network_maintenance() {
+        let mut ui = Ui::default();
+        let mut gate = Background(&mut ui);
+        for method in ["app.init", "driver.init", "device.init"] {
+            assert!(matches!(
+                gate.handle(&json::object(), 0, method, &json::object())
+                    .unwrap(),
+                Action::Preempt
+            ));
+        }
+    }
+
+    #[test]
+    fn a_command_preempts_worker_maintenance_and_the_rest_waits() {
+        let mut gate = CommandsFirst;
+        for (method, preempt) in [
+            ("capability.invoke", true),
+            ("capabilities.invoke", true),
+            ("device.init", false),
+        ] {
+            let action = gate
+                .handle(&json::object(), 0, method, &json::object())
+                .unwrap();
+            assert_eq!(matches!(action, Action::Preempt), preempt, "{method}");
+            assert!(matches!(action, Action::Preempt | Action::Defer));
+        }
     }
 }

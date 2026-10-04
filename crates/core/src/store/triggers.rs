@@ -50,6 +50,10 @@ impl<S: Storage> Store<S> {
         ])?;
         json::push(&mut self.triggers, event, MAX_TRIGGERS)
     }
+    /// Hoeveel events nog op de Flow-eigenaar wachten (voor zijn meting).
+    pub fn pending_triggers(&self) -> usize {
+        self.triggers.len()
+    }
     /// De Flow-eigenaar neemt één event over; geen schijfwrite en geen browserstate met geheimen.
     pub fn take_trigger(&mut self) -> Option<Value> {
         if self.triggers.is_empty() {

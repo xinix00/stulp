@@ -64,10 +64,20 @@ impl Node {
 /// De oudste vervallen deadline gaat voor; een vroege offline node mag latere nodes niet verdringen.
 /// De pauze tussen twee verbindingspogingen; zie [`Engine::settle`].
 const SETTLE_MS: u64 = 250;
+#[cfg(test)]
 fn next_node(nodes: &[Node], now: u64, route: u64) -> Option<usize> {
+    next_node_where(nodes, now, route, |_| true)
+}
+fn next_node_where(
+    nodes: &[Node],
+    now: u64,
+    route: u64,
+    keep: impl Fn(&Node) -> bool,
+) -> Option<usize> {
     nodes
         .iter()
         .enumerate()
+        .filter(|(_, node)| keep(node))
         .filter_map(|(index, node)| {
             let deadline = if node.subscription.is_some() {
                 node.expires
@@ -79,9 +89,27 @@ fn next_node(nodes: &[Node], now: u64, route: u64) -> Option<usize> {
         .min_by_key(|(_, deadline)| *deadline)
         .map(|(index, _)| index)
 }
+/// Welke nodes een engine onderhoudt (abonnement, model, herverbinden).
+///
+/// Sinds 03-10 hoort elke node bij één vaste commandowerker
+/// ([`jobs::pool::owner`]), die zowel het abonnement als de commando's doet:
+/// één CASE-sessie per apparaat, zoals de Go-versie. Daarvoor deed de
+/// hoofdwerker het onderhoud en had elke commandowerker eigen sessies, zodat
+/// het eerste commando naar een lamp op een werker eerst een handshake van
+/// 0,7 tot 1,7 s deed, en de apparaten elkaars sessies verdrongen.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Scope {
+    /// Alles, met discovery (tests en een plugin zonder pool).
+    All,
+    /// De hoofdwerker: discovery en levenscyclus, geen abonnementen.
+    Lifecycle,
+    /// Commandowerker `k`: abonnementen en commando's van zijn eigen nodes.
+    Owner(usize),
+}
 pub(crate) struct Engine {
     pub(crate) fabric: Fabric,
     pub(crate) network: Network,
+    pub(crate) scope: Scope,
     nodes: Vec<Node>,
     next_discovery: u64,
     /// Niet vóór dit moment aan de volgende node beginnen: tussen twee
@@ -89,6 +117,19 @@ pub(crate) struct Engine {
     settle: u64,
     pending: Option<Event>,
     route: crate::route::Recovery,
+}
+fn maintains(scope: Scope, node: u64) -> bool {
+    match scope {
+        Scope::All => true,
+        Scope::Lifecycle => false,
+        Scope::Owner(k) => stulp_sdk::jobs::pool::owner(node) == k,
+    }
+}
+impl Engine {
+    /// Alleen de hoofdwerker zoekt adressen; de werkers lezen ze uit de staat.
+    fn discovers(&self) -> bool {
+        !matches!(self.scope, Scope::Owner(_))
+    }
 }
 pub(crate) fn node_id(d: &Value) -> Result<u64> {
     u64::from_str_radix(json::text(field(d, "store"), "matter.nodeId"), 16)
@@ -214,6 +255,7 @@ impl Engine {
         Ok(Self {
             fabric: Fabric::load(c).await?,
             network: Network::open(c).await?,
+            scope: Scope::All,
             nodes: Vec::new(),
             next_discovery: c.now().saturating_add(1000),
             settle: 0,
@@ -286,19 +328,31 @@ impl Engine {
                     self.network.acknowledge(c, h)?;
                     self.network.close(h);
                 }
-                _ => (),
+                // De StatusResponse van een rapport is bevestigd of opgegeven.
+                Event::Acknowledged(h, _) | Event::Failed(h) => self.network.close(h),
             }
         }
-        let now = c.now();
-        Ok(self.pending.is_some()
-            || (!self.nodes.is_empty() && now >= self.next_discovery)
-            || self.nodes.iter().any(|n| {
-                if n.subscription.is_some() {
-                    now >= n.expires
-                } else {
-                    now >= n.next.max(self.route.next)
-                }
-            }))
+        Ok(self.pending.is_some() || self.maintenance_due(c.now()))
+    }
+    /// Een rapport wacht op verwerking (gevuld door [`Engine::ready`]).
+    pub(crate) fn has_report(&self) -> bool {
+        self.pending.is_some()
+    }
+    /// Discovery, of een eigen node die (opnieuw) verbonden of geabonneerd moet worden.
+    pub(crate) fn maintenance_due(&self, now: u64) -> bool {
+        let scope = self.scope;
+        (self.discovers() && !self.nodes.is_empty() && now >= self.next_discovery)
+            || self
+                .nodes
+                .iter()
+                .filter(|n| maintains(scope, n.id))
+                .any(|n| {
+                    if n.subscription.is_some() {
+                        now >= n.expires
+                    } else {
+                        now >= n.next.max(self.route.next)
+                    }
+                })
     }
     pub(crate) async fn browse<T: Transport>(
         &mut self,
@@ -569,7 +623,14 @@ impl Engine {
         if plan.commands.is_empty() {
             return Ok(plan.errors);
         }
+        let start = c.now();
+        let node = node_id(&device)?;
+        let handshake = !self
+            .nodes
+            .iter()
+            .any(|n| n.id == node && n.session.is_some());
         let connection = self.connect(c, &device).await;
+        let connected = c.now();
         let (index, session, address) = match connection {
             Ok(v) => v,
             Err(e) => {
@@ -586,7 +647,9 @@ impl Engine {
             }
         };
         let mut failed = None;
+        let (mut invoke_ms, mut report_ms) = (0, 0);
         for p in plan.commands {
+            let sent = c.now();
             let result = if failed.is_some() {
                 Err(Error::Transport("Matter session failed"))
             } else {
@@ -601,10 +664,13 @@ impl Engine {
                 )
                 .await
             };
+            let answered = c.now();
+            invoke_ms += answered.saturating_sub(sent);
             match result {
                 Ok(()) => {
                     c.values(id, p.values).await?;
                     c.available(id, true).await?;
+                    report_ms += c.now().saturating_sub(answered);
                 }
                 Err(e) => {
                     if failed.is_none() {
@@ -619,9 +685,23 @@ impl Engine {
                 }
             }
         }
-        if let Some(error) = failed {
+        if let Some(error) = &failed {
             self.expire(index, c.now())?;
-            c.unavailable(id, &error).await?;
+            c.unavailable(id, error).await?;
+        }
+        // Waar de tijd van een lampcommando zit: handshake (connect), het
+        // Matter-bericht heen en terug (invoke), en het melden aan Stulp (report).
+        let mut line = String::new();
+        if line.try_reserve(160).is_ok() {
+            let _ = write!(
+                line,
+                "MATTER_COMMAND node={node:016X} handshake={} connect_ms={} invoke_ms={invoke_ms} report_ms={report_ms} total_ms={}{}",
+                u8::from(handshake),
+                connected.saturating_sub(start),
+                c.now().saturating_sub(start),
+                if failed.is_some() { " failed" } else { "" }
+            );
+            c.log("info", &line)?;
         }
         Ok(plan.errors)
     }
@@ -782,12 +862,19 @@ impl Engine {
         }
         Ok(Value::Null)
     }
+    /// Werkt de apparaten bij en start hun flowtriggers; geeft het aantal
+    /// gestarte triggers. `flows` is onwaar voor het eerste rapport van een
+    /// abonnement: dat speelt de eventbuffer van het apparaat af, met
+    /// knopdrukken van voor de (her)start. De eventmarker schuift wel op.
+    /// (03-10: na een restore wisselde "knop 2" vijftien keer een lamp.)
     async fn publish<T: Transport>(
         &mut self,
         c: &mut Client<T>,
         node: u64,
         reports: &Reports,
-    ) -> Result {
+        flows: bool,
+    ) -> Result<usize> {
+        let mut started = 0;
         for d in node_devices(c.state().root(), node)? {
             let id = json::text(&d, "id");
             if let Some(update) = reports::apply(&d, reports)? {
@@ -800,7 +887,8 @@ impl Engine {
                         .await?;
                 }
                 c.values(id, clone(field(&update.device, "state"))?).await?;
-                for event in update.events {
+                for event in update.events.into_iter().filter(|_| flows) {
+                    started += 1;
                     c.call(
                         "flow.trigger",
                         &json::fields(&[
@@ -818,15 +906,25 @@ impl Engine {
                 c.available(id, true).await?;
             }
         }
-        Ok(())
+        Ok(started)
     }
     pub(crate) async fn tick<T: Transport>(&mut self, c: &mut Client<T>) -> Result {
+        self.reports(c).await?;
+        self.maintain(c).await
+    }
+    /// Verwerkt binnengekomen rapporten: kort werk, dat een werker direct doet,
+    /// zonder achtergrondtaak (die begint met een kopie van de hele staat).
+    pub(crate) async fn reports<T: Transport>(&mut self, c: &mut Client<T>) -> Result {
         self.sync(c.state().root(), c.now())?;
         self.network.tick(c)?;
         for _ in 0..16 {
             let Some(event) = self.pending.take().or_else(|| self.network.event()) else {
                 break;
             };
+            if let Event::Acknowledged(h, _) | Event::Failed(h) = event {
+                self.network.close(h);
+                continue;
+            }
             if let Event::Accepted(h) = event {
                 let (_, session, protocol, _) = self.network.peer(h)?;
                 let owner = self
@@ -839,6 +937,7 @@ impl Engine {
                     continue;
                 }
                 let i = owner.ok_or(Error::Invalid("subscription owner"))?;
+                let report0 = c.now();
                 let id = self.nodes[i]
                     .subscription
                     .ok_or(Error::Invalid("subscription id"))?;
@@ -853,7 +952,24 @@ impl Engine {
                 match result {
                     Ok(r) => {
                         self.nodes[i].expires = c.now().saturating_add(self.nodes[i].next);
-                        self.publish(c, self.nodes[i].id, &r).await?;
+                        let received = c.now();
+                        let started = self.publish(c, self.nodes[i].id, &r, true).await?;
+                        // De sensorkant van "beweging naar lamp": ontvangen en
+                        // doorgegeven, tot en met de flowtrigger naar Stulp.
+                        let total = c.now().saturating_sub(report0);
+                        if started > 0 || total >= 500 {
+                            let mut line = String::new();
+                            if line.try_reserve(128).is_ok() {
+                                let _ = write!(
+                                    line,
+                                    "MATTER_REPORT node={:016X} triggers={started} receive_ms={} publish_ms={} total_ms={total}",
+                                    self.nodes[i].id,
+                                    received.saturating_sub(report0),
+                                    c.now().saturating_sub(received),
+                                );
+                                c.log("info", &line)?;
+                            }
+                        }
                     }
                     Err(Error::Cancelled) => return Err(Error::Cancelled),
                     Err(Error::Core(e)) => return Err(Error::Core(e)),
@@ -861,7 +977,12 @@ impl Engine {
                 }
             }
         }
-        if !self.nodes.is_empty() && c.now() >= self.next_discovery {
+        Ok(())
+    }
+    /// Discovery en (her)verbinden van de eigen nodes: lang werk met handshakes,
+    /// dat bij een werker in een afbreekbare achtergrondtaak loopt.
+    pub(crate) async fn maintain<T: Transport>(&mut self, c: &mut Client<T>) -> Result {
+        if self.discovers() && !self.nodes.is_empty() && c.now() >= self.next_discovery {
             self.next_discovery = c.now().saturating_add(300000);
             match self.browse(c, &[discovery::OPERATIONAL], 4000).await {
                 Ok(nodes) => self.refresh(c, &nodes).await?,
@@ -875,7 +996,10 @@ impl Engine {
         if now < self.settle {
             return Ok(());
         }
-        let Some(i) = next_node(&self.nodes, now, self.route.next) else {
+        let scope = self.scope;
+        let Some(i) = next_node_where(&self.nodes, now, self.route.next, |n| {
+            maintains(scope, n.id)
+        }) else {
             return Ok(());
         };
         self.settle = now.saturating_add(SETTLE_MS);
@@ -971,7 +1095,7 @@ impl Engine {
                 self.nodes[i].expires = c.now().saturating_add(self.nodes[i].next);
                 self.nodes[i].backoff = 1000;
                 self.nodes[i].reachable(c.now());
-                self.publish(c, self.nodes[i].id, &s.reports).await?;
+                self.publish(c, self.nodes[i].id, &s.reports, false).await?;
             }
             Err(Error::Core(e)) => return Err(Error::Core(e)),
             Err(e) => {
@@ -1129,6 +1253,27 @@ mod address_tests {
             model_failures: 0,
             failures: 0,
         }
+    }
+    #[test]
+    fn each_node_is_maintained_by_exactly_one_command_worker() {
+        let nodes: Vec<_> = (0x10000..0x10030).map(offline).collect();
+        for node in &nodes {
+            let owners: Vec<_> = (1..=stulp_sdk::jobs::pool::COMMAND_WORKERS)
+                .filter(|k| maintains(Scope::Owner(*k), node.id))
+                .collect();
+            assert_eq!(owners, [stulp_sdk::jobs::pool::owner(node.id)]);
+            assert!(!maintains(Scope::Lifecycle, node.id));
+            assert!(maintains(Scope::All, node.id));
+        }
+        // Een werker kiest alleen uit zijn eigen nodes; de hoofdwerker uit geen.
+        let k = stulp_sdk::jobs::pool::owner(nodes[3].id);
+        let picked =
+            next_node_where(&nodes, 2000, 0, |n| maintains(Scope::Owner(k), n.id)).unwrap();
+        assert_eq!(stulp_sdk::jobs::pool::owner(nodes[picked].id), k);
+        assert_eq!(
+            next_node_where(&nodes, 2000, 0, |n| maintains(Scope::Lifecycle, n.id)),
+            None
+        );
     }
     #[test]
     fn slow_offline_nodes_do_not_starve_the_rest_of_a_restored_home() {

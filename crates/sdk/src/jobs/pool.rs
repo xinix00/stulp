@@ -5,12 +5,18 @@ use alloc::boxed::Box;
 use core::{future::Future, pin::Pin, task::Poll};
 /// Commando's naar verschillende nodes lopen tegelijk, tot dit aantal. Twee was
 /// te weinig: vier lampen gingen in twee golven, terwijl de grote core van de
-/// LicheeRV nauwelijks iets deed (03-10). Acht dekt een scène in één golf; de
-/// affiniteit houdt elke node bij één werker, dus één sessie per apparaat.
+/// LicheeRV nauwelijks iets deed (03-10). Acht dekt een scène grotendeels in
+/// één golf.
 pub const COMMAND_WORKERS: usize = 8;
 const OWNERS: usize = COMMAND_WORKERS + 1;
-/// Zoveel nodes onthoudt de pool bij welke werker ze het laatst waren.
-const AFFINITY: usize = 256;
+/// De vaste werker van een sleutel. Een node hoort altijd bij dezelfde werker,
+/// zodat de plugin daar één sessie per apparaat kan houden (en er bijvoorbeeld
+/// ook het abonnement kan onderhouden). Tot 03-10 ging een node naar de laatste
+/// werker als die vrij was, anders naar een andere, die dan eerst een eigen
+/// Matter-handshake van 0,7 tot 1,7 s deed: de Go-versie deelde er één.
+pub fn owner(key: u64) -> usize {
+    1 + (key % COMMAND_WORKERS as u64) as usize
+}
 /// Route device operations by physical-node identity. None retains the main plugin's handling.
 pub trait Key {
     /// Identical keys are never executed concurrently, even for different logical endpoints.
@@ -98,9 +104,9 @@ async fn fan_out<T: Transport>(
     Ok(())
 }
 /// Serve lifecycle/UI and up to [`COMMAND_WORKERS`] physical nodes at once on
-/// the same executor. A node goes to the worker that served it last when that
-/// one is free, so its session there is reused instead of a new handshake.
-/// No command is canceled or replayed to make room for another node.
+/// the same executor. A node always goes to its [`owner`] worker, so the plugin
+/// keeps one session per device there. No command is canceled or replayed to
+/// make room for another node.
 pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
     c: &mut Client<T>,
     main: &mut P,
@@ -151,8 +157,6 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
     let mut command_clients = clients;
     let pump = async {
         let mut leases: [Option<Lease>; OWNERS] = core::array::from_fn(|_| None);
-        // Per node de werker die hem het laatst bediende (en dus zijn sessie heeft).
-        let mut affinity: VecDeque<(u64, usize)> = VecDeque::new();
         // De revisie van de staat die elke werker het laatst kreeg. Een kopie
         // van de staat is het hele huisdocument naar JSON en terug; tot 03-10
         // ging die vóór elke callback naar de werker en bij elke wijziging
@@ -321,25 +325,16 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
                         at += 1;
                         continue;
                     }
-                    let affine = affinity.iter().find(|(n, _)| *n == node).map(|(_, w)| *w);
-                    let worker = affine
-                        .filter(|w| leases[*w].is_none())
-                        .or_else(|| (1..OWNERS).find(|i| leases[*i].is_none()));
-                    let Some(worker) = worker else {
+                    let worker = owner(node);
+                    if leases[worker].is_some() {
                         at += 1;
                         continue;
-                    };
+                    }
                     let frame = pending.remove(at);
                     leases[worker] = Some(Lease {
                         request: frame.id,
                         key: node,
                     });
-                    affinity.retain(|(n, _)| *n != node);
-                    if affinity.len() >= AFFINITY {
-                        affinity.pop_front();
-                    }
-                    reserve(&mut affinity)?;
-                    affinity.push_back((node, worker));
                     if sent[worker] != c.state.revision {
                         snapshot(c, &mut writers[worker]).await?;
                         sent[worker] = c.state.revision;

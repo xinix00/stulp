@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-leancookie = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.5" }
+leancookie = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.9" }
 stulp-sdk = { path = "../../crates/sdk" }
 stulp-core = { path = "../../crates/core" }
 stulp-plugin-host = { path = "../../crates/plugin-host", optional = true }

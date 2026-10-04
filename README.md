@@ -71,13 +71,13 @@ already in the house.
 | `crates/webpush` | VAPID and encrypted Web Push, with vendored crypto |
 | `crates/hopos`, `hopos-app`, `hopos-plugins` | the HopOS slot controller, its image and the per-plugin and all-plugins images |
 | `plugins/<name>` | one app each: Rust source next to its `app.json`, settings pages and pair views |
-| `vendor/applib` | the pinned HopOS SDK overlay (see `vendor/PROVENANCE.md`) |
+| `vendor/types` | Hop's `types` with in-place JSON edits (see `vendor/PROVENANCE.md`) |
 | `tests/` | process, media and QEMU tests against the real binaries |
 
 ## Building and running
 
-Rust 1.93.0 is pinned in `rust-toolchain.toml`; the Lean network stack is read
-from the sibling checkout `../lean/leannet`, so keep Lean next to Stulp.
+Rust 1.93.0 is pinned in `rust-toolchain.toml`. HopOS, Lean and Hop come from
+their tagged releases; no sibling checkout is needed.
 
 ```sh
 ./build.sh

@@ -77,9 +77,6 @@ lto = true
 codegen-units = 1
 debug = true
 
-# Reproducible IPv6 SDK overlay until the upstream releases include it.
-[patch."https://github.com/xinix00/HopOS.git"]
-applib = { path = "vendor/applib" }
 # Hop's types op dezelfde tag, met wijzigen ter plekke (vendor/PROVENANCE.md).
 [patch."https://github.com/xinix00/hop.git"]
 types = { path = "vendor/types" }

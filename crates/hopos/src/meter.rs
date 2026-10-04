@@ -48,8 +48,8 @@ impl Meter {
         let u = |v: usize| u64::try_from(v).unwrap_or(u64::MAX);
         Snapshot {
             at_ns: applib::clock::now_ns(),
-            idle: app.idle_ticks(),
-            wakes: app.wakes(),
+            idle: app.ctrl().idle_ticks(),
+            wakes: app.ctrl().idle_rounds(),
             tx_drops: applib::net::TX_DROPS.load(Relaxed),
             tx_waits: applib::net::TX_WAITS.load(Relaxed),
             retrans: stats.as_ref().map_or(0, |s| u(s.tcp_retransmits)),

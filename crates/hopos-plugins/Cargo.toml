@@ -10,7 +10,7 @@ build = "build.rs"
 [dependencies]
 stulp-hopos = { path = "../hopos" }
 stulp-core = { path = "../core" }
-applib = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.0-alpha.18" }
+applib = { git = "https://github.com/xinix00/HopOS.git", tag = "v3.0.10" }
 
 stulp-virtualdevices = { path = "../../plugins/virtualdevices", default-features = false }
 stulp-weather = { path = "../../plugins/weather", default-features = false }

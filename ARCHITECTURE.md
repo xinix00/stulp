@@ -17,10 +17,9 @@ the provider's live lockout must expire before connectivity can be confirmed.
 
 ## Build and run
 
-Rust 1.93.0 / edition 2024 is pinned. Hop, Lean and HopOS sync dependencies use
-tagged git revisions in `Cargo.lock`; the IPv6 SDK overlay is pinned by local
-source hashes in `vendor/PROVENANCE.md`. The SDK uses `../lean/leannet`
-from the sibling Lean checkout directly, without a netstack copy in Stulp. No Tokio,
+Rust 1.93.0 / edition 2024 is pinned. Hop, Lean (v3.1.9) and HopOS (v3.0.10)
+dependencies use tagged git revisions in `Cargo.lock`; the only source overlay
+(Hop's `types`) is pinned by local source hashes in `vendor/PROVENANCE.md`. No Tokio,
 SQLite, Arc or application mutex. Logic crates use `no_std`, fallible allocation
 and forbid unsafe code. `stulp-platform` isolates the host's checked libc ABI
 calls. Pinned, vendored crypto provenance is in `crates/webpush/PROVENANCE.md`.
@@ -550,12 +549,9 @@ options or hop limits still cannot populate the neighbor cache. The regression
 test is `thread_route_without_sllao_learns_validated_ethernet_neighbor` in the
 shared Lean checkout; include that fix when building this plugin pack.
 
-`vendor/applib` keeps the alpha.18 SDK plus the IPv6/AAAA additions. Its
-network dependency uses the sibling `haas.software/lean/leannet` checkout, just
-like the shared HopOS tree. Keep Lean next to Stulp and HopOS when building;
-there is only one netstack source tree. `check` validates the SDK snapshot hashes
-and runs the SDK and Lean dependency suites. See `vendor/PROVENANCE.md`
-before replacing the SDK overlay and local Lean dependency with upstream tags.
+The HopOS SDK (`applib`, v3.0.10) brings the IPv6 lane itself: leannet v3.1.9 with
+its `ipv6` feature. Stulp no longer carries an SDK copy or reads Lean from a sibling
+checkout; the SDK and netstack suites run in their own repositories.
 
 `./build.sh qemu-ipv6` starts two disposable HopOS slots and proves NDP,
 link-local unicast and `ff02::fb` multicast through the actual switch and SDK.

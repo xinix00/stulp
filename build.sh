@@ -86,7 +86,6 @@ case "${1:-build}" in
         ;;
     check)
         python3 tests/vendor_check.py
-        cargo test --locked -p applib -p leannet --lib
         cargo fmt --all --check
         cargo clippy --locked --workspace --all-targets -- -D warnings
         cargo test --locked --workspace

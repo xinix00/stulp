@@ -16,7 +16,7 @@ stulp-protocol = { path = "../protocol" }
 
 stulp-web = { path = "../web" }
 hostnet = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }
-leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.5" }
+leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.9" }
 
 stulp-runtime = { path = "../runtime" }
 

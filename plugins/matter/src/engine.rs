@@ -110,6 +110,8 @@ pub(crate) struct Engine {
     pub(crate) fabric: Fabric,
     pub(crate) network: Network,
     pub(crate) scope: Scope,
+    /// De staatrevisie van de laatste [`Engine::sync`] vanuit een tick.
+    synced: Option<u64>,
     nodes: Vec<Node>,
     next_discovery: u64,
     /// Niet vóór dit moment aan de volgende node beginnen: tussen twee
@@ -256,12 +258,25 @@ impl Engine {
             fabric: Fabric::load(c).await?,
             network: Network::open(c).await?,
             scope: Scope::All,
+            synced: None,
             nodes: Vec::new(),
             next_discovery: c.now().saturating_add(1000),
             settle: 0,
             pending: None,
             route: crate::route::Recovery::default(),
         })
+    }
+    /// [`Engine::sync`] alleen als de staat veranderde. Een tick liep eerder bij
+    /// elke ronde alle apparaten langs, en sinds er negen engines zijn (de
+    /// hoofdwerker en acht node-eigenaren) kostte dat het plugin-slot een
+    /// flink deel van zijn tijd (04-10).
+    fn follow<T: Transport>(&mut self, c: &Client<T>) -> Result {
+        let revision = c.state().revision();
+        if self.synced != Some(revision) {
+            self.sync(c.state().root(), c.now())?;
+            self.synced = Some(revision);
+        }
+        Ok(())
     }
     pub(crate) fn sync(&mut self, root: &Value, now: u64) -> Result {
         let mut wanted = Vec::new();
@@ -313,7 +328,7 @@ impl Engine {
         Ok(())
     }
     pub(crate) fn ready<T: Transport>(&mut self, c: &mut Client<T>) -> Result<bool> {
-        self.sync(c.state().root(), c.now())?;
+        self.follow(c)?;
         self.network.tick(c)?;
         for _ in 0..16 {
             if self.pending.is_some() {
@@ -915,7 +930,7 @@ impl Engine {
     /// Verwerkt binnengekomen rapporten: kort werk, dat een werker direct doet,
     /// zonder achtergrondtaak (die begint met een kopie van de hele staat).
     pub(crate) async fn reports<T: Transport>(&mut self, c: &mut Client<T>) -> Result {
-        self.sync(c.state().root(), c.now())?;
+        self.follow(c)?;
         self.network.tick(c)?;
         for _ in 0..16 {
             let Some(event) = self.pending.take().or_else(|| self.network.event()) else {

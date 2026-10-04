@@ -333,6 +333,11 @@ impl State {
     pub fn root(&self) -> &Value {
         &self.root
     }
+    /// Telt elke wijziging van de staat: wie iets van de staat afleidt, hoeft
+    /// dat alleen opnieuw te doen als dit getal veranderde.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
     /// Leest één apparaat zonder een RPC of een kopie.
     pub fn device(&self, id: &str) -> Result<&Value> {
         json::get(&self.root, "devices")

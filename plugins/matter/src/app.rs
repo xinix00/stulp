@@ -17,6 +17,8 @@ pub struct Matter {
     /// Geen achtergrondonderhoud vóór dit moment: zolang de controller
     /// app.init, driver.init en device.init stuurt, is de start bezig.
     quiet_until: u64,
+    /// Staatrevisie en wandklok van de laatst berekende topologie.
+    topology_at: Option<(u64, u64)>,
 }
 /// Zoveel stilte na de laatste startcallback voordat het onderhoud begint.
 ///
@@ -27,16 +29,29 @@ pub struct Matter {
 /// (137 van 173 handshakes op de LicheeRV), zodat geen node ooit verbonden
 /// raakte en de apparaten kwamen en gingen.
 const STARTUP_QUIET_MS: u64 = 3000;
+/// Zo vaak ververst de topologie zonder staatwijziging (voor "laatst gezien").
+const TOPOLOGY_SECONDS: u64 = 5;
 impl Matter {
     fn engine(&mut self) -> Result<&mut Engine> {
         self.engine
             .as_mut()
             .ok_or(Error::Invalid("Matter-controller is niet gestart."))
     }
+    /// De mesh-topologie voor de UI: alleen opnieuw als de staat veranderde, of
+    /// elke paar seconden voor de leeftijden. Tot 04-10 werd hij bij elke tick
+    /// gebouwd, met per node een kopie van al zijn apparaten.
     fn topology<T: Transport>(&mut self, c: &Client<T>) -> Result {
+        let (revision, wall) = (c.state().revision(), c.wall_time()?);
+        if self
+            .topology_at
+            .is_some_and(|(r, w)| r == revision && wall < w.saturating_add(TOPOLOGY_SECONDS))
+        {
+            return Ok(());
+        }
         if let Some(e) = &mut self.engine {
             e.sync(c.state().root(), c.now())?;
-            self.ui.topology = e.topology(c.state().root(), c.wall_time()?)?;
+            self.ui.topology = e.topology(c.state().root(), wall)?;
+            self.topology_at = Some((revision, wall));
         }
         Ok(())
     }

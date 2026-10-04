@@ -122,7 +122,7 @@ impl Run {
             return Ok(Effect::Finished);
         }
         if now >= self.deadline {
-            self.fail("flow execution timed out")?;
+            self.stop("flow execution timed out")?;
             return Ok(Effect::Finished);
         }
         if let Some(wake) = self.wake {
@@ -150,7 +150,11 @@ impl Run {
             Ok(effect) => Ok(effect),
             Err(error) => {
                 self.fail(&error_text(&error)?)?;
-                Ok(Effect::Finished)
+                Ok(if self.done {
+                    Effect::Finished
+                } else {
+                    Effect::Waiting
+                })
             }
         }
     }
@@ -209,11 +213,11 @@ impl Run {
             return Ok(());
         }
         if now >= self.deadline {
-            return self.fail("flow execution timed out");
+            return self.stop("flow execution timed out");
         }
         if let Some(id) = self.filtering.take() {
             let Some(passed) = value.as_bool() else {
-                return self.fail("flow trigger filter did not return a boolean");
+                return self.stop("flow trigger filter did not return a boolean");
             };
             if passed {
                 json::push(&mut self.starts, id, MAX_NODES)?;
@@ -229,7 +233,7 @@ impl Run {
         let raw = if condition {
             match value.as_bool() {
                 Some(value) => value,
-                None => return self.fail("flow condition did not return a boolean"),
+                None => return self.stop("flow condition did not return a boolean"),
             }
         } else {
             true
@@ -252,8 +256,33 @@ impl Run {
         Ok(())
     }
 
-    /// Bewaart ook de mislukte kaart in het resultaat; latere callbacks doen niets.
+    /// De wachtende kaart mislukte. Een actie bewaart haar fout en stopt alleen haar
+    /// eigen tak: acties op andere takken draaien nog, zoals Homey dat doet. Een
+    /// mislukte trigger-filter of condition stopt de volledige run.
     pub fn fail(&mut self, message: &str) -> Result {
+        if self.done {
+            return Ok(());
+        }
+        let filtering = self.filtering.is_some();
+        let Some(step) = self
+            .waiting
+            .take_if(|step| !filtering && json::text(step, "cardType") == "action")
+        else {
+            return self.stop(message);
+        };
+        let mut result = step_result(&step)?;
+        json::set(&mut result, "error", json::string(message)?)?;
+        self.execution.skip()?;
+        self.wake = None;
+        self.actions.push(result);
+        if self.error.is_empty() {
+            self.error = json::copy(message)?;
+        }
+        Ok(())
+    }
+
+    /// Beëindigt de run, met de wachtende kaart in het resultaat; latere callbacks doen niets.
+    pub fn stop(&mut self, message: &str) -> Result {
         if self.done {
             return Ok(());
         }

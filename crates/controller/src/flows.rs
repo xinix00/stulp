@@ -289,16 +289,12 @@ fn advance<S: Storage, R: Reply>(
             params,
         } => {
             job.capability = method == "capability.invoke";
-            if app == "com.stulp.scene" && method == "capability.invoke" {
-                let id = json::text(&params, "deviceId")
-                    .strip_prefix("scene:")
-                    .ok_or(Error::Invalid("invalid scene device"))?;
-                let on = json::get(&params, "value")
-                    .and_then(Value::as_bool)
-                    .ok_or(Error::Invalid("scene value must be boolean"))?;
-                scenes.submit(id, on, now, None, Some(job.owner))?;
-            } else {
-                apps.call(&app, job.owner, method, &params)?;
+            // Een actie die niet te versturen is mislukt als kaart: de andere takken lopen door.
+            if let Err(error) = call(&app, method, &params, job.owner, apps, now, scenes) {
+                apps.log(format_args!(
+                    "[stulp:flow] card failed app={app} method={method}: {error}"
+                ));
+                job.run.fail(&stulp_runtime::flows::error_text(&error)?)?;
             }
         }
         Effect::Notification(excerpt) => {
@@ -317,6 +313,28 @@ fn advance<S: Storage, R: Reply>(
         }
     }
     Ok(false)
+}
+
+fn call<R: Reply>(
+    app: &str,
+    method: &str,
+    params: &Value,
+    owner: u64,
+    apps: &mut dyn crate::Apps,
+    now: u64,
+    scenes: &mut crate::scenes::Scenes<R>,
+) -> Result {
+    if app == "com.stulp.scene" && method == "capability.invoke" {
+        let id = json::text(params, "deviceId")
+            .strip_prefix("scene:")
+            .ok_or(Error::Invalid("invalid scene device"))?;
+        let on = json::get(params, "value")
+            .and_then(Value::as_bool)
+            .ok_or(Error::Invalid("scene value must be boolean"))?;
+        scenes.submit(id, on, now, None, Some(owner))
+    } else {
+        apps.call(app, owner, method, params)
+    }
 }
 
 fn finish<S: Storage>(run: &Run, store: &mut Store<S>, env: &impl Environment) -> Result<Response> {

@@ -210,6 +210,17 @@ impl Execution {
         Ok(Some(nodes.get(index).ok_or(Error::Changed)?))
     }
 
+    /// Een mislukte actie stopt alleen haar eigen tak, net als een false condition:
+    /// haar opvolgers starten niet, maar zusterkaarten en gedeelde opvolgers wel.
+    pub fn skip(&mut self) -> Result {
+        let index = self
+            .waiting
+            .take()
+            .ok_or(Error::Conflict("no flow callback pending"))?;
+        *self.visited.get_mut(index).ok_or(Error::Full)? = true;
+        Ok(())
+    }
+
     /// Een false condition stopt alleen zijn eigen tak; een gedeelde opvolger draait eenmaal.
     pub fn complete(&mut self, flow: &Value, passed: bool) -> Result {
         let index = self

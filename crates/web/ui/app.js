@@ -49,6 +49,67 @@ function node(tag, className, text) {
   if (text !== undefined) result.textContent = text;
   return result;
 }
+// Bijwerken in plaats van vervangen. Een live-update laat elk element staan
+// dat er al was en past alleen aan wat verschilt: een knop onder je vinger
+// blijft dezelfde knop (anders kwam de klik nergens aan, 03-10), een
+// camerabeeld laadt niet opnieuw, en een veld waarin je typt houdt je invoer.
+// Handlers gaan via on(): het blijvende element krijgt de handler van de
+// nieuwste weergave. Een handler pakt zijn elementen daarom via het event,
+// niet via een variabele uit de weergave die misschien niet in de pagina kwam.
+function on(element, type, handler) {
+  if (!element.handlers) element.handlers = {};
+  if (!(type in element.handlers)) element.addEventListener(type, event => element.handlers[type]?.(event));
+  element.handlers[type] = handler;
+}
+// Kinderen met een sleutel volgen hun sleutel (een kaart die verschuift blijft
+// dezelfde kaart); de rest volgt zijn plaats.
+function patchKey(child) {
+  const data = child.dataset;
+  if (!data) return '';
+  if (data.deviceId !== undefined) return `device:${data.deviceId}`;
+  if (data.groupId !== undefined) return `group:${data.groupId}`;
+  return data.key ? `key:${data.key}` : '';
+}
+function patch(current, fresh) {
+  if (current.nodeType !== fresh.nodeType || current.nodeName !== fresh.nodeName || patchKey(current) !== patchKey(fresh)) {
+    current.replaceWith(fresh);
+    return;
+  }
+  if (current.nodeType !== Node.ELEMENT_NODE) {
+    if (current.nodeValue !== fresh.nodeValue) current.nodeValue = fresh.nodeValue;
+    return;
+  }
+  // Een blok dat zichzelf beheert (een camerabeeld) blijft zoals het is.
+  if (fresh.dataset.keep) return;
+  for (const { name } of [...current.attributes]) if (!fresh.hasAttribute(name)) current.removeAttribute(name);
+  for (const { name, value } of fresh.attributes) if (current.getAttribute(name) !== value) current.setAttribute(name, value);
+  for (const type of Object.keys(current.handlers || {})) if (!fresh.handlers?.[type]) current.handlers[type] = null;
+  for (const [type, handler] of Object.entries(fresh.handlers || {})) on(current, type, handler);
+  patchChildren(current, fresh);
+  // Na de kinderen, zodat een select zijn opties al heeft. Wie in een veld
+  // typt of aan een schuif trekt, houdt zijn eigen waarde.
+  if ((current instanceof HTMLInputElement || current instanceof HTMLSelectElement) && current !== document.activeElement) {
+    if (current.value !== fresh.value) current.value = fresh.value;
+    if (current.checked !== fresh.checked) current.checked = fresh.checked;
+  }
+}
+function patchChildren(parent, fresh) {
+  const keyed = new Map();
+  for (const child of parent.childNodes) {
+    const key = patchKey(child);
+    if (key) keyed.set(key, child);
+  }
+  const wanted = [...fresh.childNodes];
+  wanted.forEach((want, index) => {
+    const at = parent.childNodes[index] || null;
+    const key = patchKey(want);
+    const existing = key ? keyed.get(key) : at && !patchKey(at) ? at : null;
+    if (!existing) return parent.insertBefore(want, at);
+    if (existing !== at) parent.insertBefore(existing, at);
+    patch(existing, want);
+  });
+  while (parent.childNodes.length > wanted.length) parent.lastChild.remove();
+}
 function materialIcon(name, className = '') {
   const icon = node('span', `material-symbols-rounded ${className}`.trim(), name);
   icon.setAttribute('aria-hidden', 'true');
@@ -311,14 +372,16 @@ async function loadSnapshot() {
 
 function renderDevices() {
   if (state.deviceOrder) return;
-  const list = $('devices');
-  list.replaceChildren();
-  if (!state.devices.length && !state.deviceGroups.length) return list.append(node('p', 'empty', 'Nog geen devices.'));
-  rootDeviceGroups().forEach(group => list.append(renderDeviceGroup(group)));
-  const ungrouped = state.devices
-    .filter(device => !device.groupId || !state.deviceGroups.some(group => group.id === device.groupId))
-    .sort(compareDevices);
-  if (ungrouped.length) list.append(renderDeviceGroup({ id: '', name: 'Overig', parentId: '', devices: ungrouped }));
+  const fresh = node('div');
+  if (!state.devices.length && !state.deviceGroups.length) fresh.append(node('p', 'empty', 'Nog geen devices.'));
+  else {
+    rootDeviceGroups().forEach(group => fresh.append(renderDeviceGroup(group)));
+    const ungrouped = state.devices
+      .filter(device => !device.groupId || !state.deviceGroups.some(group => group.id === device.groupId))
+      .sort(compareDevices);
+    if (ungrouped.length) fresh.append(renderDeviceGroup({ id: '', name: 'Overig', parentId: '', devices: ungrouped }));
+  }
+  patchChildren($('devices'), fresh);
 }
 
 function compareGroups(left, right) {
@@ -400,7 +463,7 @@ function renderDeviceGroup(group) {
   const collapsed = state.collapsedGroups.has(group.id || '__other');
   toggle.setAttribute('aria-expanded', String(!collapsed));
   toggle.append(materialIcon(collapsed ? 'chevron_right' : 'expand_more', 'group-chevron'), node('strong', '', group.name), node('span', 'group-count', String(group.id ? groupDeviceCount(group.id) : directDevices.length)));
-  toggle.addEventListener('click', () => {
+  on(toggle, 'click', () => {
     const key = group.id || '__other';
     state.collapsedGroups.has(key) ? state.collapsedGroups.delete(key) : state.collapsedGroups.add(key);
     renderDevices();
@@ -442,11 +505,11 @@ function renderDevice(device) {
   const content = node('span', 'device-summary-content');
   content.append(deviceClassIcon(device.class), node('strong', 'device-name', device.name));
   summary.append(content);
-  summary.addEventListener('pointerdown', event => armDeviceOrder(event, device, card, summary));
-  summary.addEventListener('contextmenu', event => {
+  on(summary, 'pointerdown', event => armDeviceOrder(event, device, event.currentTarget.closest('.device-card'), event.currentTarget));
+  on(summary, 'contextmenu', event => {
     if (state.devicePress || state.deviceOrder) event.preventDefault();
   });
-  summary.addEventListener('click', event => {
+  on(summary, 'click', event => {
     if (Date.now() < state.suppressDeviceClickUntil) {
       event.preventDefault(); event.stopPropagation();
       return;
@@ -657,7 +720,7 @@ function deviceQuickControl(device) {
     button.title = Number.isFinite(height) ? `${title}: ${Math.round(height * 100)}% open — ${label}` : `${title}: ${label}`;
     button.setAttribute('aria-label', `${device.name} ${label.toLowerCase()}`);
     button.append(materialIcon(wanted === 'up' ? 'vertical_align_top' : 'vertical_align_bottom'));
-    button.addEventListener('click', () => setCapability(device, capability, wanted));
+    on(button, 'click', () => setCapability(device, capability, wanted));
     return button;
   }
   // Een drukknop heeft geen stand: hij doet iets. Bij een scene is dat
@@ -670,7 +733,7 @@ function deviceQuickControl(device) {
     button.title = label;
     button.setAttribute('aria-label', `${device.name} ${scene ? 'activeren' : 'indrukken'}`);
     button.append(materialIcon(scene ? 'play_arrow' : 'touch_app'));
-    button.addEventListener('click', () => setCapability(device, capability, true));
+    on(button, 'click', () => setCapability(device, capability, true));
     return button;
   }
   if (capability.type === 'boolean') {
@@ -681,7 +744,7 @@ function deviceQuickControl(device) {
       button.title = `${title}: ${capability.value ? words.on : words.off}`;
       button.setAttribute('aria-label', `${device.name} ${capability.value ? words.turnOff : words.turnOn}`);
       button.append(quickActionIcon(base, Boolean(capability.value)));
-      button.addEventListener('click', () => setCapability(device, capability, !capability.value));
+      on(button, 'click', () => setCapability(device, capability, !capability.value));
       return button;
     }
     const active = Boolean(capability.value);
@@ -941,9 +1004,9 @@ async function showDeviceTab(tab) {
 }
 
 function renderDeviceOverview(device) {
-  const details = $('device-overview');
-  if (!details || state.openDeviceID !== device.id) return;
-  details.replaceChildren();
+  const target = $('device-overview');
+  if (!target || state.openDeviceID !== device.id) return;
+  const details = node('div');
   const status = node('div', 'device-meta');
   status.append(node('span', `availability-dot ${device.available ? '' : 'off'}`), document.createTextNode(device.available ? 'Beschikbaar' : device.unavailableMessage || 'Niet beschikbaar'));
   status.append(node('span', '', device.manufacturer || device.appId), node('span', '', `Hardware: ${device.hardwareName || device.name}`), node('span', '', localized(device.class) || device.driverId));
@@ -954,12 +1017,25 @@ function renderDeviceOverview(device) {
   if (controls.childElementCount) details.append(controls);
   else details.append(node('p', 'empty', 'Dit apparaat heeft geen bedienbare of meetbare mogelijkheden.'));
 
-  renderDeviceMedia(device, details);
+  // Hetzelfde camerabeeld blijft staan: opnieuw opbouwen haalde bij elke
+  // update van het apparaat een vers beeld op (een plugincall per update).
+  const media = mediaKey(device);
+  const shown = [...target.children].some(child => child.dataset.key === media);
+  if (shown) {
+    const keep = node('div', 'camera-still');
+    keep.dataset.key = media; keep.dataset.keep = '1';
+    details.append(keep);
+  } else renderDeviceMedia(device, details);
 
   const actions = node('div', 'row-actions');
   if (device.mediaLoading) actions.append(node('span', 'hint', 'Media laden…'));
   actions.append(actionButton('Verwijder', () => deleteDevice(device), 'danger'));
   details.append(actions);
+  patchChildren(target, details);
+}
+
+function mediaKey(device) {
+  return `media:${device.id}:${(device.media || []).map(item => `${item.kind}/${item.slot}`).join(',')}`;
 }
 
 // Het beeld van een camera bij elkaar: het stilstaande beeld waar je als eerste
@@ -978,6 +1054,7 @@ function renderDeviceMedia(device, details) {
   if (!stills.length && !videos.length) return;
 
   const frame = node('div', 'camera-still');
+  frame.dataset.key = mediaKey(device);
   const buttons = node('div', 'camera-actions');
   for (const still of stills) {
     const image = node('img');
@@ -1121,13 +1198,14 @@ function capabilityControl(device, capability) {
 		// Van 0 tot 1 leest een percentage prettiger dan "0,35"; een andere
 		// schaal toont gewoon zijn eigen getal.
 		const percentage = min === 0 && max === 1;
-		const show = () => {
-			output.textContent = percentage
-				? `${Math.round(Number(input.value) * 100)}%`
-				: formatValue(Number(input.value), capability.units);
+		const show = (range, label) => {
+			label.textContent = percentage
+				? `${Math.round(Number(range.value) * 100)}%`
+				: formatValue(Number(range.value), capability.units);
 		};
-		show(); input.addEventListener('input', show);
-		input.addEventListener('change', () => setCapability(device, capability, Number(input.value)));
+		show(input, output);
+		on(input, 'input', event => show(event.currentTarget, event.currentTarget.parentElement.querySelector('output')));
+		on(input, 'change', event => setCapability(device, capability, Number(event.currentTarget.value)));
 		control.append(input, output); row.append(control, node('span'));
 		return row;
 	}
@@ -1144,7 +1222,7 @@ function capabilityControl(device, capability) {
 			button.setAttribute('aria-label', label);
 			button.setAttribute('aria-pressed', String(active));
 			button.append(materialIcon(icons[value.id] || 'radio_button_checked'), node('span', 'sr-only', label));
-			button.addEventListener('click', () => setCapability(device, capability, value.id));
+			on(button, 'click', () => setCapability(device, capability, value.id));
 			control.append(button);
 		}
 		row.append(control, node('span'));
@@ -1185,7 +1263,7 @@ function capabilityControl(device, capability) {
     } else {
       input = node('button', '', capability.value ? 'Aan' : 'Uit');
     }
-    input.addEventListener('click', () => setCapability(device, capability, mediaCommandIcons[base] || base === 'button' ? true : !capability.value));
+    on(input, 'click', () => setCapability(device, capability, mediaCommandIcons[base] || base === 'button' ? true : !capability.value));
     row.append(input, node('span'));
     return row;
   }
@@ -1205,7 +1283,10 @@ function capabilityControl(device, capability) {
     if (capability.max !== undefined) input.max = capability.max;
     if (capability.step !== undefined) input.step = capability.step;
   }
-  const save = actionButton('Set', () => setCapability(device, capability, input.type === 'number' ? Number(input.value) : input.value));
+  const save = actionButton('Set', event => {
+    const field = event.currentTarget.parentElement.querySelector('input, select');
+    setCapability(device, capability, field.type === 'number' ? Number(field.value) : field.value);
+  });
   row.append(input, save);
   return row;
 }
@@ -1226,7 +1307,7 @@ function displayValue(capability) {
 function actionButton(label, handler, className = '') {
   const button = node('button', className, label);
   button.type = 'button';
-  button.addEventListener('click', handler);
+  on(button, 'click', handler);
   return button;
 }
 async function setCapability(device, capability, value) {

@@ -281,3 +281,65 @@ fn measured_tokens_are_readable_in_text_and_canonical_in_numeric_arguments() {
         &value("21.5")
     ));
 }
+
+#[test]
+fn failed_action_stops_only_its_branch_and_sibling_actions_still_run() {
+    // Eén trigger naar drie acties; de eerste (Spotify) faalt, haar opvolger niet uitvoeren.
+    let definition = flow(
+        r#"{"id":"a","step":{"appId":"com.stulp.spotify","cardType":"action","cardId":"play_playlist"}},{"id":"b","step":{"appId":"lamp","cardType":"action","cardId":"on"}},{"id":"c","step":{"appId":"stulp","cardType":"action","cardId":"capability.onoff.turn_on","args":{"device":{"$device":"missing"}}}},{"id":"d","step":{"appId":"plugin","cardType":"action","cardId":"after_spotify"}},{"id":"e","step":{"appId":"plugin","cardType":"action","cardId":"last"}}"#,
+        r#"{"from":"t","to":"a"},{"from":"t","to":"b"},{"from":"t","to":"c"},{"from":"t","to":"e"},{"from":"a","to":"d"}"#,
+    );
+    let store = store();
+    let mut run = Run::manual(&definition, 0, NOW).unwrap();
+    let Effect::Call { params, .. } = run.advance(&store, 0).unwrap() else {
+        panic!("missing spotify action");
+    };
+    assert_eq!(json::text(&params, "id"), "play_playlist");
+    run.fail("app callback timed out").unwrap();
+    let Effect::Call { app, params, .. } = run.advance(&store, 1).unwrap() else {
+        panic!("sibling action after a failed action did not run");
+    };
+    assert_eq!((app.as_str(), json::text(&params, "id")), ("lamp", "on"));
+    run.complete(Value::Null, 2).unwrap();
+    // Een built-in actie die al bij het versturen faalt, stopt de run evenmin.
+    assert!(matches!(run.advance(&store, 3).unwrap(), Effect::Waiting));
+    let Effect::Call { params, .. } = run.advance(&store, 4).unwrap() else {
+        panic!("last sibling action did not run");
+    };
+    assert_eq!(json::text(&params, "id"), "last");
+    run.complete(Value::Null, 5).unwrap();
+    assert!(matches!(run.advance(&store, 6).unwrap(), Effect::Finished));
+    let result = run.result().unwrap();
+    assert!(!json::boolean(&result, "success"));
+    assert_eq!(json::text(&result, "error"), "app callback timed out");
+    let actions = json::array(&result, "actions");
+    let ids: Vec<_> = actions.iter().map(|a| json::text(a, "cardId")).collect();
+    assert_eq!(
+        ids,
+        ["play_playlist", "on", "capability.onoff.turn_on", "last"]
+    );
+    assert_eq!(json::text(&actions[0], "error"), "app callback timed out");
+    assert!(json::get(&actions[1], "error").is_none());
+    assert!(!json::text(&actions[2], "error").is_empty());
+}
+
+#[test]
+fn failed_condition_callback_still_stops_the_run() {
+    let definition = flow(
+        r#"{"id":"a","step":{"appId":"plugin","cardType":"condition","cardId":"ready"}},{"id":"b","step":{"appId":"plugin","cardType":"action","cardId":"send"}}"#,
+        r#"{"from":"t","to":"a"},{"from":"t","to":"b"}"#,
+    );
+    let mut run = Run::manual(&definition, 0, NOW).unwrap();
+    assert!(matches!(
+        run.advance(&store(), 0).unwrap(),
+        Effect::Call { .. }
+    ));
+    run.fail("app callback failed").unwrap();
+    assert!(matches!(
+        run.advance(&store(), 1).unwrap(),
+        Effect::Finished
+    ));
+    let result = run.result().unwrap();
+    assert!(json::array(&result, "actions").is_empty());
+    assert_eq!(json::array(&result, "conditions").len(), 1);
+}

@@ -202,9 +202,9 @@ impl<'a> Stream<'a> {
             }
         } else {
             roots
-                .try_reserve(hostnet::ROOTS_DER.len())
+                .try_reserve(leantls::MOZILLA_ROOTS.len())
                 .map_err(io::Error::other)?;
-            roots.extend_from_slice(hostnet::ROOTS_DER);
+            roots.extend_from_slice(leantls::MOZILLA_ROOTS);
         }
         // Validate before starting; an invalid custom CA must never silently use public roots.
         leantls::Roots::from_concatenated_der(&roots).map_err(io::Error::other)?;

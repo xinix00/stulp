@@ -13,8 +13,9 @@ stulp-core = { path = "../core" }
 stulp-protocol = { path = "../protocol" }
 hostnet = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }
 
-leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.9" }
-leantls = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.9" }
+leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.11" }
+leanhttps = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.11", features = ["mozilla-roots"] }
+leantls = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.11", features = ["mozilla-roots"] }
 
 [lints]
 workspace = true

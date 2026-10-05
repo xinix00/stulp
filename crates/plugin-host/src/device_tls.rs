@@ -32,7 +32,7 @@ impl VerifyPeer for DeviceCertificate {
 }
 /// De draad onder TLS: een blokkerende socket die voor elke lees of schrijf de
 /// resterende tijd tot de absolute termijn als kerneltermijn zet. hostnet's
-/// `StdConn` spreekt leanhttp 3.1.1 en past daarom niet onder leantls 3.1.7.
+/// `StdConn` spreekt leanhttp 3.1.1 en past daarom niet onder leantls 3.1.11.
 struct Wire {
     socket: TcpStream,
     deadline: Instant,
@@ -178,7 +178,7 @@ impl leanhttp::Dial for Dial {
             }
         }
         let socket = socket.ok_or(leanhttp::Error::Io(IoError::Other))?;
-        let roots = leantls::Roots::from_concatenated_der(hostnet::ROOTS_DER)
+        let roots = leantls::Roots::from_concatenated_der(leantls::MOZILLA_ROOTS)
             .map_err(|_| leanhttp::Error::Io(IoError::Other))?;
         let trust = DeviceCertificate(leantls::ChainVerifier::new(roots, hostnet::unix_secs()));
         let seed = hostnet::entropy().map_err(|_| leanhttp::Error::Io(IoError::Other))?;

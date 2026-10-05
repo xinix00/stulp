@@ -17,7 +17,7 @@ the provider's live lockout must expire before connectivity can be confirmed.
 
 ## Build and run
 
-Rust 1.93.0 / edition 2024 is pinned. Hop, Lean (v3.1.9) and HopOS (v3.0.10)
+Rust 1.93.0 / edition 2024 is pinned. Hop, Lean (v3.1.11) and HopOS (v3.0.12)
 dependencies use tagged git revisions in `Cargo.lock`; the only source overlay
 (Hop's `types`) is pinned by local source hashes in `vendor/PROVENANCE.md`. No Tokio,
 SQLite, Arc or application mutex. Logic crates use `no_std`, fallible allocation
@@ -341,9 +341,17 @@ Eight fixed HTTP workers, one controller owner and bounded reply leases serve
 ordinary API calls, SSE, media and restore uploads. Fixed plugin workers handle
 HTTP/TLS, framed TCP, A/AAAA DNS, IPv4/IPv6 discovery, eight duplex streams and bounded media.
 Attach generations cancel abandoned work and prevent replies crossing reconnects.
-Public HTTPS checks the certificate chain and name; explicit device-certificate
-mode retains signature/record checks. Device TLS compatibility follows the TLS
-limits above.
+Public HTTPS and TLS streams use Lean's `leanhttps::WebDial`: on HopOS over the
+slot's `applib::tcp::Dialer`, in the native plugin host (streams; its HTTP is
+Hop's `hostnet` client) over the std socket it opened. The Mozilla roots are
+`leantls::MOZILLA_ROOTS`; Stulp keeps no copy. Chain and name are checked,
+`https://` to a bare IP address is refused, and connect and handshake each have
+15 s; after that the caller's deadlines apply. On HopOS every HTTPS dial logs
+`STULP_TLS host= ms= result=` (DNS, TCP and handshake), with `reason=` when it
+fails. Explicit device-certificate mode keeps its own small
+TLS path, because devices are addressed by IP and present their own
+certificate; it retains signature/record checks. Device TLS compatibility
+follows the TLS limits above.
 
 External-slot backups keep the Go ZIP metadata/document contract, accept stored
 and deflated entries, validate paths and CRCs, and publish restores atomically.
@@ -549,7 +557,7 @@ options or hop limits still cannot populate the neighbor cache. The regression
 test is `thread_route_without_sllao_learns_validated_ethernet_neighbor` in the
 shared Lean checkout; include that fix when building this plugin pack.
 
-The HopOS SDK (`applib`, v3.0.10) brings the IPv6 lane itself: leannet v3.1.9 with
+The HopOS SDK (`applib`, v3.0.12) brings the IPv6 lane itself: leannet v3.1.11 with
 its `ipv6` feature. Stulp no longer carries an SDK copy or reads Lean from a sibling
 checkout; the SDK and netstack suites run in their own repositories.
 

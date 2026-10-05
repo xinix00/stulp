@@ -1,5 +1,6 @@
 //! Eén vaste worker bezit maximaal acht sockets; trage lezers begrenzen zichzelf
 //! via TCP-backpressure. Er bestaat geen thread per camera of websocket.
+use leanhttps::{Link, WebDial};
 use std::{
     collections::VecDeque,
     future::Future,
@@ -86,6 +87,7 @@ fn polled<T>(r: io::Result<T>) -> Poll<io::Result<T>> {
         r => Poll::Ready(r),
     }
 }
+// De draad onder leantls (een lokaal apparaat) en onder leanhttps (WebDial).
 impl leantls::AsyncRead for Wire {
     type Error = io::Error;
     fn poll_read(
@@ -102,28 +104,82 @@ impl leantls::AsyncWrite for Wire {
         polled(self.get_mut().0.write(b))
     }
 }
-// Acht vaste slots kosten samen hoogstens 8 KiB; een extra heapallocatie per TLS-socket helpt hier niet.
-#[expect(clippy::large_enum_variant)]
+impl leanhttp::AsyncRead for Wire {
+    fn poll_read(
+        &mut self,
+        _: &mut Context<'_>,
+        b: &mut [u8],
+    ) -> Poll<core::result::Result<usize, leanhttp::IoError>> {
+        polled(self.0.read(b)).map_err(|_| leanhttp::IoError::Other)
+    }
+}
+impl leanhttp::AsyncWrite for Wire {
+    fn poll_write(
+        &mut self,
+        _: &mut Context<'_>,
+        b: &[u8],
+    ) -> Poll<core::result::Result<usize, leanhttp::IoError>> {
+        polled(self.0.write(b)).map_err(|_| leanhttp::IoError::Other)
+    }
+}
+impl leanhttp::Close for Wire {
+    fn poll_close(
+        &mut self,
+        _: &mut Context<'_>,
+    ) -> Poll<core::result::Result<(), leanhttp::IoError>> {
+        let _ = self.0.shutdown(std::net::Shutdown::Both);
+        Poll::Ready(Ok(()))
+    }
+}
+/// De socket die [`connect`] al opende, voor `WebDial`: die doet de TLS, deze
+/// draad houdt de DNS, de adressen en de termijn van vijftien seconden.
+struct Opened(Option<Wire>);
+impl leanhttp::Dial for Opened {
+    type Conn = Wire;
+    async fn dial(&mut self, _: leanhttp::Target<'_>) -> leanhttp::Result<Wire> {
+        self.0.take().ok_or(leanhttp::Error::Connect)
+    }
+}
 enum Socket {
-    Plain(Wire),
-    Tls(leantls::Conn<Wire>),
+    /// Kaal, of TLS met een geverifieerde keten (`WebDial`).
+    Web(Link<Wire>),
+    /// Een lokaal apparaat met een eigen certificaat.
+    Device(leantls::Conn<Wire>),
 }
 impl Socket {
     fn read(&mut self, cx: &mut Context<'_>, b: &mut [u8]) -> Poll<Result<usize>> {
         match self {
-            Self::Plain(w) => leantls::AsyncRead::poll_read(Pin::new(w), cx, b)
+            Self::Web(Link::Plain(w)) => leanhttp::AsyncRead::poll_read(w, cx, b)
                 .map(|r| r.map_err(|_| Error::Transport("stream read failed"))),
-            Self::Tls(w) => leantls::AsyncRead::poll_read(Pin::new(w), cx, b)
+            Self::Web(w) => leanhttp::AsyncRead::poll_read(w, cx, b)
+                .map(|r| r.map_err(|_| Error::Transport("TLS stream read failed"))),
+            Self::Device(w) => leantls::AsyncRead::poll_read(Pin::new(w), cx, b)
                 .map(|r| r.map_err(|_| Error::Transport("TLS stream read failed"))),
         }
     }
     fn write(&mut self, cx: &mut Context<'_>, b: &[u8]) -> Poll<Result<usize>> {
         match self {
-            Self::Plain(w) => leantls::AsyncWrite::poll_write(Pin::new(w), cx, b)
+            Self::Web(Link::Plain(w)) => leanhttp::AsyncWrite::poll_write(w, cx, b)
                 .map(|r| r.map_err(|_| Error::Transport("stream write failed"))),
-            Self::Tls(w) => leantls::AsyncWrite::poll_write(Pin::new(w), cx, b)
+            Self::Web(w) => leanhttp::AsyncWrite::poll_write(w, cx, b)
+                .map(|r| r.map_err(|_| Error::Transport("TLS stream write failed"))),
+            Self::Device(w) => leantls::AsyncWrite::poll_write(Pin::new(w), cx, b)
                 .map(|r| r.map_err(|_| Error::Transport("TLS stream write failed"))),
         }
+    }
+}
+/// Pompt een handshake op de niet-blokkerende socket tot `deadline`.
+fn drive<T>(future: impl Future<Output = T>, deadline: Instant) -> Result<T> {
+    let mut future = pin!(future);
+    let mut cx = Context::from_waker(Waker::noop());
+    loop {
+        if Instant::now() >= deadline {
+            return Err(Error::Timeout);
+        }
+        if let Poll::Ready(r) = future.as_mut().poll(&mut cx) {
+            return Ok(r);
+        }
+        std::thread::sleep(Duration::from_millis(2));
     }
 }
 fn connect(host: &str, port: u16, tls: bool, device: bool) -> Result<Socket> {
@@ -150,34 +206,35 @@ fn connect(host: &str, port: u16, tls: bool, device: bool) -> Result<Socket> {
         .set_nodelay(true)
         .map_err(|_| Error::Transport("stream nodelay failed"))?;
     let wire = Wire(socket);
-    if !tls {
-        return Ok(Socket::Plain(wire));
+    if tls && device {
+        let roots = leantls::Roots::from_concatenated_der(leantls::MOZILLA_ROOTS)
+            .map_err(|_| Error::Transport("TLS roots unavailable"))?;
+        let verifier = super::device_tls::DeviceCertificate(leantls::ChainVerifier::new(
+            roots,
+            hostnet::unix_secs(),
+        ));
+        let trust = leantls::Trust::Chain(&verifier);
+        let entropy =
+            hostnet::entropy().map_err(|_| Error::Transport("TLS entropy unavailable"))?;
+        let handshake = leantls::connect(wire, &trust, host, leantls::Entropy::new(entropy));
+        return drive(handshake, deadline)?
+            .map(Socket::Device)
+            .map_err(|_| Error::Transport("TLS 1.3 stream handshake failed"));
     }
-    let roots = leantls::Roots::from_concatenated_der(hostnet::ROOTS_DER)
-        .map_err(|_| Error::Transport("TLS roots unavailable"))?;
-    let chain = leantls::ChainVerifier::new(roots, hostnet::unix_secs());
-    let local = super::device_tls::DeviceCertificate(chain);
-    let verifier: &dyn leantls::VerifyPeer = if device { &local } else { &local.0 };
-    let trust = leantls::Trust::Chain(verifier);
-    let entropy = hostnet::entropy().map_err(|_| Error::Transport("TLS entropy unavailable"))?;
-    let mut future = pin!(leantls::connect(
-        wire,
-        &trust,
+    let mut web = WebDial::new(
+        Opened(Some(wire)),
+        leantls::MOZILLA_ROOTS,
+        || Some(hostnet::unix_secs()),
+        || hostnet::entropy().ok().map(leantls::Entropy::new),
+    );
+    let target = leanhttp::Target {
+        https: tls,
         host,
-        leantls::Entropy::new(entropy)
-    ));
-    let mut cx = Context::from_waker(Waker::noop());
-    loop {
-        if Instant::now() >= deadline {
-            return Err(Error::Timeout);
-        }
-        if let Poll::Ready(r) = future.as_mut().poll(&mut cx) {
-            return r
-                .map(Socket::Tls)
-                .map_err(|_| Error::Transport("TLS 1.3 stream handshake failed"));
-        }
-        std::thread::sleep(Duration::from_millis(2));
-    }
+        port,
+    };
+    drive(leanhttp::Dial::dial(&mut web, target), deadline)?
+        .map(Socket::Web)
+        .map_err(|_| Error::Transport("TLS 1.3 stream handshake failed"))
 }
 struct Pending {
     bytes: Vec<u8>,

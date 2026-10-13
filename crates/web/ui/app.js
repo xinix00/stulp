@@ -210,18 +210,24 @@ async function ensureResource(name) {
   if (item.loaded && !item.dirty) return item.value;
   if (item.promise) return item.promise;
   const promise = (async () => {
-    for (;;) {
+    // De resource kan veranderen terwijl deze request onderweg is. Dan wordt
+    // de oude snapshot weggegooid en één verse gelezen; callers blijven
+    // dezelfde single-flight Promise delen. Maar niet eindeloos: met een
+    // eventstroom van ruim een update per seconde verliest een fetch van een
+    // paar honderd ms die race bijna altijd, en dan stond de Flow-editor voor
+    // altijd op "laden" terwijl de browser de catalogus bleef ophalen. Na
+    // drie pogingen is wat er ligt goed genoeg; `dirty` blijft dan staan en
+    // de volgende aanroep leest alsnog een verse.
+    for (let attempt = 0; ; attempt++) {
       const generation = item.generation;
       const raw = await api(item.path);
-      // De resource veranderde terwijl deze request onderweg was. Gooi de oude
-      // snapshot weg en lees precies één verse; callers blijven dezelfde
-      // single-flight Promise delen.
-      if (generation !== item.generation) continue;
+      const stale = generation !== item.generation;
+      if (stale && attempt < 2) continue;
       const value = item.normalize(raw);
       item.commit(value);
       item.value = value;
       item.loaded = true;
-      item.dirty = false;
+      item.dirty = stale;
       return value;
     }
   })();
@@ -245,6 +251,13 @@ function invalidateResources(...names) {
       }
       loadedDriverIDs.clear();
     }
+  }
+}
+
+function markResourcesDirty(...names) {
+  for (const name of names) {
+    const item = resources[name];
+    if (item) item.dirty = true;
   }
 }
 
@@ -3615,8 +3628,10 @@ function handleRealtimeEvent(event) {
   if (event.manager === 'devices' && event.type === 'device.update') {
     // Metingen verversen de catalogus niet meteen, maar een volgende editor
     // krijgt wel een verse capabilitiestructuur als deze update ook een
-    // dynamische capability toevoegde of verwijderde.
-    invalidateResources('deviceCatalog');
+    // dynamische capability toevoegde of verwijderde. Alleen `dirty`, geen
+    // nieuwe generation: een meting hoeft een lopende fetch niet te
+    // onderbreken, dat deden tientallen metingen per minuut wel.
+    markResourcesDirty('deviceCatalog');
     if (realtimeDeviceUpdatesDuringLoad && event.data?.id) {
       realtimeDeviceUpdatesDuringLoad.set(event.data.id, event.data);
     }

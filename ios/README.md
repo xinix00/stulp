@@ -35,6 +35,25 @@ kan bereiken. Dat is doorgaans een Apple TV of HomePod; een andere border
 router werkt alleen als iOS de credentials voor hetzelfde Thread-netwerk kent.
 De iPhone is de commissioner, niet de blijvende router.
 
+## Op je eigen iPhone zetten
+
+Signing staat op automatisch met team `QVY3KR44QS` in `project.yml`; de Matter-
+extensie heeft de entitlement *Matter Allow Setup Payload* omdat zij de
+onboardingcode rechtstreeks ontvangt. Met het Apple-account van dat team in
+Xcode ingelogd en de iPhone met een kabel aangesloten, de Mac vertrouwd en
+Ontwikkelaarsmodus aan (Instellingen, Privacy en beveiliging):
+
+```sh
+cd ios
+./build-ipa.sh install
+```
+
+Dat genereert het project, bouwt eenmaal tegen de iPhone zodat Xcode hem in
+het profiel registreert, archiveert met development-signing, exporteert
+`build/Stulp.ipa` volgens `ExportOptions.plist` en installeert met `devicectl`.
+Xcode registreert bij de eerste keer zelf de App IDs en de app group. Een development-build blijft zeven dagen geldig op een gratis account
+en een jaar op een betaald account; daarna gewoon opnieuw draaien.
+
 ## Bouwen en testen
 
 Het projectbestand wordt uit `project.yml` gegenereerd:

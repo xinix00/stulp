@@ -36,7 +36,7 @@ struct StulpClientTests {
         }
         return poll == 1
           ? .json(#"{"running":true}"#)
-          : .json(#"{"running":false,"found":{"found":2}}"#)
+          : .json(#"{"running":false,"finishedAt":"2026-10-13T18:47:00Z","found":2}"#)
       case ("POST", "/api/stulp/pair/pair-1/emit/list_devices"):
         return .json(
           #"[{"name":"Lamp","data":{"nodeId":"1"}},{"name":"Sensor","data":{"nodeId":"2"}}]"#)
@@ -129,7 +129,7 @@ struct StulpClientTests {
           #"{"id":"pair-3","handlers":["commission","commission_state","list_devices"]}"#,
           status: 201)
       case ("POST", "/api/stulp/pair/pair-3/emit/commission"):
-        return .json(#"{"running":false,"found":{"found":1}}"#)
+        return .json(#"{"running":false,"finishedAt":"2026-10-13T18:47:00Z","found":1}"#)
       case ("POST", "/api/stulp/pair/pair-3/emit/list_devices"):
         return .json(#"[{"name":"Lamp","data":{"nodeId":"1"}}]"#)
       case ("POST", "/api/stulp/apps/com.stulp.matter/drivers/matter/pair/devices"):
@@ -157,7 +157,7 @@ struct StulpClientTests {
           #"{"id":"pair-retry","handlers":["commission","commission_state","list_devices"]}"#,
           status: 201)
       case ("POST", "/api/stulp/pair/pair-retry/emit/commission"):
-        return .json(#"{"running":false,"found":{"found":1}}"#)
+        return .json(#"{"running":false,"finishedAt":"2026-10-13T18:47:00Z","found":1}"#)
       case ("POST", "/api/stulp/pair/pair-retry/emit/list_devices"):
         return .json(#"[{"name":"Lamp","data":{"nodeId":"1"}}]"#)
       case ("POST", "/api/stulp/apps/com.stulp.matter/drivers/matter/pair/devices"):

@@ -250,10 +250,15 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					265F9E53F6D88BC1F2B7E0BC = {
+						DevelopmentTeam = QVY3KR44QS;
+					};
 					8AFF5CF616EB2FB6C73DA2F0 = {
+						DevelopmentTeam = QVY3KR44QS;
 						ProvisioningStyle = Automatic;
 					};
 					A6AEDD6EDE89B9F1C34D6444 = {
+						DevelopmentTeam = QVY3KR44QS;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -427,6 +432,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = QVY3KR44QS;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -526,6 +532,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = QVY3KR44QS;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;

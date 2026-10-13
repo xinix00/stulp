@@ -156,7 +156,7 @@ actor StulpClient {
     if let warning = state.warning, !warning.isEmpty {
       throw StulpClientError.commissioningFailed(warning)
     }
-    guard (state.found?.found ?? 0) > 0 else {
+    guard (state.found ?? 0) > 0 else {
       throw StulpClientError.noDevicesFound
     }
 
@@ -315,10 +315,25 @@ private struct PairSession: Decodable, Sendable {
 }
 
 private struct CommissionState: Decodable, Sendable {
-  struct Found: Decodable, Sendable { let found: Int }
   let running: Bool
   let warning: String?
-  let found: Found?
+  /// Stulp zet `found` bij succes op het aantal gevonden apparaten. Een ouder
+  /// voorstel had hier een object; beide vormen worden gelezen.
+  let found: Int?
+
+  private enum CodingKeys: String, CodingKey { case running, warning, found }
+  private struct Legacy: Decodable { let found: Int }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    running = try c.decode(Bool.self, forKey: .running)
+    warning = try c.decodeIfPresent(String.self, forKey: .warning)
+    if let n = try? c.decodeIfPresent(Int.self, forKey: .found) {
+      found = n
+    } else {
+      found = try c.decodeIfPresent(Legacy.self, forKey: .found)?.found
+    }
+  }
 }
 
 private struct AddedDevice: Decodable, Sendable {

@@ -7,6 +7,7 @@ options:
 
 settings:
   base:
+    DEVELOPMENT_TEAM: QVY3KR44QS
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     CURRENT_PROJECT_VERSION: 1
@@ -92,6 +93,7 @@ targets:
     entitlements:
       path: StulpMatterSetup/StulpMatterSetup.entitlements
       properties:
+        com.apple.developer.matter.allow-setup-payload: true
         com.apple.security.application-groups:
           - group.com.xinix00.stulp
         keychain-access-groups:

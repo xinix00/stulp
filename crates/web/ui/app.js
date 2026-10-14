@@ -1050,6 +1050,25 @@ function renderDeviceOverview(device) {
 
   const actions = node('div', 'row-actions');
   if (device.mediaLoading) actions.append(node('span', 'hint', 'Media laden…'));
+  if (device.appId === 'com.stulp.notify') {
+    // Een telefoon: direct te testen, en opnieuw te koppelen onder hetzelfde
+    // id, zodat de Flows die ernaar wijzen blijven staan.
+    actions.append(actionButton('Testmelding', async () => {
+      try {
+        await api('/api/stulp/apps/com.stulp.notify/api/test', { method: 'POST', body: JSON.stringify({ deviceId: device.id }) });
+        toast('Testmelding verstuurd');
+      } catch (error) { toast(error.message, true); }
+    }));
+    actions.append(actionButton('Koppel opnieuw', async () => {
+      try {
+        const driver = await ensureDriver(device.driverId);
+        if (!driver) throw new Error('De driver van dit toestel is niet geladen.');
+        $('device-popover').close();
+        openModal($('pair-dialog'));
+        await startPair(driver, { replace: device.id });
+      } catch (error) { toast(error.message, true); }
+    }));
+  }
   actions.append(actionButton('Verwijder', () => deleteDevice(device), 'danger'));
   details.append(actions);
   patchChildren(target, details);
@@ -3124,13 +3143,13 @@ async function chooseDriver() {
   content.append(groups);
 }
 
-async function startPair(driver) {
+async function startPair(driver, options = {}) {
   const appId = driver.ownerUri.replace('stulp:app:', '');
   const driverId = driver.id.slice(driver.id.lastIndexOf(':') + 1);
   try {
     const session = await api('/api/stulp/pair', { method: 'POST', body: JSON.stringify({ appId, driverId }) });
-    state.pair = { ...session, driver };
-    $('pair-title').textContent = driver.name;
+    state.pair = { ...session, driver, replace: options.replace || '' };
+    $('pair-title').textContent = options.replace ? `${driver.name} opnieuw koppelen` : driver.name;
     const first = driver.pairViews?.[0];
     if (first?.id && driver.customPairViews?.includes(first.id)) showPairView(first.id);
     else {
@@ -3233,14 +3252,24 @@ async function showPushSubscriptionView() {
       if (typeof publicKey !== 'string' || !publicKey) throw new Error('De app gaf geen geldige sleutel.');
       await navigator.serviceWorker.register('/sw.js', { scope: '/' });
       const registration = await navigator.serviceWorker.ready;
+      const wanted = base64UrlToBytes(publicKey);
+      // Een browser geeft een bestaand abonnement terug, ook als dat met een
+      // andere sleutel is gemaakt; de pushdienst weigert dan alles (14-10).
+      // Hoort het bestaande abonnement niet bij deze sleutel, dan eerst weg.
+      const existing = await registration.pushManager.getSubscription();
+      if (existing) {
+        const key = existing.options?.applicationServerKey;
+        if (!key || !sameBytes(new Uint8Array(key), wanted)) await existing.unsubscribe();
+      }
       const subscription = await registration.pushManager.subscribe({
         // userVisibleOnly is verplicht: de browser staat pushen alleen toe onder
         // de belofte dat er ook echt iets te zien is.
         userVisibleOnly: true,
-        applicationServerKey: base64UrlToBytes(publicKey),
+        applicationServerKey: wanted,
       });
       await addCandidate({
         name,
+        ...(state.pair.replace ? { replace: state.pair.replace } : {}),
         data: {
           endpoint: subscription.endpoint,
           p256dh: bytesToBase64Url(subscription.getKey('p256dh')),
@@ -3253,6 +3282,12 @@ async function showPushSubscriptionView() {
       submit.disabled = false;
     }
   });
+}
+
+function sameBytes(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 function renderCandidates(candidates) {

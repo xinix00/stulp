@@ -162,7 +162,36 @@ impl Notify {
                     "De pushdienst kent dit abonnement niet meer.",
                 ));
             }
-            _ => return Err(Error::Invalid("De pushdienst heeft het bericht geweigerd.")),
+            status => {
+                // De statuscode in de melding en op de console: 403 is vrijwel
+                // altijd een VAPID-sleutel die niet bij het abonnement hoort
+                // (14-10: een telefoon gekoppeld met een sleutel uit een leeg
+                // document, daarna een restore met de oude sleutel).
+                use core::fmt::Write as _;
+                let mut text = alloc::string::String::new();
+                if text.try_reserve(160).is_err() {
+                    return Err(Error::Invalid("De pushdienst heeft het bericht geweigerd."));
+                }
+                let _ = write!(
+                    text,
+                    "De pushdienst heeft het bericht geweigerd ({status})."
+                );
+                if status == 403 {
+                    text.push_str(
+                        " Koppel dit toestel opnieuw: het abonnement hoort bij een andere sleutel.",
+                    );
+                }
+                let mut line = alloc::string::String::new();
+                if line.try_reserve(200).is_ok() {
+                    let _ = write!(
+                        line,
+                        "NOTIFY_REJECTED status={status} bytes={}",
+                        response.body.len()
+                    );
+                    c.log("warn", &line)?;
+                }
+                return Err(Error::Remote(text));
+            }
         }
         Ok(result)
     }
@@ -178,7 +207,12 @@ impl Plugin for Notify {
         p: &Value,
     ) -> Result<Value> {
         match method {
-            "app.init" => Ok(Value::Null),
+            "app.init" => {
+                // Een herstart of restore kan een andere sleutel in het document
+                // zetten; de gecachete sleutel mag dan niet blijven hangen.
+                self.private = None;
+                Ok(Value::Null)
+            }
             "driver.init" => {
                 if json::text(p, "driverId") == "phone" {
                     Ok(Value::Null)
@@ -259,6 +293,23 @@ impl Plugin for Notify {
                     return Err(Error::Invalid("unknown notification card"));
                 }
                 self.send(c, field(p, "args")).await
+            }
+            // Eén knop in Manage: stuurt een vaste melding naar dit toestel,
+            // zodat een koppeling direct te controleren is.
+            "api.invoke" if json::text(p, "handler") == "test" => {
+                let device = json::text(field(p, "body"), "deviceId");
+                let args = json::fields(&[
+                    (
+                        "device",
+                        json::fields(&[("$device", json::string(device)?)])?,
+                    ),
+                    ("title", json::string("Testmelding")?),
+                    (
+                        "message",
+                        json::string("Stulp kan je op dit toestel bereiken.")?,
+                    ),
+                ])?;
+                self.send(c, &args).await
             }
             "flow.autocomplete" => {
                 if json::text(p, "kind") != "action"

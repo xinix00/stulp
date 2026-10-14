@@ -33,9 +33,13 @@ enum Stage {
         app: String,
         id: String,
         params: Value,
+        /// Een bestaand apparaat dat opnieuw gekoppeld wordt: bij een fout
+        /// blijft het record staan, want de Flows wijzen ernaar.
+        keep: bool,
     },
     Device {
         id: String,
+        keep: bool,
     },
 }
 struct Pending<R: Reply> {
@@ -89,7 +93,7 @@ impl<R: Reply> Pairing<R> {
     fn device_busy(&self, id: &str) -> bool {
         self.pending.iter().any(|p| match &p.stage {
             Stage::Driver { id: pending, .. }
-            | Stage::Device { id: pending }
+            | Stage::Device { id: pending, .. }
             | Stage::Delete { id: pending }
             | Stage::Settings { id: pending, .. } => pending == id,
             _ => false,
@@ -282,7 +286,72 @@ impl<R: Reply> Pairing<R> {
                 .strip_suffix("/pair/devices")
                 .filter(|v| !v.is_empty() && !v.contains('/'))
         {
-            let input = json::parse(&r.body)?;
+            let mut input = json::parse(&r.body)?;
+            // "replace": het abonnement of de identiteit van een bestaand
+            // apparaat vernieuwen onder hetzelfde id, zodat elke Flow die
+            // ernaar wijst blijft werken (14-10: een telefoon met een nieuwe
+            // push-sleutel moest anders als nieuw apparaat terug).
+            let replace = json::copy(json::text(&input, "replace"))?;
+            if !replace.is_empty() {
+                let existing = store
+                    .document()
+                    .record("devices", &replace)
+                    .map_err(|_| Error::Missing("device to replace does not exist"))?
+                    .try_clone()?;
+                if json::text(&existing, "appId") != app
+                    || json::text(&existing, "driverId") != driver
+                {
+                    return Err(Error::Invalid("device belongs to another driver"));
+                }
+                if self.device_busy(&replace) {
+                    return Err(Error::Conflict("device is still being initialized"));
+                }
+                if json::text(&input, "name").trim().is_empty() {
+                    json::set(
+                        &mut input,
+                        "name",
+                        json::string(json::text(&existing, "name"))?,
+                    )?;
+                }
+                let fresh = candidate(
+                    definition(store, app, driver)?,
+                    app,
+                    driver,
+                    &replace,
+                    &input,
+                )?;
+                let mut record = existing;
+                for key in ["name", "data", "store"] {
+                    if let Some(v) = json::get(&fresh, key) {
+                        json::set(&mut record, key, v.try_clone()?)?;
+                    }
+                }
+                self.reserve()?;
+                let params = json::fields(&[
+                    ("driverId", json::string(driver)?),
+                    ("deviceId", json::string(&replace)?),
+                ])?;
+                let stage = Stage::Driver {
+                    app: json::copy(app)?,
+                    id: json::copy(&replace)?,
+                    params: params.try_clone()?,
+                    keep: true,
+                };
+                store.put("devices", record, false, None, &env.now()?)?;
+                store
+                    .device(&replace)
+                    .and_then(|d| apps.adopt(&d))
+                    .and_then(|()| {
+                        self.send(
+                            apps,
+                            owner,
+                            reply.clone(),
+                            (app, "driver.init", &params),
+                            stage,
+                        )
+                    })?;
+                return Ok(true);
+            }
             let id = env.id()?;
             let record = candidate(definition(store, app, driver)?, app, driver, &id, &input)?;
             if let Some(existing) = store.document().records("devices").iter().find(|d| {
@@ -295,7 +364,7 @@ impl<R: Reply> Pairing<R> {
             }) {
                 let id = json::text(existing, "id");
                 if self.pending.iter().any(|p| match &p.stage {
-                    Stage::Driver { id: pending, .. } | Stage::Device { id: pending } => {
+                    Stage::Driver { id: pending, .. } | Stage::Device { id: pending, .. } => {
                         pending == id
                     }
                     _ => false,
@@ -314,6 +383,7 @@ impl<R: Reply> Pairing<R> {
                 app: json::copy(app)?,
                 id: json::copy(&id)?,
                 params: params.try_clone()?,
+                keep: false,
             };
             store.put("devices", record, true, None, &env.now()?)?;
             let result = store
@@ -351,7 +421,7 @@ impl<R: Reply> Pairing<R> {
         match result {
             Ok(None) => self.pending.push(Pending {
                 stage: match p.stage {
-                    Stage::Driver { id, .. } => Stage::Device { id },
+                    Stage::Driver { id, keep, .. } => Stage::Device { id, keep },
                     _ => return true,
                 },
                 deadline: apps
@@ -364,7 +434,8 @@ impl<R: Reply> Pairing<R> {
             }
             Err(error) => {
                 let mut error = error;
-                if let Stage::Driver { id, .. } | Stage::Device { id } = &p.stage
+                if let Stage::Driver { id, keep, .. } | Stage::Device { id, keep } = &p.stage
+                    && !keep
                     && store.document().record("devices", id).is_ok()
                     && let Err(rollback) = store.delete("devices", id)
                 {
@@ -474,7 +545,7 @@ impl<R: Reply> Pairing<R> {
                 apps.call(app, c.owner, "device.init", params)?;
                 return Ok(None);
             }
-            Stage::Device { id } => Response::json(201, &stulp_web::device_object(store, id)?)?,
+            Stage::Device { id, .. } => Response::json(201, &stulp_web::device_object(store, id)?)?,
             Stage::Close | Stage::Delete { .. } => {
                 return Err(Error::Invalid("unexpected pair stage"));
             }

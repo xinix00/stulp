@@ -64,5 +64,8 @@
         ]
       }
     ]
+  },
+  "api": {
+    "test": { "method": "POST", "path": "/test" }
   }
 }

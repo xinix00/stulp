@@ -313,10 +313,48 @@ impl Plugin for Matter {
                     payload,
                     address,
                 } => {
+                    // Een koppeling duurt tot drie minuten en de telefoon ziet
+                    // alleen de eindstatus; één regel bij begin en einde laat
+                    // op de node zien waar hij bleef hangen (13-10: niets).
+                    let discriminator = payload.discriminator;
+                    let started = c.now();
+                    let mut line = alloc::string::String::new();
+                    if line.try_reserve(128).is_ok() {
+                        use core::fmt::Write as _;
+                        let _ = write!(
+                            line,
+                            "MATTER_COMMISSION_START discriminator={discriminator} address={}",
+                            if address.is_empty() {
+                                "mdns"
+                            } else {
+                                address.as_str()
+                            }
+                        );
+                        c.log("info", &line)?;
+                    }
                     let result = jobs::run(c, &mut self.ui, async |worker| {
                         engine.commission(worker, payload, &address).await
                     })
                     .await;
+                    let mut line = alloc::string::String::new();
+                    if line.try_reserve(256).is_ok() {
+                        use core::fmt::Write as _;
+                        let _ = write!(
+                            line,
+                            "MATTER_COMMISSION discriminator={discriminator} ms={}",
+                            c.now().saturating_sub(started)
+                        );
+                        match &result {
+                            Ok(devices) => {
+                                let _ = write!(line, " result=ok found={}", devices.len());
+                            }
+                            Err(e) => {
+                                let _ =
+                                    write!(line, " result=error error={}", stulp_sdk::message(e)?);
+                            }
+                        }
+                        c.log(if result.is_ok() { "info" } else { "warn" }, &line)?;
+                    }
                     if let Some(p) = self.ui.pairs.iter_mut().find(|p| p.id == pair) {
                         ui::done(&mut p.state, c.wall_time()?, result.as_ref().err())?;
                         if let Ok(devices) = result {

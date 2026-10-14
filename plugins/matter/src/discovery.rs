@@ -149,6 +149,22 @@ const AAAA: u16 = 28;
 const SRV: u16 = 33;
 /// Hoogstens zoveel namen per vervolgvraag; past ruim in één datagram.
 const FOLLOW_UP_NAMES: usize = 24;
+/// Het grootste aantal vragen, van voren af, dat nog in één datagram past;
+/// SRV en TXT van dezelfde instantie blijven bij elkaar.
+fn fitting(questions: &[(&str, u16)]) -> Result<usize> {
+    let mut n = questions.len().min(FOLLOW_UP_NAMES);
+    while n > 0 {
+        if query_records(&questions[..n]).is_ok() {
+            return Ok(n);
+        }
+        n -= if n >= 2 && questions[n - 1].1 == TXT && questions[n - 2].1 == SRV {
+            2
+        } else {
+            1
+        };
+    }
+    Err(Error::Invalid("no DNS question fits the datagram budget"))
+}
 /// Eén query met per naam een eigen recordtype: PTR voor de dienst, daarna
 /// SRV/TXT per instantie en AAAA per host. De HomePod-proxy beantwoordt een
 /// PTR-vraag zonder die records erbij (14-10: na een prefix-wissel kende
@@ -693,7 +709,9 @@ impl Browse {
                     break;
                 }
             }
-            let payload = match query_records(&questions) {
+            // Zoveel vragen als in één datagram passen: Matter-instantienamen
+            // zijn lang (14-10: 24 stuks waren 1,4 kB, en dan ging er niets uit).
+            let payload = match fitting(&questions).and_then(|n| query_records(&questions[..n])) {
                 Ok(p) => p,
                 Err(_) => return Some(self.complete(c)),
             };
@@ -960,6 +978,28 @@ mod tests {
                 payload,
             }]))
         }
+    }
+    #[test]
+    fn follow_up_batches_shrink_to_the_datagram_budget() -> Result {
+        let mut names = Vec::new();
+        for i in 0..12u64 {
+            names.push(alloc::format!(
+                "93F4E4B2D343FD28-{i:016X}._matter._tcp.local."
+            ));
+        }
+        let mut questions = Vec::new();
+        for name in &names {
+            questions.push((name.as_str(), SRV));
+            questions.push((name.as_str(), TXT));
+        }
+        assert!(
+            query_records(&questions).is_err(),
+            "24 lange namen passen niet"
+        );
+        let n = fitting(&questions)?;
+        assert!(n > 0 && n < 24 && n % 2 == 0, "n={n}");
+        assert!(query_records(&questions[..n])?.len() <= 1232);
+        Ok(())
     }
     #[test]
     fn a_proxy_that_answers_only_what_is_asked_gets_follow_up_rounds() -> Result {

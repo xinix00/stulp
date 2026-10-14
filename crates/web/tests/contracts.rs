@@ -522,3 +522,33 @@ fn nested_plugin_measures_use_display_units_without_touching_plain_numbers() {
         ));
     }
 }
+
+#[test]
+fn client_log_route_accepts_one_bounded_line_and_rejects_the_rest() {
+    let mut store = store();
+    let web = Web::new("").unwrap();
+    let ok = web
+        .handle(
+            &mut store,
+            &request(
+                "POST",
+                "/api/stulp/log",
+                r#"{"source":"ios-matter","level":"warn","message":"commission_state verloren"}"#,
+            ),
+            &mut Env,
+        )
+        .unwrap();
+    assert_eq!(ok.status, 200);
+    for body in [
+        r#"{"source":"","level":"info","message":"x"}"#,
+        r#"{"source":"ios","level":"debug","message":"x"}"#,
+        r#"{"source":"ios","level":"info","message":""}"#,
+    ] {
+        let err = web.handle(
+            &mut store,
+            &request("POST", "/api/stulp/log", body),
+            &mut Env,
+        );
+        assert!(err.is_err() || err.unwrap().status >= 400, "{body}");
+    }
+}

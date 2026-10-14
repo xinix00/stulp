@@ -318,6 +318,7 @@ impl Plugin for Matter {
                     // op de node zien waar hij bleef hangen (13-10: niets).
                     let discriminator = payload.discriminator;
                     let started = c.now();
+                    self.ui.emits = 0;
                     let mut line = alloc::string::String::new();
                     if line.try_reserve(128).is_ok() {
                         use core::fmt::Write as _;
@@ -341,8 +342,9 @@ impl Plugin for Matter {
                         use core::fmt::Write as _;
                         let _ = write!(
                             line,
-                            "MATTER_COMMISSION discriminator={discriminator} ms={}",
-                            c.now().saturating_sub(started)
+                            "MATTER_COMMISSION discriminator={discriminator} ms={} emits={}",
+                            c.now().saturating_sub(started),
+                            self.ui.emits
                         );
                         match &result {
                             Ok(devices) => {

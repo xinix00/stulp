@@ -139,6 +139,35 @@ pub(super) fn dispatch<S: Storage>(
             return Response::json(200, &Value::Bool(true));
         }
     }
+    if path == "/api/stulp/log" && method == "POST" {
+        // De iOS-app en de Matter-extensie loggen hierlangs mee op de node:
+        // één regel per stap, zodat een vastgelopen koppeling niet alleen op
+        // de telefoon staat. Begrensd en zonder opslag; alleen de console.
+        let body = json::parse(&req.body)?;
+        let source = json::text(&body, "source").trim();
+        let level = json::text(&body, "level");
+        let message = json::text(&body, "message").trim();
+        if source.is_empty() || source.len() > 64 || source.contains(|c: char| c.is_control()) {
+            return Err(Error::Invalid(
+                "log source must be 1-64 printable characters",
+            ));
+        }
+        if !matches!(level, "info" | "warn" | "error") {
+            return Err(Error::Invalid("log level must be info, warn or error"));
+        }
+        if message.is_empty() || message.len() > 1024 {
+            return Err(Error::Invalid("log message must be 1-1024 characters"));
+        }
+        let mut clean = alloc::string::String::new();
+        clean
+            .try_reserve(message.len())
+            .map_err(|_| Error::Memory)?;
+        for c in message.chars() {
+            clean.push(if c.is_control() { ' ' } else { c });
+        }
+        env.log(source, level, &clean);
+        return Response::json(200, &Value::Bool(true));
+    }
     if path == "/api/stulp/system" && method == "PUT" {
         let body = json::parse(&req.body)?;
         let mut system = copy(json::get(store.document().root(), "system"))?;

@@ -9,6 +9,7 @@ actor StulpClient {
   private let pollIntervalNanoseconds: UInt64
   private let commissioningTimeout: Duration
   private let candidateRetryDelayNanoseconds: UInt64
+  private let logSource: String
   private var cookie: String?
 
   init(
@@ -16,9 +17,11 @@ actor StulpClient {
     configuration: URLSessionConfiguration = .ephemeral,
     pollIntervalNanoseconds: UInt64 = 1_500_000_000,
     commissioningTimeout: Duration = .seconds(195),
-    candidateRetryDelayNanoseconds: UInt64 = 250_000_000
+    candidateRetryDelayNanoseconds: UInt64 = 250_000_000,
+    logSource: String = "ios"
   ) {
     self.connection = connection
+    self.logSource = logSource
     configuration.timeoutIntervalForRequest = 25
     configuration.timeoutIntervalForResource = 35
     configuration.httpShouldSetCookies = false
@@ -31,6 +34,29 @@ actor StulpClient {
   func validate() async throws -> StulpHealth {
     try await authenticate()
     return try await request("/api/stulp/health", as: StulpHealth.self)
+  }
+
+  /// Eén regel op de console van de controller, naast de plugin- en
+  /// requestregels. Stulp slaat niets op; een fout hier is nooit een reden om
+  /// een koppeling af te breken, dus de aanroeper negeert hem.
+  func log(_ level: String, _ message: String) async throws {
+    _ = try await requestData(
+      "/api/stulp/log",
+      method: "POST",
+      body: try JSONSerialization.data(withJSONObject: [
+        "source": logSource, "level": level, "message": String(message.prefix(1000)),
+      ]),
+      contentType: "application/json"
+    )
+  }
+
+  /// Fire-and-forget variant voor onderweg in een koppeling.
+  nonisolated func trace(_ message: String) {
+    trace("info", message)
+  }
+
+  nonisolated func trace(_ level: String, _ message: String) {
+    Task { try? await self.log(level, message) }
   }
 
   func groups() async throws -> [StulpDeviceGroup] {
@@ -56,13 +82,16 @@ actor StulpClient {
       try? await closePair(pair.id)
       throw StulpClientError.incompatibleMatterApp
     }
+    trace("pair \(pair.id) geopend, payload \(payload.count) tekens")
 
     return try await withTaskCancellationHandler {
       do {
         let devices = try await performCommissioning(pairID: pair.id, payload: payload)
+        trace("pair \(pair.id) klaar: \(devices.count) apparaat/apparaten toegevoegd")
         await closePairIgnoringCancellation(pair.id)
         return devices
       } catch {
+        trace("error", "pair \(pair.id) mislukt: \(error.localizedDescription)")
         await closePairIgnoringCancellation(pair.id)
         throw error
       }
@@ -136,23 +165,34 @@ actor StulpClient {
   {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: commissioningTimeout)
-    var state = try await emit(
+    // Een enkel verzoek kan onderweg verloren gaan terwijl Stulp gewoon
+    // doorwerkt (14-10: een status-poll midden in PASE kreeg nooit antwoord).
+    // "commission" geeft bij een lopende sessie de lopende staat terug, dus
+    // herhalen is veilig; afbreken zou een geslaagde koppeling weggooien.
+    var state = try await emitRetrying(
       pairID: pairID,
       event: "commission",
       json: ["code": payload, "address": ""],
-      as: CommissionState.self
+      deadline: deadline,
+      clock: clock
     )
+    trace("commission gestuurd, running=\(state.running)")
     while state.running {
       try Task.checkCancellation()
-      guard clock.now < deadline else { throw StulpClientError.commissioningTimedOut }
+      guard clock.now < deadline else {
+        trace("warn", "commission_state nog running na \(Int(commissioningTimeout.components.seconds)) s")
+        throw StulpClientError.commissioningTimedOut
+      }
       try await Task.sleep(nanoseconds: pollIntervalNanoseconds)
-      state = try await emit(
+      state = try await emitRetrying(
         pairID: pairID,
         event: "commission_state",
         json: [:],
-        as: CommissionState.self
+        deadline: deadline,
+        clock: clock
       )
     }
+    trace("commission klaar: found=\(state.found ?? 0) warning=\(state.warning ?? "-")")
     if let warning = state.warning, !warning.isEmpty {
       throw StulpClientError.commissioningFailed(warning)
     }
@@ -162,6 +202,7 @@ actor StulpClient {
 
     let candidates = try await emitData(pairID: pairID, event: "list_devices", json: nil)
     let objects = try candidateObjects(from: candidates)
+    trace("list_devices: \(objects.count) kandidaat/kandidaten")
     guard !objects.isEmpty else { throw StulpClientError.noDevicesFound }
 
     var devices: [PendingMatterDevice] = []
@@ -170,6 +211,26 @@ actor StulpClient {
       devices.append(try await addCandidate(body).pending)
     }
     return devices
+  }
+
+  private func emitRetrying(
+    pairID: String,
+    event: String,
+    json: [String: String],
+    deadline: ContinuousClock.Instant,
+    clock: ContinuousClock
+  ) async throws -> CommissionState {
+    var attempt = 0
+    while true {
+      do {
+        return try await emit(pairID: pairID, event: event, json: json, as: CommissionState.self)
+      } catch let error as URLError where error.code == .timedOut || error.code == .networkConnectionLost {
+        attempt += 1
+        trace("warn", "\(event) zonder antwoord (poging \(attempt)): \(error.localizedDescription)")
+        guard attempt < 4, clock.now < deadline else { throw error }
+        try Task.checkCancellation()
+      }
+    }
   }
 
   private func addCandidate(_ body: Data) async throws -> AddedDevice {
@@ -182,8 +243,11 @@ actor StulpClient {
           body: body,
           contentType: "application/json"
         )
-        return try decode(AddedDevice.self, from: added)
+        let device = try decode(AddedDevice.self, from: added)
+        trace("toegevoegd: \(device.name) (\(device.id))")
+        return device
       } catch {
+        trace("warn", "kandidaat toevoegen mislukt (poging \(attempt + 1)): \(error.localizedDescription)")
         if attempt == 1 || !isRetryableCandidateError(error) { throw error }
         firstError = error
         try Task.checkCancellation()

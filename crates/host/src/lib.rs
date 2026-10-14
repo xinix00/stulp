@@ -40,6 +40,10 @@ impl stulp_web::Environment for Environment {
             .as_nanos();
         stulp_core::json::timestamp(u64::try_from(nanos).map_err(|_| stulp_core::Error::Full)?)
     }
+
+    fn log(&self, source: &str, level: &str, message: &str) {
+        eprintln!("[stulp:client] source={source} level={level} {message}");
+    }
 }
 
 mod app_ui;

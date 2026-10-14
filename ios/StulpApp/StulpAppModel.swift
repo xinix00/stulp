@@ -53,6 +53,8 @@ final class StulpAppModel: ObservableObject {
     isWorking = true
     status = "iOS opent de Matter-scanner…"
     defer { isWorking = false }
+    let trace = connection.map { StulpClient(connection: $0, logSource: "ios-app") }
+    trace?.trace("Matter toevoegen gestart vanuit de app")
     do {
       let home = MatterAddDeviceRequest.Home(displayName: "Thuis")
       let topology = MatterAddDeviceRequest.Topology(ecosystemName: "Stulp", homes: [home])
@@ -63,12 +65,16 @@ final class StulpAppModel: ObservableObject {
       )
       try await request.perform()
       status = "Het apparaat is rechtstreeks aan Stulp toegevoegd."
+      trace?.trace("Matter toevoegen afgerond door iOS")
     } catch {
       let nsError = error as NSError
       if nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError {
         status = "Toevoegen geannuleerd."
+        trace?.trace("warn", "Matter toevoegen geannuleerd")
       } else {
         status = error.localizedDescription
+        trace?.trace(
+          "error", "Matter toevoegen mislukt: \(nsError.domain) \(nsError.code) \(error.localizedDescription)")
       }
     }
   }

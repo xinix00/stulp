@@ -10,11 +10,16 @@ struct StulpClientTests {
   @Test func commissioningUsesCookiePollsAddsEveryCandidateAndClosesPair() async throws {
     let observations = Locked(CommissionObservations())
     MockURLProtocol.handler = { request in
-      observations.update { $0.paths.append(request.url!.path) }
+      // Logregels naar de node zijn fire-and-forget en tellen hier niet mee.
+      if request.url!.path != "/api/stulp/log" {
+        observations.update { $0.paths.append(request.url!.path) }
+      }
 
       switch (request.httpMethod, request.url!.path) {
       case ("GET", "/secret"):
         return .json("{}", headers: ["Set-Cookie": "stulp-session=proof; Path=/; HttpOnly"])
+      case ("POST", "/api/stulp/log"):
+        return .json("true")
       case ("POST", "/api/stulp/pair"):
         observations.update { $0.cookie = request.value(forHTTPHeaderField: "Cookie") }
         return .json(
@@ -90,6 +95,8 @@ struct StulpClientTests {
       switch (request.httpMethod, request.url!.path) {
       case ("GET", "/secret"):
         return .json("{}", headers: ["Set-Cookie": "stulp-session=proof; Path=/"])
+      case ("POST", "/api/stulp/log"):
+        return .json("true")
       case ("POST", "/api/stulp/pair"):
         return .json(
           #"{"id":"pair-2","handlers":["commission","commission_state","list_devices"]}"#,
@@ -124,6 +131,8 @@ struct StulpClientTests {
       switch (request.httpMethod, request.url!.path) {
       case ("GET", "/secret"):
         return .json("{}", headers: ["Set-Cookie": "stulp-session=proof; Path=/"])
+      case ("POST", "/api/stulp/log"):
+        return .json("true")
       case ("POST", "/api/stulp/pair"):
         return .json(
           #"{"id":"pair-3","handlers":["commission","commission_state","list_devices"]}"#,
@@ -152,6 +161,8 @@ struct StulpClientTests {
       switch (request.httpMethod, request.url!.path) {
       case ("GET", "/secret"):
         return .json("{}", headers: ["Set-Cookie": "stulp-session=proof; Path=/"])
+      case ("POST", "/api/stulp/log"):
+        return .json("true")
       case ("POST", "/api/stulp/pair"):
         return .json(
           #"{"id":"pair-retry","handlers":["commission","commission_state","list_devices"]}"#,
@@ -187,6 +198,8 @@ struct StulpClientTests {
       switch (request.httpMethod, request.url!.path) {
       case ("GET", "/secret"):
         return .json("{}", headers: ["Set-Cookie": "stulp-session=proof; Path=/"])
+      case ("POST", "/api/stulp/log"):
+        return .json("true")
       case ("POST", "/api/stulp/pair"):
         return .json(
           #"{"id":"pair-4","handlers":["commission","commission_state","list_devices"]}"#,
@@ -219,6 +232,8 @@ struct StulpClientTests {
       switch (request.httpMethod, request.url!.path) {
       case ("GET", "/secret"):
         return .json("{}", headers: ["Set-Cookie": "stulp-session=proof; Path=/"])
+      case ("POST", "/api/stulp/log"):
+        return .json("true")
       case ("POST", "/api/stulp/pair"):
         return .json(
           #"{"id":"pair-5","handlers":["commission","commission_state","list_devices"]}"#,

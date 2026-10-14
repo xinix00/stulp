@@ -236,6 +236,10 @@ pub trait Environment {
     fn id(&mut self) -> Result<String>;
     /// RFC3339 UTC-tijd voor configuratierevisies.
     fn now(&self) -> Result<String>;
+    /// Een logregel van een client (de iOS-app, een browser) op de console van
+    /// de controller, naast de plugin- en requestregels. Wie geen console heeft
+    /// laat hem vallen; de route antwoordt dan nog steeds 200.
+    fn log(&self, _source: &str, _level: &str, _message: &str) {}
 }
 
 /// Bevat geen huisstaat; alleen de browsertoegangsconfiguratie.

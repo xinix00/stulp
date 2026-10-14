@@ -68,4 +68,7 @@ impl stulp_web::Environment for Environment {
                 .ok_or(Error::Invalid("wall clock not synchronized"))?,
         )
     }
+    fn log(&self, source: &str, level: &str, message: &str) {
+        applib::log!("[stulp:client] source={source} level={level} {message}");
+    }
 }

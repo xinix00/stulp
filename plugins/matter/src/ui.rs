@@ -99,6 +99,10 @@ pub(crate) struct Ui {
     pub(crate) pairs: Vec<Pair>,
     pub(crate) diagnoses: Vec<Diagnosis>,
     pub(crate) running: bool,
+    /// Pair-events die sinds de laatste koppeling door de gate kwamen; het
+    /// MATTER_COMMISSION-logregel meldt ze, zodat een poll die de plugin
+    /// nooit bereikte te onderscheiden is van een poll zonder antwoord.
+    pub(crate) emits: u32,
     pub(crate) pending: Option<Job>,
     pub(crate) active: String,
     pub(crate) found: Value,
@@ -113,6 +117,7 @@ impl Default for Ui {
             pairs: Vec::new(),
             diagnoses: Vec::new(),
             running: false,
+            emits: 0,
             pending: None,
             active: String::new(),
             found: Value::Array(Vec::new()),
@@ -157,6 +162,7 @@ impl Gate for Ui {
                     .map_err(stulp_core::Error::from)?
             }
             "pair.emit" => {
+                self.emits = self.emits.saturating_add(1);
                 let id = json::text(p, "sessionId");
                 let pair = self
                     .pairs

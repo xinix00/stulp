@@ -103,6 +103,10 @@ struct ContentView: View {
       .disabled(model.isWorking)
       .accessibilityIdentifier("add-matter-device")
 
+      if model.isWorking || !model.steps.isEmpty {
+        progress
+      }
+
       Text(
         "Thread werkt wanneer iOS het default Thread-netwerk kent en Stulp dat via een blijvende border router kan bereiken, meestal een Apple TV of HomePod."
       )
@@ -121,6 +125,41 @@ struct ContentView: View {
       .font(.subheadline)
     }
     .card()
+  }
+}
+
+extension ContentView {
+  /// De mijlpalen van de lopende koppeling, met de tijd sinds de start, en
+  /// de waarschuwing plus annuleerknop zodra Apple's fase blijft hangen.
+  fileprivate var progress: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      let start = model.steps.first?.at
+      ForEach(Array(model.steps.suffix(8).enumerated()), id: \.offset) { _, step in
+        HStack(alignment: .top, spacing: 8) {
+          Text(start.map { String(format: "%3.0fs", step.at.timeIntervalSince($0)) } ?? "")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+          Text(step.text)
+            .font(.caption)
+        }
+      }
+      if model.isWorking && model.steps.isEmpty {
+        Text("Wachten op iOS: QR-code, Bluetooth en netwerk…")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      if !model.hint.isEmpty {
+        Label(model.hint, systemImage: "exclamationmark.triangle.fill")
+          .font(.footnote)
+          .foregroundStyle(.orange)
+      }
+      if model.isWorking {
+        Button("Annuleer", role: .cancel) { model.cancelAdding() }
+          .font(.subheadline)
+      }
+    }
+    .padding(12)
+    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
   }
 }
 

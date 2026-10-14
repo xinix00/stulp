@@ -17,6 +17,7 @@ final class MatterRequestHandler: MatterAddDeviceExtensionRequestHandler {
 
   private func note(_ level: String, _ message: String) {
     logger.info("\(message, privacy: .public)")
+    MatterProgress.record(message)
     client()?.trace(level, message)
   }
 
@@ -58,11 +59,13 @@ final class MatterRequestHandler: MatterAddDeviceExtensionRequestHandler {
       try PendingMatterDevices.remove()
       let devices = try await StulpClient(connection: connection, logSource: "ios-matter")
         .commissionMatter(onboardingPayload: onboardingPayload)
+      MatterProgress.record("Stulp heeft \(devices.count) apparaat/apparaten toegevoegd")
       try PendingMatterDevices.save(devices)
       logger.info("Matter commissioning added \(devices.count, privacy: .public) Stulp device(s)")
     } catch {
       logger.error(
         "Stulp Matter commissioning failed: \(error.localizedDescription, privacy: .public)")
+      MatterProgress.record("Stulp-koppeling mislukt: \(error.localizedDescription)")
       throw error
     }
   }

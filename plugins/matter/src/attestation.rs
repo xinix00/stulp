@@ -215,9 +215,10 @@ fn vid_pid(subject: &[u8]) -> Result<(u16, u16)> {
             *target = Some(value);
         }
     }
+    // Een DAC voor een hele productlijn noemt geen product-id; dat mag.
     Ok((
         vendor.ok_or(Error::Invalid("DAC vendor ID missing"))?,
-        product.ok_or(Error::Invalid("DAC product ID missing"))?,
+        product.unwrap_or(0),
     ))
 }
 /// Het geverifieerde DAC, gebonden aan onboarding vendor/product wanneer opgegeven.
@@ -241,9 +242,23 @@ impl Verified {
             .verify(dac.tbs, &dac.signature)
             .map_err(|_| Error::Invalid("DAC is not signed by supplied PAI"))?;
         let (vid, pid) = vid_pid(dac.subject)?;
-        if vendor != 0 && vendor != vid || product != 0 && product != pid {
-            return Err(Error::Invalid("DAC vendor/product differ from onboarding"));
+        // De vendor in het DAC moet die van de QR-code zijn: een andere
+        // fabrikant is een verkeerde code of een vals certificaat. Het
+        // product-id is een hint: een DAC geldt vaak voor een hele productlijn
+        // of noemt geen product (14-10: een IKEA-lamp strandde hier). Wat het
+        // apparaat is, leest de inspectie daarna uit Basic Information.
+        if vendor != 0 && vendor != vid {
+            return Err(hex_error(
+                "DAC vendor differs from onboarding ",
+                &[
+                    (vendor >> 8) as u8,
+                    vendor as u8,
+                    (vid >> 8) as u8,
+                    vid as u8,
+                ],
+            ));
         }
+        let _ = product;
         Ok(Self {
             key: dac.key,
             vendor: vid,
@@ -392,6 +407,11 @@ mod tests {
         );
         assert!(a.csr(elements, signature, &[43; 16], &[42; 32]).is_err());
         assert!(Verified::chain(pai, dac, 1, 0x8000).is_err());
+        // Een ander of ontbrekend product-id in de code is geen weigering;
+        // het DAC bepaalt wat Stulp verder gebruikt.
+        let lenient = Verified::chain(pai, dac, 0xfff1, 0x1234)?;
+        assert_eq!((lenient.vendor, lenient.product), (0xfff1, 0x8000));
+        assert!(Verified::chain(pai, dac, 0, 0).is_ok());
         assert!(Verified::chain(dac, dac, 0xfff1, 0x8000).is_err());
         let mut changed = crate::copy(dac)?;
         let n = changed.len();

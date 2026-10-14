@@ -153,15 +153,51 @@ enum PendingMatterDevices {
   }
 
   private static func defaults() throws -> UserDefaults {
-    guard
-      let identifier = Bundle.main.object(forInfoDictionaryKey: "StulpAppGroup") as? String,
-      !identifier.isEmpty,
-      !identifier.contains("$("),
-      let shared = UserDefaults(suiteName: identifier)
-    else {
-      throw SharedConfigurationError.missingAppGroup
+    try sharedDefaults()
+  }
+}
+
+func sharedDefaults() throws -> UserDefaults {
+  guard
+    let identifier = Bundle.main.object(forInfoDictionaryKey: "StulpAppGroup") as? String,
+    !identifier.isEmpty,
+    !identifier.contains("$("),
+    let shared = UserDefaults(suiteName: identifier)
+  else {
+    throw SharedConfigurationError.missingAppGroup
+  }
+  return shared
+}
+
+/// Eén mijlpaal van een koppeling, door de extensie gezet en door de app
+/// live getoond. Apple's eigen fase is voor de app anders onzichtbaar, en
+/// juist daar blijft het soms hangen: na de netwerkstap hoort de overdracht
+/// aan Stulp binnen seconden te volgen.
+struct MatterProgressStep: Codable, Equatable, Sendable {
+  let at: Date
+  let text: String
+}
+
+enum MatterProgress {
+  private static let key = "matter-progress"
+  static let maximum = 40
+
+  static func clear() {
+    try? sharedDefaults().removeObject(forKey: key)
+  }
+
+  static func record(_ text: String) {
+    var steps = load()
+    steps.append(MatterProgressStep(at: Date(), text: text))
+    if steps.count > maximum { steps.removeFirst(steps.count - maximum) }
+    if let data = try? JSONEncoder().encode(steps) {
+      try? sharedDefaults().set(data, forKey: key)
     }
-    return shared
+  }
+
+  static func load() -> [MatterProgressStep] {
+    guard let data = try? sharedDefaults().data(forKey: key) else { return [] }
+    return (try? JSONDecoder().decode([MatterProgressStep].self, from: data)) ?? []
   }
 }
 

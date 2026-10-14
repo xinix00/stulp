@@ -8,6 +8,15 @@ final class StulpAppModel: ObservableObject {
   @Published var entry = ""
   @Published var status = ""
   @Published var isWorking = false
+  /// Mijlpalen van de lopende koppeling, uit de gedeelde app-opslag.
+  @Published var steps: [MatterProgressStep] = []
+  /// Waarschuwing zodra de overdracht aan Stulp na de netwerkstap uitblijft.
+  @Published var hint = ""
+  private var adding: Task<Void, any Error>?
+  /// Na de netwerkstap volgt de overdracht normaal binnen seconden; daarna
+  /// komt hij in de praktijk vrijwel nooit meer (14-10: vijf minuten wachten
+  /// tot Apple's eigen time-out, en de tweede poging slaagde meteen).
+  static let stallSeconds: TimeInterval = 40
 
   init() {
     do {
@@ -61,6 +70,28 @@ final class StulpAppModel: ObservableObject {
     return String(text.prefix(900))
   }
 
+  func cancelAdding() {
+    adding?.cancel()
+    hint = ""
+    status = "Toevoegen geannuleerd. Probeer het meteen opnieuw; dat slaagt meestal."
+  }
+
+  /// Leest de mijlpalen van de extensie en zet de waarschuwing als de
+  /// overdracht aan Stulp te lang uitblijft.
+  func refreshProgress() {
+    steps = MatterProgress.load()
+    guard isWorking, let last = steps.last else { return }
+    let handedOver = steps.contains { $0.text.hasPrefix("commissionDevice") }
+    let networkChosen = steps.contains { $0.text.hasPrefix("thread:") || $0.text.hasPrefix("wifi:") }
+    let waited = Date().timeIntervalSince(last.at)
+    if networkChosen && !handedOver && waited >= Self.stallSeconds {
+      hint =
+        "Al \(Int(waited)) s geen overdracht aan Stulp na de netwerkstap. iOS krijgt het apparaat dan meestal niet meer te pakken en wacht tot zijn eigen time-out van vijf minuten. Annuleer en probeer het meteen opnieuw."
+    } else {
+      hint = ""
+    }
+  }
+
   func addMatterDevice() async {
     guard connection != nil else { return }
     guard MatterAddDeviceRequest.isSupported else {
@@ -69,7 +100,21 @@ final class StulpAppModel: ObservableObject {
     }
     isWorking = true
     status = "iOS opent de Matter-scanner…"
-    defer { isWorking = false }
+    hint = ""
+    MatterProgress.clear()
+    steps = []
+    let poll = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        await MainActor.run { self?.refreshProgress() }
+      }
+    }
+    defer {
+      poll.cancel()
+      isWorking = false
+      refreshProgress()
+      hint = ""
+    }
     let trace = connection.map { StulpClient(connection: $0, logSource: "ios-app") }
     trace?.trace("Matter toevoegen gestart vanuit de app")
     do {
@@ -80,7 +125,10 @@ final class StulpAppModel: ObservableObject {
         showing: .allDevices,
         shouldScanNetworks: true
       )
-      try await request.perform()
+      let work = Task { try await request.perform() }
+      adding = work
+      defer { adding = nil }
+      try await work.value
       status = "Het apparaat is rechtstreeks aan Stulp toegevoegd."
       trace?.trace("Matter toevoegen afgerond door iOS")
     } catch {

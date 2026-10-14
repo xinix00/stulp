@@ -44,6 +44,23 @@ final class StulpAppModel: ObservableObject {
     }
   }
 
+  /// Domein, code en de hele keten van onderliggende fouten: MatterSupport
+  /// meldt zelf alleen "fout 1", de reden zit in de userInfo daaronder.
+  nonisolated static func describe(_ error: NSError, depth: Int = 0) -> String {
+    var text = "\(error.domain) \(error.code) \(error.localizedDescription)"
+    let info = error.userInfo.filter { $0.key != NSUnderlyingErrorKey && $0.key != "NSMultipleUnderlyingErrorsKey" }
+    if !info.isEmpty {
+      text += " userInfo=" + info.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: "; ")
+    }
+    var underlying: [NSError] = []
+    if let one = error.userInfo[NSUnderlyingErrorKey] as? NSError { underlying.append(one) }
+    if let many = error.userInfo["NSMultipleUnderlyingErrorsKey"] as? [NSError] { underlying += many }
+    if depth < 4 {
+      for u in underlying { text += " <- " + describe(u, depth: depth + 1) }
+    }
+    return String(text.prefix(900))
+  }
+
   func addMatterDevice() async {
     guard connection != nil else { return }
     guard MatterAddDeviceRequest.isSupported else {
@@ -73,8 +90,7 @@ final class StulpAppModel: ObservableObject {
         trace?.trace("warn", "Matter toevoegen geannuleerd")
       } else {
         status = error.localizedDescription
-        trace?.trace(
-          "error", "Matter toevoegen mislukt: \(nsError.domain) \(nsError.code) \(error.localizedDescription)")
+        trace?.trace("error", "Matter toevoegen mislukt: \(Self.describe(nsError))")
       }
     }
   }

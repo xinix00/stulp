@@ -4,21 +4,41 @@ import os
 final class MatterRequestHandler: MatterAddDeviceExtensionRequestHandler {
   private let logger = Logger(subsystem: "com.xinix00.stulp", category: "MatterSetup")
 
+  /// Dezelfde regels gaan naar de console van de node (POST /api/stulp/log),
+  /// zodat een koppeling zonder sudo-logarchief van de telefoon te volgen is.
+  private func client() -> StulpClient? {
+    guard let connection = try? SharedStulpConfiguration.load() else { return nil }
+    return StulpClient(connection: connection, logSource: "ios-matter")
+  }
+
+  private func note(_ message: String) {
+    note("info", message)
+  }
+
+  private func note(_ level: String, _ message: String) {
+    logger.info("\(message, privacy: .public)")
+    client()?.trace(level, message)
+  }
+
   override func selectWiFiNetwork(
     from wifiScanResults: [MatterAddDeviceExtensionRequestHandler.WiFiScanResult]
   ) async throws -> MatterAddDeviceExtensionRequestHandler.WiFiNetworkAssociation {
-    .defaultSystemNetwork
+    note("wifi: \(wifiScanResults.count) netwerk(en) gezien, systeemnetwerk gekozen")
+    return .defaultSystemNetwork
   }
 
   override func selectThreadNetwork(
     from threadScanResults: [MatterAddDeviceExtensionRequestHandler.ThreadScanResult]
   ) async throws -> MatterAddDeviceExtensionRequestHandler.ThreadNetworkAssociation {
-    .defaultSystemNetwork
+    let names = threadScanResults.map { $0.networkName }.joined(separator: ", ")
+    note("thread: \(threadScanResults.count) netwerk(en) gezien [\(names)], systeemnetwerk gekozen")
+    return .defaultSystemNetwork
   }
 
   override func validateDeviceCredential(
     _ deviceCredential: MatterAddDeviceExtensionRequestHandler.DeviceCredential
   ) async throws {
+    note("credential gevalideerd door iOS; Stulp controleert DAC en PAI zelf tijdens PASE")
     // Apples setupstroom valideert de standaard credential. Stulp controleert
     // tijdens zijn eigen PASE-sessie vervolgens zelf DAC->PAI, nonce en
     // handtekening voordat het een NOC uitgeeft. Hier voegen we bewust geen
@@ -33,9 +53,10 @@ final class MatterRequestHandler: MatterAddDeviceExtensionRequestHandler {
     guard let connection = try SharedStulpConfiguration.load() else {
       throw MatterSetupError.notConfigured
     }
+    note("commissionDevice: iOS draagt over, payload \(onboardingPayload.count) tekens, prefix \(onboardingPayload.prefix(3))")
     do {
       try PendingMatterDevices.remove()
-      let devices = try await StulpClient(connection: connection)
+      let devices = try await StulpClient(connection: connection, logSource: "ios-matter")
         .commissionMatter(onboardingPayload: onboardingPayload)
       try PendingMatterDevices.save(devices)
       logger.info("Matter commissioning added \(devices.count, privacy: .public) Stulp device(s)")
@@ -63,6 +84,7 @@ final class MatterRequestHandler: MatterAddDeviceExtensionRequestHandler {
     in room: MatterAddDeviceRequest.Room?
   ) async {
     let devices = (try? PendingMatterDevices.load()) ?? []
+    note("configureDevice: naam \"\(name)\", kamer \(room?.displayName ?? "-"), \(devices.count) apparaat/apparaten")
     defer { try? PendingMatterDevices.remove() }
     guard !devices.isEmpty,
       let connection = try? SharedStulpConfiguration.load()

@@ -290,8 +290,21 @@ impl Verified {
         let csr = n.bytes(1)?;
         let mut outer = Reader(only(csr, 0x30)?.value);
         let tbs = outer.take(0x30)?;
-        if outer.take(0x30)?.wire != SIG {
-            return Err(Error::Invalid("CSR signature algorithm"));
+        // ecdsa-with-SHA256, met of zonder de NULL-parameter die sommige
+        // stacks er ten onrechte achter zetten (14-10: een IKEA GRILLPLATS
+        // strandde hier). Wat anders is, komt in hex in de fout te staan.
+        let algorithm = outer.take(0x30)?;
+        if algorithm.wire != SIG {
+            let mut a = Reader(algorithm.value);
+            let oid = a.take(6)?;
+            let null = if a.0.is_empty() {
+                Ok(())
+            } else {
+                a.take(5).and_then(|_| a.end())
+            };
+            if oid.wire != &SIG[2..] || null.is_err() {
+                return Err(hex_error("CSR signature algorithm ", algorithm.wire));
+            }
         }
         let sig = signature_der(outer.take(3)?.value)?;
         outer.end()?;
@@ -329,6 +342,22 @@ impl Verified {
     }
 }
 // De methodeparameter heet signature; houd de DER-helper expliciet apart.
+/// Een vaste tekst plus de hex van een onverwacht DER-fragment, begrensd:
+/// wie dit in de log leest wil weten wat er precies stond. Lukt de
+/// allocatie niet, dan blijft alleen de vaste tekst over.
+fn hex_error(prefix: &'static str, bytes: &[u8]) -> Error {
+    use core::fmt::Write;
+    let mut text = alloc::string::String::new();
+    if text.try_reserve(prefix.len() + 64).is_err() {
+        return Error::Invalid(prefix);
+    }
+    text.push_str(prefix);
+    for b in bytes.iter().take(24) {
+        let _ = write!(text, "{b:02x}");
+    }
+    Error::Remote(text)
+}
+
 fn signature_der(bits: &[u8]) -> Result<Signature> {
     signature(bits)
 }

@@ -137,13 +137,30 @@ fn unescape(name: &str) -> Result<String> {
 }
 /// Een legacy multicastquery krijgt vanaf een ephemeral UDP-poort een unicastantwoord.
 pub fn query(services: &[&str]) -> Result<Vec<u8>> {
-    if services.is_empty() || services.len() > 12 {
-        return Err(Error::Invalid("DNS query requires 1..12 services"));
+    let mut questions = Vec::new();
+    for service in services {
+        json::push(&mut questions, (*service, PTR), 12)?;
+    }
+    query_records(&questions)
+}
+const PTR: u16 = 12;
+const TXT: u16 = 16;
+const AAAA: u16 = 28;
+const SRV: u16 = 33;
+/// Hoogstens zoveel namen per vervolgvraag; past ruim in één datagram.
+const FOLLOW_UP_NAMES: usize = 24;
+/// Eén query met per naam een eigen recordtype: PTR voor de dienst, daarna
+/// SRV/TXT per instantie en AAAA per host. De HomePod-proxy beantwoordt een
+/// PTR-vraag zonder die records erbij (14-10: na een prefix-wissel kende
+/// Stulp daardoor geen enkel nieuw adres), dus die worden apart gevraagd.
+pub fn query_records(questions: &[(&str, u16)]) -> Result<Vec<u8>> {
+    if questions.is_empty() || questions.len() > FOLLOW_UP_NAMES {
+        return Err(Error::Invalid("DNS query requires 1..24 questions"));
     }
     let mut out = Vec::new();
     crate::append(&mut out, &[0; 12])?;
-    out[5] = services.len() as u8;
-    for service in services {
+    out[5] = questions.len() as u8;
+    for (service, kind) in questions {
         let text = service.trim_end_matches('.');
         if text.is_empty() || text.len() > 253 {
             return invalid();
@@ -159,7 +176,9 @@ pub fn query(services: &[&str]) -> Result<Vec<u8>> {
             crate::append(&mut out, &[label.len() as u8])?;
             crate::append(&mut out, label.as_bytes())?;
         }
-        crate::append(&mut out, &[0, 0, 12, 0, 1])?;
+        crate::append(&mut out, &[0])?;
+        crate::append(&mut out, &kind.to_be_bytes())?;
+        crate::append(&mut out, &[0, 1])?;
     }
     if out.len() > 1232 {
         return Err(Error::Invalid("mDNS query exceeds datagram budget"));
@@ -330,6 +349,64 @@ impl Collector {
             }
         }
         Ok(())
+    }
+    /// De vervolgvragen die de gevonden instanties compleet maken: eerst SRV
+    /// (en TXT) voor instanties zonder SRV, daarna AAAA voor hosts zonder adres.
+    /// Leeg als alles compleet is.
+    pub fn follow_up(&self, services: &[&str], now: u64) -> Result<Vec<(String, u16)>> {
+        let live = |e: &&Entry| e.expires > now;
+        let mut questions = Vec::new();
+        let mut hosts = Vec::new();
+        for ptr in self.records.iter().filter(live) {
+            let Record::Ptr(instance) = &ptr.record else {
+                continue;
+            };
+            if !services.iter().any(|s| s.eq_ignore_ascii_case(&ptr.owner)) {
+                continue;
+            }
+            let srv = self
+                .records
+                .iter()
+                .filter(live)
+                .find_map(|e| match &e.record {
+                    Record::Srv { host, .. } if e.owner.eq_ignore_ascii_case(instance) => {
+                        Some(host)
+                    }
+                    _ => None,
+                });
+            match srv {
+                None => {
+                    if questions.len() + 2 > FOLLOW_UP_NAMES {
+                        break;
+                    }
+                    json::push(
+                        &mut questions,
+                        (json::copy(instance)?, SRV),
+                        FOLLOW_UP_NAMES,
+                    )?;
+                    json::push(
+                        &mut questions,
+                        (json::copy(instance)?, TXT),
+                        FOLLOW_UP_NAMES,
+                    )?;
+                }
+                Some(host) => {
+                    let known = self.records.iter().filter(live).any(|e| {
+                        matches!(e.record, Record::Address(..))
+                            && e.owner.eq_ignore_ascii_case(host)
+                    });
+                    if !known && !hosts.iter().any(|h: &String| h.eq_ignore_ascii_case(host)) {
+                        json::push(&mut hosts, json::copy(host)?, 128)?;
+                    }
+                }
+            }
+        }
+        if questions.is_empty() {
+            for host in hosts.into_iter().take(FOLLOW_UP_NAMES) {
+                json::push(&mut questions, (host, AAAA), FOLLOW_UP_NAMES)?;
+            }
+        }
+        Ok(questions)
     }
     /// Bouwt alleen de gevraagde services; onvolledige antwoorden blijven herkenbaar als onvolledig.
     pub fn nodes(&self, services: &[&str], now: u64) -> Result<Vec<Node>> {
@@ -505,11 +582,22 @@ impl Node {
     }
 }
 
+/// Zoveel vervolgrondes na de PTR-ronde; genoeg voor ruim honderd instanties.
+const FOLLOW_UP_ROUNDS: u8 = 8;
+/// Een vervolgvraag krijgt unicastantwoorden; die zijn er binnen een seconde.
+const FOLLOW_UP_WINDOW_MS: u64 = 1500;
 /// Eén asynchrone LAN-zoekronde; pollen kan tussen MRP- en subscriptionverwerking gebeuren.
+/// Na de PTR-ronde volgen zo nodig rondes voor SRV/TXT en AAAA (zie
+/// [`Collector::follow_up`]); wat na de laatste ronde nog ontbreekt, blijft
+/// een onvolledige node, zoals voorheen.
 pub struct Browse {
     services: Vec<String>,
     deadline: u64,
     finished: bool,
+    collector: Collector,
+    rounds: u8,
+    /// Open vragen van de vorige ronde; levert een ronde niets op, dan stopt het.
+    outstanding: usize,
 }
 impl Browse {
     /// Start legacy mDNS op alle bruikbare IPv4/IPv6 LAN-interfaces via de platformadapter.
@@ -536,7 +624,24 @@ impl Browse {
             services: owned,
             deadline,
             finished: false,
+            collector: Collector::default(),
+            rounds: 0,
+            outstanding: 0,
         })
+    }
+    fn services(&self) -> Result<Vec<&str>> {
+        let mut services = Vec::new();
+        for service in &self.services {
+            json::push(&mut services, service.as_str(), 12)?;
+        }
+        Ok(services)
+    }
+    fn complete<T: stulp_sdk::Transport>(
+        &mut self,
+        c: &mut stulp_sdk::Client<T>,
+    ) -> Result<Vec<Node>> {
+        self.finished = true;
+        self.collector.nodes(&self.services()?, c.now())
     }
     /// Foute losse DNS-pakketten verstoren de zoekronde niet; allocatie- en transportfouten wel.
     pub fn poll<T: stulp_sdk::Transport>(
@@ -547,24 +652,71 @@ impl Browse {
             return Some(Err(Error::Invalid("Matter browse already completed")));
         }
         if let Some(result) = c.poll_datagrams() {
-            self.finished = true;
-            return Some(result.and_then(|packets| {
-                let mut collector = Collector::default();
-                for packet in packets {
-                    if let Err(Error::Core(e)) =
-                        collector.consume(&packet.payload, packet.interface, c.now())
-                    {
-                        return Err(Error::Core(e));
-                    }
+            let packets = match result {
+                Ok(packets) => packets,
+                // Een mislukte vervolgronde laat de nodes van de PTR-ronde staan.
+                Err(e) if self.rounds == 0 => {
+                    self.finished = true;
+                    return Some(Err(e));
                 }
-                let mut services = Vec::new();
-                for service in &self.services {
-                    json::push(&mut services, service.as_str(), 12)?;
+                Err(_) => return Some(self.complete(c)),
+            };
+            for packet in packets {
+                if let Err(Error::Core(e)) =
+                    self.collector
+                        .consume(&packet.payload, packet.interface, c.now())
+                {
+                    self.finished = true;
+                    return Some(Err(Error::Core(e)));
                 }
-                collector.nodes(&services, c.now())
-            }));
+            }
+            let next = match self
+                .services()
+                .and_then(|s| self.collector.follow_up(&s, c.now()))
+            {
+                Ok(next) => next,
+                Err(e) => {
+                    self.finished = true;
+                    return Some(Err(e));
+                }
+            };
+            if next.is_empty()
+                || self.rounds >= FOLLOW_UP_ROUNDS
+                || (self.rounds > 0 && next.len() >= self.outstanding)
+            {
+                return Some(self.complete(c));
+            }
+            self.outstanding = next.len();
+            let mut questions = Vec::new();
+            for (name, kind) in &next {
+                if json::push(&mut questions, (name.as_str(), *kind), FOLLOW_UP_NAMES).is_err() {
+                    break;
+                }
+            }
+            let payload = match query_records(&questions) {
+                Ok(p) => p,
+                Err(_) => return Some(self.complete(c)),
+            };
+            if c.start_datagrams(stulp_sdk::DatagramRequest {
+                target: stulp_sdk::DatagramTarget::Mdns,
+                payload,
+                timeout_ms: FOLLOW_UP_WINDOW_MS,
+            })
+            .is_err()
+            {
+                return Some(self.complete(c));
+            }
+            self.rounds += 1;
+            self.deadline = c
+                .now()
+                .saturating_add(FOLLOW_UP_WINDOW_MS)
+                .saturating_add(1000);
+            return None;
         }
         if c.now() >= self.deadline {
+            if self.rounds > 0 {
+                return Some(self.complete(c));
+            }
             self.finished = true;
             return Some(Err(Error::Timeout));
         }
@@ -659,6 +811,7 @@ mod tests {
     }
     struct Round {
         pending: bool,
+        follow_up: bool,
         now: u64,
     }
     impl stulp_sdk::Transport for Round {
@@ -676,12 +829,22 @@ mod tests {
         }
         fn start_datagrams(&mut self, request: stulp_sdk::DatagramRequest) -> Result {
             assert!(matches!(request.target, stulp_sdk::DatagramTarget::Mdns));
+            if request.timeout_ms == FOLLOW_UP_WINDOW_MS {
+                // Een vervolgronde voor wat het vaste pakket niet compleet
+                // maakt; dit harnas heeft er geen antwoord op.
+                self.follow_up = true;
+                return Ok(());
+            }
             assert_eq!(request.timeout_ms, 4000);
             assert_eq!(request.payload, query(&[COMMISSIONABLE, OPERATIONAL])?);
             self.pending = true;
             Ok(())
         }
         fn poll_datagrams(&mut self) -> Option<Result<Vec<stulp_sdk::Datagram>>> {
+            if self.follow_up {
+                self.follow_up = false;
+                return Some(Ok(Vec::new()));
+            }
             if !self.pending {
                 return None;
             }
@@ -706,16 +869,142 @@ mod tests {
             })())
         }
     }
+    /// Een antwoordpakket zoals de HomePod-proxy ze stuurt: alleen de records
+    /// waar om gevraagd is, zonder additionals.
+    fn answer(records: &[(&str, u16, Vec<u8>)]) -> Vec<u8> {
+        fn name(out: &mut Vec<u8>, text: &str) {
+            for label in text.trim_end_matches('.').split('.') {
+                out.push(label.len() as u8);
+                out.extend_from_slice(label.as_bytes());
+            }
+            out.push(0);
+        }
+        let mut out = alloc::vec![0, 0, 0x84, 0, 0, 0, 0, records.len() as u8, 0, 0, 0, 0];
+        for (owner, kind, data) in records {
+            name(&mut out, owner);
+            out.extend_from_slice(&kind.to_be_bytes());
+            out.extend_from_slice(&[0, 1, 0, 0, 0, 120]);
+            out.extend_from_slice(&(data.len() as u16).to_be_bytes());
+            out.extend_from_slice(data);
+        }
+        out
+    }
+    fn dns_name(text: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        for label in text.trim_end_matches('.').split('.') {
+            out.push(label.len() as u8);
+            out.extend_from_slice(label.as_bytes());
+        }
+        out.push(0);
+        out
+    }
+    /// Beantwoordt per ronde alleen het gevraagde type, zoals de proxy.
+    struct Proxy {
+        now: u64,
+        pending: Option<Vec<u8>>,
+        asked: Vec<Vec<u16>>,
+    }
+    impl stulp_sdk::Transport for Proxy {
+        async fn send(&mut self, _: &json::Value) -> Result {
+            Err(Error::Invalid("unexpected test controller write"))
+        }
+        async fn next(&mut self) -> Result<stulp_sdk::Event> {
+            Ok(stulp_sdk::Event::Tick)
+        }
+        fn now(&self) -> u64 {
+            self.now
+        }
+        fn random(&mut self) -> Result<[u8; 32]> {
+            Err(Error::Invalid("discovery must not need entropy"))
+        }
+        fn start_datagrams(&mut self, request: stulp_sdk::DatagramRequest) -> Result {
+            // De vraagtypen uit de query lezen: na elke naam volgen type en klasse.
+            let q = &request.payload;
+            let count = usize::from(q[5]);
+            let mut at = 12;
+            let mut kinds = Vec::new();
+            for _ in 0..count {
+                while q[at] != 0 {
+                    at += 1 + usize::from(q[at]);
+                }
+                at += 1;
+                kinds.push(u16::from_be_bytes([q[at], q[at + 1]]));
+                at += 4;
+            }
+            self.asked.push(kinds);
+            self.pending = Some(request.payload);
+            Ok(())
+        }
+        fn poll_datagrams(&mut self) -> Option<Result<Vec<stulp_sdk::Datagram>>> {
+            let query = self.pending.take()?;
+            let kind = u16::from_be_bytes([query[query.len() - 4], query[query.len() - 3]]);
+            let instance = "ABCDEF0123456789-0000000000000001._matter._tcp.local.";
+            let host = "DEADBEEFCAFEF00D.local.";
+            let payload = match kind {
+                PTR => answer(&[(OPERATIONAL, PTR, dns_name(instance))]),
+                SRV | TXT => {
+                    let mut srv = alloc::vec![0, 0, 0, 0, 0x15, 0xa4];
+                    srv.extend_from_slice(&dns_name(host));
+                    answer(&[(instance, SRV, srv), (instance, TXT, b"\x05SII=1".to_vec())])
+                }
+                AAAA => {
+                    let mut ip = alloc::vec![0xfd, 0x5f, 0x71, 0xe5, 0xf7, 0x52, 0, 0];
+                    ip.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 1]);
+                    answer(&[(host, AAAA, ip)])
+                }
+                _ => answer(&[]),
+            };
+            Some(Ok(alloc::vec![stulp_sdk::Datagram {
+                source: "192.0.2.50:5353".into(),
+                interface: 7,
+                payload,
+            }]))
+        }
+    }
+    #[test]
+    fn a_proxy_that_answers_only_what_is_asked_gets_follow_up_rounds() -> Result {
+        let mut c = stulp_sdk::Client::new(Proxy {
+            now: 1000,
+            pending: None,
+            asked: Vec::new(),
+        });
+        let mut browse = Browse::start(&mut c, &[OPERATIONAL], 4000)?;
+        let mut nodes = None;
+        for _ in 0..8 {
+            if let Some(result) = browse.poll(&mut c) {
+                nodes = Some(result?);
+                break;
+            }
+        }
+        let nodes = nodes.ok_or(Error::Invalid("browse did not finish"))?;
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].host, "DEADBEEFCAFEF00D.local");
+        assert_eq!(nodes[0].port, 5540);
+        assert_eq!(nodes[0].addresses, ["fd5f:71e5:f752::1"]);
+        assert_eq!(nodes[0].operational(), Some((0xABCDEF0123456789, 1)));
+        let asked = c.into_transport().asked;
+        assert_eq!(
+            asked,
+            [alloc::vec![PTR], alloc::vec![SRV, TXT], alloc::vec![AAAA]]
+        );
+        Ok(())
+    }
     #[test]
     fn browse_uses_all_lan_adapter_and_preserves_scope_even_for_ipv4_replies() -> Result {
         let mut c = stulp_sdk::Client::new(Round {
             pending: false,
+            follow_up: false,
             now: 4000,
         });
         let mut browse = Browse::start(&mut c, &[COMMISSIONABLE, OPERATIONAL], 4000)?;
-        let nodes = browse
-            .poll(&mut c)
-            .ok_or(Error::Invalid("missing browse result"))??;
+        let mut result = None;
+        for _ in 0..4 {
+            if let Some(r) = browse.poll(&mut c) {
+                result = Some(r);
+                break;
+            }
+        }
+        let nodes = result.ok_or(Error::Invalid("missing browse result"))??;
         assert_eq!(nodes.len(), 2);
         assert!(nodes[0].addresses.iter().any(|a| a == "fe80::2%42"));
         assert!(matches!(browse.poll(&mut c), Some(Err(_))));
@@ -723,6 +1012,9 @@ mod tests {
             services: Vec::new(),
             deadline: 4000,
             finished: false,
+            collector: Collector::default(),
+            rounds: 0,
+            outstanding: 0,
         };
         assert!(matches!(timeout.poll(&mut c), Some(Err(Error::Timeout))));
         Ok(())

@@ -244,8 +244,8 @@ impl<'a> Apps<'a> {
                             String::new()
                         } else {
                             token::base64(
-                                &hostnet::entropy()
-                                    .map_err(|_| Error::Invalid("OS entropy unavailable"))?[..32],
+                                &stulp_platform::host::entropy::<32>()
+                                    .map_err(|_| Error::Invalid("OS entropy unavailable"))?,
                             )?
                         };
                         let hello = json::fields(&[

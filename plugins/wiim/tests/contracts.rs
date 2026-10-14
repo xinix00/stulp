@@ -8,7 +8,7 @@ use stulp_wiim::Wiim;
 use wire::{Wire, value};
 const DEVICE: &str = r#"[{"id":"speaker","appId":"com.stulp.wiim","driverId":"player","name":"Room","data":{"id":"fixed-uuid"},"settings":{"address":"192.0.2.42"},"capabilities":["speaker_playing","speaker_next","speaker_prev","volume_set","volume_mute","speaker_track","speaker_artist","speaker_album","speaker_shuffle","speaker_repeat","speaker_position","speaker_duration","button.off","button.preset1"]}]"#;
 fn handle(p: &mut Wiim, c: &mut Client<Wire>, method: &str, s: &str) -> stulp_sdk::Result<Value> {
-    hostnet::block_on(p.handle(c, method, &value(s)))
+    stulp_platform::host::block_on(p.handle(c, method, &value(s)))
 }
 fn setup() -> (Wiim, Client<Wire>) {
     let mut p = Wiim::default();
@@ -129,9 +129,9 @@ fn three_missed_rounds_preserve_last_values_and_recovery_refreshes_control() {
     let mut c = w.reconnect("com.stulp.wiim", p.manifest());
     for round in 0..5 {
         for _ in 0..55 {
-            hostnet::block_on(c.call("$appproto.ping", &Value::Null)).unwrap();
+            stulp_platform::host::block_on(c.call("$appproto.ping", &Value::Null)).unwrap();
         }
-        hostnet::block_on(p.tick(&mut c)).unwrap();
+        stulp_platform::host::block_on(p.tick(&mut c)).unwrap();
         let d = c.state().device("speaker").unwrap();
         assert_eq!(json::boolean(d, "available"), round != 3);
         assert_eq!(

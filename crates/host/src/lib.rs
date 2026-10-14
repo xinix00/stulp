@@ -14,8 +14,8 @@ pub struct Environment;
 impl stulp_web::Environment for Environment {
     fn id(&mut self) -> stulp_core::Result<String> {
         use std::fmt::Write;
-        let bytes =
-            hostnet::entropy().map_err(|_| stulp_core::Error::Invalid("OS entropy unavailable"))?;
+        let bytes = stulp_platform::host::entropy::<16>()
+            .map_err(|_| stulp_core::Error::Invalid("OS entropy unavailable"))?;
         let mut id = String::new();
         id.try_reserve_exact(36)
             .map_err(|_| stulp_core::Error::Memory)?;

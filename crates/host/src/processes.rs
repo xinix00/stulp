@@ -439,7 +439,8 @@ fn launch<S: Storage>(
         .try_clone()?;
     if json::text(&system, "attachSecret").is_empty() {
         let secret = stulp_protocol::token::base64(
-            &hostnet::entropy().map_err(|_| Error::Invalid("OS entropy unavailable"))?[..32],
+            &stulp_platform::host::entropy::<32>()
+                .map_err(|_| Error::Invalid("OS entropy unavailable"))?,
         )?;
         json::set(&mut system, "attachSecret", json::string(&secret)?)?;
         store.system(system.try_clone()?)?;

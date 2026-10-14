@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("test requires loopback".into());
     }
     let mut c = Client::new(support::Adapter::new()?);
-    hostnet::block_on(async {
+    stulp_platform::host::block_on(async {
         let mut fabric = Fabric::load(&mut c).await?;
         // Alleen synthetische secrets naar de Go-kindprocespipe; nooit het echte huisdocument.
         println!(

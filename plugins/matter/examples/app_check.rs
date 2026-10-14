@@ -159,12 +159,7 @@ impl Transport for Controller {
         Ok(1_790_000_000 + self.now() / 1000)
     }
     fn random(&mut self) -> Result<[u8; 32]> {
-        hostnet::entropy()
-            .map_err(|_| Error::Transport("test entropy"))?
-            .get(..32)
-            .ok_or(Error::Invalid("entropy length"))?
-            .try_into()
-            .map_err(|_| Error::Invalid("entropy length"))
+        stulp_platform::host::entropy().map_err(|_| Error::Transport("test entropy"))
     }
     fn udp(&mut self, command: UdpCommand) -> Result {
         if std::env::var_os("STULP_TEST_TRACE").is_some() {
@@ -229,7 +224,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     if !address.starts_with("127.0.0.1:") {
         return Err("test requires loopback".into());
     }
-    hostnet::block_on(async {
+    stulp_platform::host::block_on(async {
         let mut c = Client::new(Controller::new()?);
         c.hello("com.stulp.matter").await?;
         let mut app = Matter::default();

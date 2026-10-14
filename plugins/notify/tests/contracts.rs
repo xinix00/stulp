@@ -16,7 +16,7 @@ fn wire() -> Wire {
     Wire::client("com.stulp.notify", Notify::default().manifest(), &d, "null").into_transport()
 }
 fn handle(p: &mut Notify, c: &mut Client<Wire>, method: &str, s: &str) -> stulp_sdk::Result<Value> {
-    hostnet::block_on(p.handle(c, method, &value(s)))
+    stulp_platform::host::block_on(p.handle(c, method, &value(s)))
 }
 #[test]
 fn mute_stops_delivery_and_expired_subscription_is_unavailable() {

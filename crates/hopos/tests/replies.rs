@@ -20,7 +20,12 @@ fn bounded_leases_cancel_and_do_not_deliver_late_results_to_reused_slots() {
     current
         .send(Response::error(204, "current").unwrap())
         .unwrap();
-    assert_eq!(hostnet::block_on(second.wait()).unwrap().status, 204);
+    assert_eq!(
+        stulp_platform::host::block_on(second.wait())
+            .unwrap()
+            .status,
+        204
+    );
     let mut routes = Vec::new();
     while let Ok(route) = Sender::channel() {
         routes.push(route);

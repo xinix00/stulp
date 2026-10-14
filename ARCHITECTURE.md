@@ -17,9 +17,11 @@ the provider's live lockout must expire before connectivity can be confirmed.
 
 ## Build and run
 
-Rust 1.93.0 / edition 2024 is pinned. Hop, Lean (v3.1.11) and HopOS (v3.0.12)
-dependencies use tagged git revisions in `Cargo.lock`; the only source overlay
-(Hop's `types`) is pinned by local source hashes in `vendor/PROVENANCE.md`. No Tokio,
+Rust 1.93.0 / edition 2024 is pinned. Lean (v3.1.12) and HopOS (v3.0.13)
+dependencies use tagged git revisions in `Cargo.lock`, one version of each. From Hop
+only `types` remains, as a source overlay pinned by local source hashes in
+`vendor/PROVENANCE.md`; SHA-256, HMAC, the constant-time comparison and base64 come
+from `leancrypto` and `leanbase64`. No Tokio,
 SQLite, Arc or application mutex. Logic crates use `no_std`, fallible allocation
 and forbid unsafe code. `stulp-platform` isolates the host's checked libc ABI
 calls. Pinned, vendored crypto provenance is in `crates/webpush/PROVENANCE.md`.
@@ -342,16 +344,20 @@ ordinary API calls, SSE, media and restore uploads. Fixed plugin workers handle
 HTTP/TLS, framed TCP, A/AAAA DNS, IPv4/IPv6 discovery, eight duplex streams and bounded media.
 Attach generations cancel abandoned work and prevent replies crossing reconnects.
 Public HTTPS and TLS streams use Lean's `leanhttps::WebDial`: on HopOS over the
-slot's `applib::tcp::Dialer`, in the native plugin host (streams; its HTTP is
-Hop's `hostnet` client) over the std socket it opened. The Mozilla roots are
-`leantls::MOZILLA_ROOTS`; Stulp keeps no copy. Chain and name are checked,
-`https://` to a bare IP address is refused, and connect and handshake each have
-15 s; after that the caller's deadlines apply. On HopOS every HTTPS dial logs
-`STULP_TLS host= ms= result=` (DNS, TCP and handshake), with `reason=` when it
-fails. Explicit device-certificate mode keeps its own small
-TLS path, because devices are addressed by IP and present their own
-certificate; it retains signature/record checks. Device TLS compatibility
-follows the TLS limits above.
+slot's `applib::tcp::Dialer`, in the native plugin host and controller over
+`leanhttp::host::TcpDial` (`stulp_transport::web`; blocking for HTTP, non-blocking
+for streams). The Mozilla roots are `leantls::MOZILLA_ROOTS`; Stulp keeps no copy.
+Chain and name are checked, `https://` to a bare IP address is refused, and connect
+and handshake each have 15 s; after that the caller's deadlines apply. A native
+plugin HTTP call has one total budget (its `timeout_ms`) over connect, TLS, header,
+body and redirects. On HopOS every HTTPS dial logs `STULP_TLS host= ms= result=`
+(DNS, TCP and handshake), with `reason=` when it fails: the TLS reason from Lean,
+else the DNS or TCP reason from the dialer (`resolve: …`, `connect ip:port: …`).
+Explicit device-certificate mode is one small dialer for both platforms
+(`crates/device-tls`), because devices are addressed by IP and present their own
+certificate, which Lean's `TlsDial` refuses for a chain; it skips the chain but
+retains signature/record checks and never follows redirects. Device TLS
+compatibility follows the TLS limits above.
 
 External-slot backups keep the Go ZIP metadata/document contract, accept stored
 and deflated entries, validate paths and CRCs, and publish restores atomically.
@@ -557,7 +563,7 @@ options or hop limits still cannot populate the neighbor cache. The regression
 test is `thread_route_without_sllao_learns_validated_ethernet_neighbor` in the
 shared Lean checkout; include that fix when building this plugin pack.
 
-The HopOS SDK (`applib`, v3.0.12) brings the IPv6 lane itself: leannet v3.1.11 with
+The HopOS SDK (`applib`, v3.0.13) brings the IPv6 lane itself: leannet v3.1.12 with
 its `ipv6` feature. Stulp no longer carries an SDK copy or reads Lean from a sibling
 checkout; the SDK and netstack suites run in their own repositories.
 

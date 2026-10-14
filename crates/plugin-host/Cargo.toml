@@ -11,11 +11,10 @@ stulp-platform = { path = "../platform" }
 stulp-sdk = { path = "../sdk" }
 stulp-core = { path = "../core" }
 stulp-protocol = { path = "../protocol" }
-hostnet = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }
+stulp-device-tls = { path = "../device-tls" }
 
-leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.11" }
-leanhttps = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.11", features = ["mozilla-roots"] }
-leantls = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.11", features = ["mozilla-roots"] }
+leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.12", features = ["std"] }
+leanhttps = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.12" }
 
 [lints]
 workspace = true

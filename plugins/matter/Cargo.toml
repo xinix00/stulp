@@ -10,6 +10,7 @@ stulp-plugin-host = { path = "../../crates/plugin-host", optional = true }
 stulp-sdk = { path = "../../crates/sdk" }
 stulp-core = { path = "../../crates/core" }
 stulp-protocol = { path = "../../crates/protocol" }
+leancrypto = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.12" }
 p256 = { version = "=0.13.2", default-features = false, features = ["ecdh", "ecdsa"] }
 aes = { version = "=0.8.4", default-features = false, features = ["zeroize"] }
 hkdf = { version = "=0.12.4", default-features = false }
@@ -21,7 +22,7 @@ subtle = { version = "=2.6.1", default-features = false }
 
 [dev-dependencies]
 stulp-runtime = { path = "../../crates/runtime" }
-hostnet = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }
+stulp-platform = { path = "../../crates/platform" }
 
 [lints]
 workspace = true

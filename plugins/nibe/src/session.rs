@@ -46,7 +46,7 @@ impl Session {
         check(c, true)?;
         let verifier = random(c)?;
         let state = random(c)?;
-        let challenge = base64(&auth::sha256(verifier.as_bytes()))?;
+        let challenge = base64(&leancrypto::sha256::Sha256::digest(verifier.as_bytes()))?;
         let query = form(&[
             ("response_type", "code"),
             ("client_id", setting(c, "clientId")),
@@ -281,7 +281,7 @@ pub fn code_from_redirect(pasted: &str, expected: &str) -> Result<String> {
     if state.as_ref().is_some_and(|s| {
         !s.is_empty()
             && !expected.is_empty()
-            && !auth::constant_time_eq(s.as_bytes(), expected.as_bytes())
+            && !leancrypto::ct::eq(s.as_bytes(), expected.as_bytes())
     }) {
         return Err(Error::Invalid(
             "Dit adres hoort bij een andere autorisatie.",

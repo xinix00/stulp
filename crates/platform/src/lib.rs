@@ -1,4 +1,5 @@
 //! Kleine host-ABI-grens voor interfacekeuze; bezit geen protocol, plugin of huisstaat.
+pub mod host;
 pub mod peer;
 pub mod signals;
 pub mod socket;

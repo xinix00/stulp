@@ -257,7 +257,7 @@ impl Web {
         let mut proof = String::new();
         proof.try_reserve_exact(64).map_err(|_| Error::Memory)?;
         const HEX: &[u8; 16] = b"0123456789abcdef";
-        for b in auth::sha256(input.as_bytes()) {
+        for b in leancrypto::sha256::Sha256::digest(input.as_bytes()) {
             proof.push(char::from(
                 *HEX.get(usize::from(b >> 4)).ok_or(Error::Full)?,
             ));

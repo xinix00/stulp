@@ -21,7 +21,7 @@ fn configured(state: &str) -> Wire {
     w
 }
 fn api(p: &mut Nibe, c: &mut Client<Wire>, s: &str) -> stulp_sdk::Result<Value> {
-    hostnet::block_on(p.handle(c, "api.invoke", &value(s)))
+    stulp_platform::host::block_on(p.handle(c, "api.invoke", &value(s)))
 }
 #[test]
 fn redirect_state_and_encoding() {

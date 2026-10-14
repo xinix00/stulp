@@ -119,10 +119,10 @@ pub fn serve_secure<S: Storage>(
     std::thread::scope(|scope| {
         for listener in listeners {
             let sender = sender.clone();
-            scope.spawn(move || hostnet::block_on(worker(listener, sender, identity)));
+            scope.spawn(move || stulp_platform::host::block_on(worker(listener, sender, identity)));
         }
         drop(sender);
-        hostnet::block_on(controller(store, web, receiver, apps, level));
+        stulp_platform::host::block_on(controller(store, web, receiver, apps, level));
     });
     Ok(())
 }

@@ -49,11 +49,11 @@ fn full_scan_reaches_last_unit_after_ten_minutes_and_keeps_heartbeats() {
 const GATEWAY: &str = r#"[{"id":"gateway","appId":"com.stulp.sigenergy","driverId":"gateway","data":{"stationId":"12345"},"capabilities":["off_grid","grid_status"]}]"#;
 const STATE: &str = r#"{"version":1,"region":"eu","username":"owner@example.test","tokens":{"accessToken":"access","refreshToken":"refresh","expiresAt":"2030-01-01T00:00:00Z"}}"#;
 fn handle(p: &mut Sigenergy, c: &mut Client<Wire>, m: &str, s: &str) -> Result<Value> {
-    hostnet::block_on(p.handle(c, m, &value(s)))
+    stulp_platform::host::block_on(p.handle(c, m, &value(s)))
 }
 fn step(c: &mut Client<Wire>) {
     for _ in 0..15 {
-        hostnet::block_on(c.call("$appproto.ping", &Value::Null)).unwrap();
+        stulp_platform::host::block_on(c.call("$appproto.ping", &Value::Null)).unwrap();
     }
 }
 fn gateway_wire() -> Wire {
@@ -108,15 +108,15 @@ fn gateway_revalidates_and_posts_once_then_reports_actual_state() {
         )
         .is_null()
     );
-    hostnet::block_on(p.tick(&mut c)).unwrap();
+    stulp_platform::host::block_on(p.tick(&mut c)).unwrap();
     step(&mut c);
-    hostnet::block_on(p.tick(&mut c)).unwrap();
+    stulp_platform::host::block_on(p.tick(&mut c)).unwrap();
     assert!(json::boolean(
         field(c.state().device("gateway").unwrap(), "state"),
         "off_grid"
     ));
     step(&mut c);
-    hostnet::block_on(p.tick(&mut c)).unwrap();
+    stulp_platform::host::block_on(p.tick(&mut c)).unwrap();
     let w = c.into_transport();
     let posts: Vec<_> = w.http.iter().filter(|r| r.method == "POST").collect();
     assert_eq!(posts.len(), 1);
@@ -147,7 +147,7 @@ fn withdrawn_button_and_disconnect_invalidate_prepared_command() {
         r#"{"deviceId":"gateway","capability":"off_grid","value":true}"#,
     )
     .unwrap();
-    hostnet::block_on(p.tick(&mut c)).unwrap();
+    stulp_platform::host::block_on(p.tick(&mut c)).unwrap();
     assert!(c.into_transport().http.iter().all(|r| r.method != "POST"));
     let mut w = gateway_wire();
     settings(&mut w);
@@ -167,7 +167,7 @@ fn withdrawn_button_and_disconnect_invalidate_prepared_command() {
         r#"{"handler":"cloud_disconnect"}"#,
     )
     .unwrap();
-    hostnet::block_on(p.tick(&mut c)).unwrap();
+    stulp_platform::host::block_on(p.tick(&mut c)).unwrap();
     assert!(c.into_transport().http.iter().all(|r| r.method != "POST"));
 }
 #[test]
@@ -219,7 +219,7 @@ fn charger_writes_function_six_and_never_publishes_predicted_charging() {
     w.tcp_bodies.push_back(vec![2, 6, 0xa4, 0x10, 0, 1]);
     let mut p = Sigenergy::default();
     let mut c = w.reconnect(ID, p.manifest());
-    hostnet::block_on(c.setting("host", json::string("192.0.2.44").unwrap())).unwrap();
+    stulp_platform::host::block_on(c.setting("host", json::string("192.0.2.44").unwrap())).unwrap();
     handle(&mut p, &mut c, "device.init", r#"{"deviceId":"charger"}"#).unwrap();
     for on in [true, false] {
         handle(

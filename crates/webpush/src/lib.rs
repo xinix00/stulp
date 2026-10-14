@@ -27,38 +27,14 @@ pub fn erase(bytes: &mut [u8]) {
 }
 /// Zowel gewone base64 als base64url, met optionele padding zoals het Go-koppelpad.
 pub fn decode(s: &str) -> Result<Vec<u8>> {
-    let raw = s.trim();
-    let s = raw.trim_end_matches('=');
-    if s.len() > 16384 || s.len() % 4 == 1 || raw.len() - s.len() > 2 {
+    if s.trim().trim_end_matches('=').len() > 16384 {
         return Err(Error::Invalid("invalid base64 key"));
     }
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve(s.len() * 3 / 4)
-        .map_err(|_| stulp_core::Error::Memory)?;
-    let mut bits = 0u32;
-    let mut count = 0;
-    for b in s.bytes() {
-        let v = match b {
-            b'A'..=b'Z' => b - b'A',
-            b'a'..=b'z' => b - b'a' + 26,
-            b'0'..=b'9' => b - b'0' + 52,
-            b'-' | b'+' => 62,
-            b'_' | b'/' => 63,
-            _ => return Err(Error::Invalid("invalid base64 key")),
-        };
-        bits = (bits << 6) | u32::from(v);
-        count += 6;
-        if count >= 8 {
-            count -= 8;
-            bytes.push((bits >> count) as u8);
-            bits &= (1 << count) - 1;
-        }
-    }
-    if bits != 0 {
-        return Err(Error::Invalid("invalid base64 tail"));
-    }
-    Ok(bytes)
+    stulp_protocol::token::decode(s).map_err(|e| match e {
+        stulp_core::Error::Invalid("invalid base64 tail") => Error::Invalid("invalid base64 tail"),
+        stulp_core::Error::Memory => stulp_core::Error::Memory.into(),
+        _ => Error::Invalid("invalid base64 key"),
+    })
 }
 /// Het VAPID-publieke sleutelmateriaal wordt uit exact 32 geheime bytes afgeleid.
 pub fn public(private: &[u8]) -> Result<[u8; 65]> {

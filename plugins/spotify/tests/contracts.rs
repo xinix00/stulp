@@ -16,7 +16,7 @@ fn handle(
     method: &str,
     s: &str,
 ) -> stulp_sdk::Result<Value> {
-    hostnet::block_on(p.handle(c, method, &value(s)))
+    stulp_platform::host::block_on(p.handle(c, method, &value(s)))
 }
 #[test]
 fn state_is_required_and_search_terms_are_not_uris() {

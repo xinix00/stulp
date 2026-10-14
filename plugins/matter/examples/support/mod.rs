@@ -65,12 +65,7 @@ impl Transport for Adapter {
             .map_err(|_| Error::Transport("test clock"))
     }
     fn random(&mut self) -> Result<[u8; 32]> {
-        hostnet::entropy()
-            .map_err(|_| Error::Transport("test entropy"))?
-            .get(..32)
-            .ok_or(Error::Invalid("entropy width"))?
-            .try_into()
-            .map_err(|_| Error::Invalid("entropy width"))
+        stulp_platform::host::entropy().map_err(|_| Error::Transport("test entropy"))
     }
 }
 impl Adapter {

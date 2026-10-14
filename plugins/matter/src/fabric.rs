@@ -295,7 +295,7 @@ mod tests {
         let mut w = c.into_transport();
         w.fail_state = true;
         let mut c = w.reconnect("com.stulp.matter", MANIFEST);
-        assert!(hostnet::block_on(Fabric::load(&mut c)).is_err());
+        assert!(stulp_platform::host::block_on(Fabric::load(&mut c)).is_err());
         assert!(
             field(c.state().root(), "appState")
                 .as_object()
@@ -306,7 +306,7 @@ mod tests {
         let mut w = c.into_transport();
         w.fail_state = false;
         let mut c = w.reconnect("com.stulp.matter", MANIFEST);
-        let mut f = hostnet::block_on(Fabric::load(&mut c)).unwrap();
+        let mut f = stulp_platform::host::block_on(Fabric::load(&mut c)).unwrap();
         let compressed = f.case().compressed_id().unwrap();
         let own = f.controller().unwrap();
         let root = f.root().unwrap();
@@ -314,21 +314,24 @@ mod tests {
             json::uint(field(c.state().root(), "appState"), "retained"),
             42
         );
-        assert_eq!(hostnet::block_on(f.allocate(&mut c)).unwrap(), 0x10000);
+        assert_eq!(
+            stulp_platform::host::block_on(f.allocate(&mut c)).unwrap(),
+            0x10000
+        );
         let mut w = c.into_transport();
         w.fail_state = true;
         let mut c = w.reconnect("com.stulp.matter", MANIFEST);
-        assert!(hostnet::block_on(f.allocate(&mut c)).is_err());
+        assert!(stulp_platform::host::block_on(f.allocate(&mut c)).is_err());
         assert_eq!(f.next, 0x10001);
         let mut w = c.into_transport();
         w.fail_state = false;
         let mut c = w.reconnect("com.stulp.matter", MANIFEST);
-        let mut reloaded = hostnet::block_on(Fabric::load(&mut c)).unwrap();
+        let mut reloaded = stulp_platform::host::block_on(Fabric::load(&mut c)).unwrap();
         assert_eq!(reloaded.case().compressed_id().unwrap(), compressed);
         assert_eq!(reloaded.controller().unwrap(), own);
         assert_eq!(reloaded.root().unwrap(), root);
         assert_eq!(
-            hostnet::block_on(reloaded.allocate(&mut c)).unwrap(),
+            stulp_platform::host::block_on(reloaded.allocate(&mut c)).unwrap(),
             0x10001
         );
     }
@@ -336,7 +339,7 @@ mod tests {
     fn corrupt_existing_state_is_not_replaced() {
         for state in [r#"{"fabric":{}}"#, r#"[]"#, r#"{"fabric":"broken"}"#] {
             let mut c = wire::Wire::client("com.stulp.matter", MANIFEST, "[]", state);
-            assert!(hostnet::block_on(Fabric::load(&mut c)).is_err());
+            assert!(stulp_platform::host::block_on(Fabric::load(&mut c)).is_err());
             assert!(
                 !c.into_transport()
                     .sent

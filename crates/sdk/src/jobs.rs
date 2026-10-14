@@ -605,7 +605,7 @@ mod tests {
         c.transport.sending = Some(sending.clone());
         let mut gate = Front { statuses: 0 };
         let seen = sending.clone();
-        let result = hostnet::block_on(run(&mut c, &mut gate, async |_worker| {
+        let result = stulp_platform::host::block_on(run(&mut c, &mut gate, async |_worker| {
             // Klaar op het moment dat de pomp midden in het versturen zit.
             while !seen.get() {
                 hop_sync::yield_now().await;
@@ -626,7 +626,7 @@ mod tests {
             (7000, 9004, "status"),
         ]);
         let mut gate = Front { statuses: 0 };
-        let result = hostnet::block_on(run(&mut c, &mut gate, async |worker| {
+        let result = stulp_platform::host::block_on(run(&mut c, &mut gate, async |worker| {
             while worker.now() < 8500 {
                 worker.idle().await?;
             }
@@ -661,7 +661,7 @@ mod tests {
     fn cancellation_unwinds_the_job_and_flushes_cleanup() {
         let mut c = client(&[(200, 9001, "status"), (400, 9002, "cancel")]);
         let mut gate = Front { statuses: 0 };
-        let result = hostnet::block_on(run(&mut c, &mut gate, async |worker| {
+        let result = stulp_platform::host::block_on(run(&mut c, &mut gate, async |worker| {
             let result = async {
                 while worker.now() < 10000 {
                     worker.idle().await?;
@@ -682,7 +682,7 @@ mod tests {
     fn preemption_preserves_callback_and_finishes_cleanup_before_foreground_work() {
         let mut c = client(&[(200, 9001, "status"), (400, 9002, "urgent")]);
         let mut gate = Front { statuses: 0 };
-        let result = hostnet::block_on(run(&mut c, &mut gate, async |worker| {
+        let result = stulp_platform::host::block_on(run(&mut c, &mut gate, async |worker| {
             let result = async {
                 while worker.now() < 40000 {
                     worker.idle().await?;
@@ -706,7 +706,7 @@ mod tests {
         );
         assert_eq!(c.inbox.len(), 1);
         assert_eq!(c.inbox.remove(0).id, 9002);
-        let value = hostnet::block_on(run(&mut c, &mut gate, async |worker| {
+        let value = stulp_platform::host::block_on(run(&mut c, &mut gate, async |worker| {
             worker
                 .app_state(json::fields(&[("foreground", Value::Bool(true))])?)
                 .await?;
@@ -729,7 +729,7 @@ mod tests {
         let mut c = client(&[]);
         c.transport.fail_at = Some(300);
         let mut gate = Front { statuses: 0 };
-        let result = hostnet::block_on(run(&mut c, &mut gate, async |worker| {
+        let result = stulp_platform::host::block_on(run(&mut c, &mut gate, async |worker| {
             while worker.now() < 10000 {
                 worker.idle().await?;
             }
@@ -737,13 +737,13 @@ mod tests {
         }));
         assert!(result.is_err());
         assert!(c.interrupted_job);
-        assert!(hostnet::block_on(c.idle()).is_err());
+        assert!(stulp_platform::host::block_on(c.idle()).is_err());
     }
     #[test]
     fn resolver_keeps_ui_heartbeat_alive_and_discards_cancelled_answers() {
         let mut c = client(&[(300, 9001, "status"), (2000, 9002, "status")]);
         let mut gate = Front { statuses: 0 };
-        let found = hostnet::block_on(run(&mut c, &mut gate, async |work| {
+        let found = stulp_platform::host::block_on(run(&mut c, &mut gate, async |work| {
             work.resolve("light.local:5540").await
         }))
         .unwrap();
@@ -751,7 +751,7 @@ mod tests {
         assert_eq!(gate.statuses, 2);
         assert!(c.transport.pings > 0);
         c.transport.dns_delay = 15_000;
-        let timed = hostnet::block_on(run(&mut c, &mut gate, async |work| {
+        let timed = stulp_platform::host::block_on(run(&mut c, &mut gate, async |work| {
             work.resolve("slow.local:5540").await
         }));
         assert!(matches!(timed, Err(Error::Timeout)));
@@ -761,7 +761,7 @@ mod tests {
         assert!(c.poll_resolve().is_none());
         assert!(!c.discard_resolve);
         c.transport.dns_delay = 100;
-        let next = hostnet::block_on(run(&mut c, &mut gate, async |work| {
+        let next = stulp_platform::host::block_on(run(&mut c, &mut gate, async |work| {
             work.resolve("next.local:5540").await
         }))
         .unwrap();

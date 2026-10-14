@@ -525,7 +525,7 @@ mod tests {
         )
         .unwrap();
         let mut c = Client::from_snapshot(wire, snapshot).unwrap();
-        let result = hostnet::block_on(serve(
+        let result = stulp_platform::host::block_on(serve(
             &mut c,
             &mut Worker,
             core::array::from_fn(|_| Worker),
@@ -570,7 +570,7 @@ mod tests {
         )
         .unwrap();
         let mut c = Client::from_snapshot(wire, snapshot).unwrap();
-        let result = hostnet::block_on(serve(
+        let result = stulp_platform::host::block_on(serve(
             &mut c,
             &mut Worker,
             core::array::from_fn(|_| Worker),
@@ -689,7 +689,7 @@ mod tests {
         )
         .unwrap();
         let mut c = Client::from_snapshot(wire, snapshot).unwrap();
-        let result = hostnet::block_on(serve(
+        let result = stulp_platform::host::block_on(serve(
             &mut c,
             &mut Reader,
             core::array::from_fn(|_| Reader),

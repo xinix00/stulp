@@ -1,6 +1,6 @@
 //! Alleen synthetische localhost-TLS: wordt gestart door devicecheck.go.
-#[path = "../src/device_tls.rs"]
-mod device_tls;
+#[path = "../src/fetch.rs"]
+mod fetch;
 #[path = "../src/streams.rs"]
 mod streams;
 use stulp_sdk::{HttpRequest, StreamCommand, StreamEvent};
@@ -9,15 +9,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !url.starts_with("https://127.0.0.1:") {
         return Err("test requires loopback".into());
     }
-    let public = hostnet::Http::new();
-    if public
-        .request_until(
-            &hostnet::Call::get(&url, std::time::Duration::from_secs(2)),
-            1024,
-            std::time::Instant::now() + std::time::Duration::from_secs(2),
-        )
-        .is_ok()
-    {
+    let mut cloud = HttpRequest::get(&url).map_err(|e| e.to_string())?;
+    cloud.timeout_ms = 2000;
+    cloud.limit = 1024;
+    if fetch::execute(cloud).is_ok() {
         return Err("cloud client accepted a self-signed certificate".into());
     }
     for (path, wanted) in [
@@ -26,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         let mut req = HttpRequest::get(&(url.clone() + path)).map_err(|e| e.to_string())?;
         req.device_certificate = true;
-        let reply = device_tls::execute(req).map_err(|e| e.to_string())?;
+        let reply = fetch::execute(req).map_err(|e| e.to_string())?;
         if reply.status != wanted {
             return Err(format!("unexpected response: {}", reply.status).into());
         }

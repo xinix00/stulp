@@ -2,7 +2,6 @@
 use std::{
     sync::mpsc::{self, Receiver, SyncSender},
     thread::JoinHandle,
-    time::{Duration, Instant},
 };
 use stulp_sdk::{Error, HttpRequest, HttpResponse, Result};
 pub(super) struct Worker {
@@ -18,9 +17,8 @@ impl Worker {
         let thread = std::thread::Builder::new()
             .name("stulp-plugin-http".into())
             .spawn(move || {
-                let client = hostnet::Http::new();
                 while let Ok(request) = requests.recv() {
-                    let result = execute(&client, request);
+                    let result = super::fetch::execute(request);
                     if answers.send(result).is_err() {
                         break;
                     }
@@ -77,32 +75,4 @@ impl Drop for Worker {
             let _ = thread.join();
         }
     }
-}
-fn execute(client: &hostnet::Http, request: HttpRequest) -> Result<HttpResponse> {
-    if request.device_certificate {
-        return super::device_tls::execute(request);
-    }
-    let mut headers = Vec::new();
-    headers
-        .try_reserve(request.headers.len())
-        .map_err(|_| stulp_core::Error::Memory)?;
-    for (key, value) in &request.headers {
-        headers.push((key.as_str(), value.as_str()));
-    }
-    let timeout = Duration::from_millis(request.timeout_ms);
-    let call = hostnet::Call {
-        method: &request.method,
-        url: &request.url,
-        headers: &headers,
-        body: Some(&request.body),
-        timeout,
-    };
-    let response = client
-        .request_until(&call, request.limit, Instant::now() + timeout)
-        .map_err(|_| Error::Transport("HTTP connection, TLS or response failed"))?;
-    Ok(HttpResponse {
-        status: response.status,
-        headers: response.headers,
-        body: response.body,
-    })
 }

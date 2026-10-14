@@ -1,7 +1,7 @@
 # Source overlay
 
-Stulp builds against tagged releases of HopOS (v3.0.12), Lean (v3.1.11) and Hop
-(v3.0.0-alpha.10). One crate is overlaid, with its source hashes in
+Stulp builds against tagged releases of HopOS (v3.0.13), Lean (v3.1.12) and, for
+this one crate, Hop (v3.0.0-alpha.10). One crate is overlaid, with its source hashes in
 `SOURCES.json`; `python3 tests/vendor_check.py` verifies them. Licenses are kept
 beside the source tree. No crate registry replacement or shared Cargo cache is
 edited.

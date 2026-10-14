@@ -959,21 +959,9 @@ pub fn message(error: &Error) -> Result<String> {
 
 /// Go's []byte JSON-vorm gebruikt standaard base64 met padding, niet base64url.
 pub fn asset(bytes: &[u8]) -> Result<Value> {
-    let url = stulp_protocol::token::base64(bytes)?;
-    let mut encoded = String::new();
-    encoded
-        .try_reserve(url.len() + 3)
+    let encoded = leanbase64::STANDARD
+        .encode(bytes)
         .map_err(|_| stulp_core::Error::Memory)?;
-    for c in url.chars() {
-        encoded.push(match c {
-            '-' => '+',
-            '_' => '/',
-            _ => c,
-        });
-    }
-    while !encoded.len().is_multiple_of(4) {
-        encoded.push('=');
-    }
     Ok(json::fields(&[
         ("found", Value::Bool(true)),
         ("data", json::string(&encoded)?),

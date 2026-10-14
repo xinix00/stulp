@@ -26,4 +26,4 @@ required-features = ["host"]
 [dev-dependencies]
 stulp-runtime = { path = "../../crates/runtime" }
 stulp-protocol = { path = "../../crates/protocol" }
-hostnet = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }
+stulp-platform = { path = "../../crates/platform" }

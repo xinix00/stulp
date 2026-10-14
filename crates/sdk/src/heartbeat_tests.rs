@@ -50,8 +50,14 @@ fn queued_heartbeat_reply_survives_a_delayed_executor_turn() {
     c.transport
         .frames
         .push_back(frame(Frame::response(7, Ok(Value::Null)).unwrap()));
-    assert_eq!(hostnet::block_on(c.pump()).unwrap().unwrap().id, 9);
-    assert!(hostnet::block_on(c.pump()).unwrap().is_none());
+    assert_eq!(
+        stulp_platform::host::block_on(c.pump())
+            .unwrap()
+            .unwrap()
+            .id,
+        9
+    );
+    assert!(stulp_platform::host::block_on(c.pump()).unwrap().is_none());
     assert!(c.heartbeat.is_none());
 }
 
@@ -59,7 +65,7 @@ fn queued_heartbeat_reply_survives_a_delayed_executor_turn() {
 fn a_missed_heartbeat_is_slow_not_dead() {
     let mut c = client();
     c.heartbeat = Some((7, 10_000));
-    assert!(hostnet::block_on(c.pump()).unwrap().is_none());
+    assert!(stulp_platform::host::block_on(c.pump()).unwrap().is_none());
     assert!(c.heartbeat.is_none(), "a new ping goes out next round");
     assert!(c.slow);
 }
@@ -70,14 +76,17 @@ fn silent_controller_still_times_out() {
     c.heartbeat = Some((7, 10_000));
     c.last_heard = 0;
     c.transport.now = super::SILENCE_LIMIT_MS + 1;
-    assert!(matches!(hostnet::block_on(c.pump()), Err(Error::Timeout)));
+    assert!(matches!(
+        stulp_platform::host::block_on(c.pump()),
+        Err(Error::Timeout)
+    ));
 }
 
 #[test]
 fn heartbeat_reply_budget_starts_after_the_write_completes() {
     let mut c = client();
     c.transport.send_delay = 6000;
-    assert!(hostnet::block_on(c.pump()).unwrap().is_none());
+    assert!(stulp_platform::host::block_on(c.pump()).unwrap().is_none());
     assert_eq!(
         c.heartbeat.unwrap().1,
         c.now() + super::HEARTBEAT_DEADLINE_MS

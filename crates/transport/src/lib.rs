@@ -1,4 +1,5 @@
 //! Native TCP/Unix/TLS adapters. Eén eigenaar per verbinding; geen thread per handshake.
+//! Uitgaand HTTP(S) staat in [`web`].
 #![forbid(unsafe_code)]
 use std::{
     future::Future,
@@ -10,6 +11,7 @@ use std::{
 };
 use stulp_platform::socket::Socket;
 mod key;
+pub mod web;
 pub use key::KeyPair;
 use leantls::{AsyncRead, AsyncWrite, Conn, ConnError, Entropy};
 use zeroize::Zeroizing;
@@ -177,7 +179,7 @@ impl<'a> Stream<'a> {
     /// Een serverhandshake wordt gepompt door dezelfde eigenaar als het appprotocol.
     pub fn server(socket: Socket, identity: &'a KeyPair, http: bool) -> io::Result<Self> {
         socket.nonblocking()?;
-        let entropy = Entropy::new(hostnet::entropy()?);
+        let entropy = Entropy::new(stulp_platform::host::entropy()?);
         let future = async move {
             leantls::server::accept(Wire(socket), identity, entropy, http)
                 .await
@@ -208,11 +210,14 @@ impl<'a> Stream<'a> {
         }
         // Validate before starting; an invalid custom CA must never silently use public roots.
         leantls::Roots::from_concatenated_der(&roots).map_err(io::Error::other)?;
-        let entropy = Entropy::new(hostnet::entropy()?);
+        let entropy = Entropy::new(stulp_platform::host::entropy()?);
         let future = async move {
             let roots = leantls::Roots::from_concatenated_der(&roots).map_err(io::Error::other)?;
             let verifier = Verification {
-                chain: leantls::ChainVerifier::new(roots, hostnet::unix_secs()),
+                chain: leantls::ChainVerifier::new(
+                    roots,
+                    stulp_platform::host::unix_seconds().unwrap_or(0),
+                ),
                 insecure,
             };
             leantls::connect(

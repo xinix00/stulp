@@ -461,11 +461,11 @@ pub(crate) async fn download(
     struct Sink<'a, 'b, 'tls>(&'a mut leanhttp::Exchange<'b, stulp_transport::Http<'tls>>);
     impl Write for Sink<'_, '_, '_> {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            hostnet::block_on(self.0.write(bytes))
+            stulp_platform::host::block_on(self.0.write(bytes))
                 .map_err(|_| io::Error::other("backup connection closed"))
         }
         fn flush(&mut self) -> io::Result<()> {
-            hostnet::block_on(self.0.flush())
+            stulp_platform::host::block_on(self.0.flush())
                 .map_err(|_| io::Error::other("backup connection closed"))
         }
     }

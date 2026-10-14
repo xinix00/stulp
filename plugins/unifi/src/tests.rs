@@ -4,7 +4,7 @@ use super::*;
 mod wire;
 use wire::{Wire, value};
 fn handle(p: &mut Unifi, c: &mut Client<Wire>, method: &str, params: &str) -> Result<Value> {
-    hostnet::block_on(p.handle(c, method, &value(params)))
+    stulp_platform::host::block_on(p.handle(c, method, &value(params)))
 }
 fn setup(driver: &str, data: &str, store: &str, settings: &str) -> (Unifi, Client<Wire>) {
     let mut p = Unifi::default();
@@ -12,8 +12,9 @@ fn setup(driver: &str, data: &str, store: &str, settings: &str) -> (Unifi, Clien
         r#"[{{"id":"d","appId":"com.stulp.unifi","driverId":"{driver}","name":"test","data":{data},"store":{store},"settings":{settings},"capabilities":["onoff","dim","volume_set","alarm_motion","alarm_contact","alarm_tamper","measure_temperature","measure_humidity","measure_luminance","measure_battery","alarm_battery"]}}]"#
     );
     let mut c = Wire::client("com.stulp.unifi", p.manifest(), &devices, "{}");
-    hostnet::block_on(c.setting("host", json::string("192.0.2.1").unwrap())).unwrap();
-    hostnet::block_on(c.setting("apiKey", json::string("synthetic").unwrap())).unwrap();
+    stulp_platform::host::block_on(c.setting("host", json::string("192.0.2.1").unwrap())).unwrap();
+    stulp_platform::host::block_on(c.setting("apiKey", json::string("synthetic").unwrap()))
+        .unwrap();
     handle(&mut p, &mut c, "app.init", "{}").unwrap();
     handle(&mut p, &mut c, "device.init", r#"{"deviceId":"d"}"#).unwrap();
     (p, c)
@@ -153,8 +154,14 @@ fn camera_setting_rejection_does_not_persist_or_retry_the_write() {
     let mut w = c.into_transport();
     w.reply(503, "{}", false);
     let mut c = w.reconnect("com.stulp.unifi", p.manifest());
-    assert!(hostnet::block_on(p.settings(&mut c, "d", &value(r#"{"mic_volume":101}"#))).is_err());
-    assert!(hostnet::block_on(p.settings(&mut c, "d", &value(r#"{"mic_volume":30}"#))).is_err());
+    assert!(
+        stulp_platform::host::block_on(p.settings(&mut c, "d", &value(r#"{"mic_volume":101}"#)))
+            .is_err()
+    );
+    assert!(
+        stulp_platform::host::block_on(p.settings(&mut c, "d", &value(r#"{"mic_volume":30}"#)))
+            .is_err()
+    );
     assert_eq!(
         json::uint(
             field(c.state().device("d").unwrap(), "settings"),

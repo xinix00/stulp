@@ -35,7 +35,7 @@ impl Wire {
         self.inbox.clear();
         self.now = 0;
         let mut client = Client::new(self);
-        hostnet::block_on(client.hello(id)).unwrap();
+        stulp_platform::host::block_on(client.hello(id)).unwrap();
         client
     }
 
@@ -62,7 +62,7 @@ impl Wire {
             fail_state: false,
         };
         let mut c = Client::new(wire);
-        hostnet::block_on(c.hello(id)).unwrap();
+        stulp_platform::host::block_on(c.hello(id)).unwrap();
         c
     }
     pub(crate) fn reply(&mut self, status: u16, body: &str, cookie: bool) {

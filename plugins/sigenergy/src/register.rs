@@ -247,7 +247,9 @@ mod tests {
         let mut bus = Modbus::default();
         let mut p = Poller::new(EVACCHARGER, "reading").unwrap();
         for _ in 0..2 {
-            let v = hostnet::block_on(p.read(&mut c, &mut bus, "192.0.2.1:502", 500, 2)).unwrap();
+            let v =
+                stulp_platform::host::block_on(p.read(&mut c, &mut bus, "192.0.2.1:502", 500, 2))
+                    .unwrap();
             assert_eq!(n(&v, "Status"), Some(4.));
             assert_eq!(n(&v, "TotalCharged"), Some(100.));
             assert!(field(&v, "Power").is_null());

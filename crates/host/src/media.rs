@@ -4,6 +4,7 @@ use stulp_core::{
     Error, Result,
     json::{self, Value},
 };
+use stulp_transport::web::{self, Blocking, Tcp};
 use stulp_web::{Body, Response};
 pub(crate) fn response(value: &Value, owner: u64, image: bool) -> Result<Response> {
     let url = json::text(value, "url");
@@ -38,13 +39,21 @@ pub(crate) async fn pipe(
     url: &str,
     mime: &str,
 ) -> leanhttp::Result<()> {
-    let client = hostnet::Http::new();
-    let mut upstream = match client.open(&hostnet::Call::get(url, Duration::from_secs(30))) {
-        Ok(source) if (200..300).contains(&source.status()) => source,
+    // Elke fase en elke stilte op de bron hoogstens 30 s; geen totale grens,
+    // want een videostroom loopt zo lang als de kijker blijft.
+    let phase = Duration::from_secs(30);
+    let mut dial = web::web(Tcp::new(Blocking, phase, Some(phase), None));
+    let call = leanhttp::Call {
+        url,
+        header_timeout: Some(phase),
+        ..Default::default()
+    };
+    let mut upstream = match leanhttp::fetch(&mut dial, call).await {
+        Ok(source) if (200..300).contains(&source.status) => source,
         _ => return exchange.error(502, "app media source unavailable").await,
     };
     if mime.starts_with("image/")
-        && let Some(length) = upstream.header("Content-Length")
+        && let Some(length) = upstream.header.get("Content-Length")
         && length.parse::<usize>().ok().is_none_or(|n| n > 4 << 20)
     {
         return exchange.error(502, "app image exceeds 4 MiB").await;
@@ -60,6 +69,7 @@ pub(crate) async fn pipe(
     loop {
         let n = upstream
             .read(&mut buffer)
+            .await
             .map_err(|_| leanhttp::Error::Connect)?;
         if n == 0 {
             return Ok(());

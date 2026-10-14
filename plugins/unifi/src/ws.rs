@@ -3,64 +3,21 @@ use alloc::{string::String, vec::Vec};
 use stulp_core::json;
 use stulp_sdk::{Error, Result, util::join};
 const MAX: usize = 1 << 20;
+/// Standaard base64 met padding: de Sec-WebSocket-Key en -Accept, en Basic-auth.
 pub(super) fn base64(bytes: &[u8]) -> Result<String> {
-    let v = stulp_sdk::asset(bytes)?;
-    Ok(json::copy(json::text(&v, "data"))?)
+    Ok(leanbase64::STANDARD
+        .encode(bytes)
+        .map_err(|_| stulp_core::Error::Memory)?)
 }
 // RFC 6455 gebruikt SHA-1 uitsluitend voor de upgradecontrole, niet als authenticatie.
 fn accept(key: &str) -> Result<String> {
     if key.len() != 24 {
         return Err(Error::Invalid("invalid websocket nonce"));
     }
-    let message = join(&[key, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"])?;
-    let mut padded = [0u8; 128];
-    padded[..60].copy_from_slice(message.as_bytes());
-    padded[60] = 0x80;
-    padded[120..].copy_from_slice(&480u64.to_be_bytes());
-    let mut h = [
-        0x67452301u32,
-        0xefcdab89,
-        0x98badcfe,
-        0x10325476,
-        0xc3d2e1f0,
-    ];
-    for block in padded.chunks_exact(64) {
-        let mut w = [0u32; 80];
-        for (i, b) in block.chunks_exact(4).enumerate() {
-            w[i] = u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
-        }
-        for i in 16..80 {
-            w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
-        }
-        let [mut a, mut b, mut c, mut d, mut e] = h;
-        for (i, w) in w.iter().enumerate() {
-            let (f, k) = match i {
-                0..=19 => ((b & c) | (!b & d), 0x5a827999u32),
-                20..=39 => (b ^ c ^ d, 0x6ed9eba1),
-                40..=59 => ((b & c) | (b & d) | (c & d), 0x8f1bbcdc),
-                _ => (b ^ c ^ d, 0xca62c1d6),
-            };
-            let t = a
-                .rotate_left(5)
-                .wrapping_add(f)
-                .wrapping_add(e)
-                .wrapping_add(k)
-                .wrapping_add(*w);
-            e = d;
-            d = c;
-            c = b.rotate_left(30);
-            b = a;
-            a = t;
-        }
-        for (h, v) in h.iter_mut().zip([a, b, c, d, e]) {
-            *h = h.wrapping_add(v);
-        }
-    }
-    let mut digest = [0; 20];
-    for (out, v) in digest.chunks_exact_mut(4).zip(h) {
-        out.copy_from_slice(&v.to_be_bytes());
-    }
-    base64(&digest)
+    let mut sha1 = leancrypto::sha1::Sha1::new();
+    sha1.update(key.as_bytes());
+    sha1.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    base64(&sha1.finish())
 }
 fn append(dst: &mut Vec<u8>, src: &[u8], max: usize) -> Result {
     if src.len() > max.saturating_sub(dst.len()) {

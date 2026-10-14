@@ -21,7 +21,7 @@ fn handle(
     method: &str,
     params: &str,
 ) -> stulp_sdk::Result<Value> {
-    hostnet::block_on(p.handle(c, method, &value(params)))
+    stulp_platform::host::block_on(p.handle(c, method, &value(params)))
 }
 fn ready() -> (Somfy, Client<Wire>) {
     let mut p = Somfy::default();
@@ -167,7 +167,7 @@ fn cancel_is_scoped_to_durable_execution() {
 fn advance(c: &mut Client<Wire>, milliseconds: u64) {
     let until = c.now() + milliseconds;
     while c.now() < until {
-        hostnet::block_on(c.idle()).unwrap();
+        stulp_platform::host::block_on(c.idle()).unwrap();
     }
 }
 
@@ -181,7 +181,7 @@ fn cloud_throttling_waits_without_relogin_and_recovers_automatically() {
         w.reply(200, r#"{"devices":[]}"#, false);
         let mut c = w.reconnect("com.stulp.somfy", Somfy::default().manifest());
         advance(&mut c, 2_000);
-        hostnet::block_on(p.tick(&mut c)).unwrap();
+        stulp_platform::host::block_on(p.tick(&mut c)).unwrap();
         let s = handle(&mut p, &mut c, "api.invoke", r#"{"handler":"status"}"#).unwrap();
         assert!(json::text(&s, "error").contains("beperkt tijdelijk"));
         assert!(
@@ -200,7 +200,7 @@ fn cloud_throttling_waits_without_relogin_and_recovers_automatically() {
         );
         for _ in 0..80 {
             advance(&mut c, 10_000);
-            hostnet::block_on(p.tick(&mut c)).unwrap();
+            stulp_platform::host::block_on(p.tick(&mut c)).unwrap();
         }
         // Ook een handmatige leesopdracht respecteert dezelfde wachttijd.
         assert!(
@@ -213,7 +213,7 @@ fn cloud_throttling_waits_without_relogin_and_recovers_automatically() {
             .is_err()
         );
         advance(&mut c, 101_000);
-        hostnet::block_on(p.tick(&mut c)).unwrap();
+        stulp_platform::host::block_on(p.tick(&mut c)).unwrap();
         let s = handle(&mut p, &mut c, "api.invoke", r#"{"handler":"status"}"#).unwrap();
         assert_eq!(
             json::get(&s, "connected").and_then(Value::as_bool),

@@ -44,7 +44,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         Vec::new()
     };
     let mut c = Client::new(Adapter::new()?);
-    hostnet::block_on(async {
+    stulp_platform::host::block_on(async {
         let deadline = 30000;
         let mut n = Network::open(&mut c).await?;
         let session = if let Some(fabric) = &fabric {

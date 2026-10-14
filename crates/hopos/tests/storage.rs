@@ -103,7 +103,7 @@ fn failed_barrier_does_not_publish_or_turn_readback_into_success() {
     }
     .unwrap();
     let mut polls = 0;
-    let result = hostnet::block_on(async {
+    let result = stulp_platform::host::block_on(async {
         let mut task = pin!(task);
         poll_fn(|cx| {
             polls += 1;
@@ -148,7 +148,7 @@ fn persisted_slots_reopen_and_paths_stay_canonical() {
         })
     }
     .unwrap();
-    hostnet::block_on(task).unwrap();
+    stulp_platform::host::block_on(task).unwrap();
     disk.bytes = disk.durable.clone();
     // SAFETY: De voorgaande taak is voltooid; dezelfde korte callstack en backend-grens.
     let task = unsafe {
@@ -162,7 +162,7 @@ fn persisted_slots_reopen_and_paths_stay_canonical() {
         })
     }
     .unwrap();
-    assert_eq!(hostnet::block_on(task).unwrap(), bytes);
+    assert_eq!(stulp_platform::host::block_on(task).unwrap(), bytes);
     assert_eq!(disk.syncs, 2);
     assert!(disk.reads >= 2);
 }

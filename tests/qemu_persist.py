@@ -27,6 +27,14 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
+def bootargs():
+    """HopOS >=3.0.11 boots stateless; the cold boot must load the disk again.
+
+    Extra parameters come from BOOTARGS, as with HopOS' image/qemu-run.sh.
+    """
+    extra=os.environ.get('BOOTARGS','').strip()
+    return 'hopos.storage=stateful'+(' '+extra if extra else '')
+
 def main():
     subprocess.run(['cargo','build','--locked','--release','--target',TARGET,'-p','stulp-persist-check'],cwd=ROOT,check=True)
     meta=json.loads(subprocess.check_output(['cargo','metadata','--locked','--format-version','1'],cwd=ROOT))
@@ -71,7 +79,7 @@ def main():
             '-device','virtio-net-device,netdev=n0,bus=virtio-mmio-bus.0','-netdev','user,id=n0,'+forward,
             '-drive',f'if=none,id=disk0,file={disk},format=raw', '-device','virtio-blk-device,drive=disk0,bus=virtio-mmio-bus.1',
             '-kernel',str(kernel),'-device',f'loader,file={staged},addr=0xb0200000,force-raw=on',
-            '-device',f'loader,addr=0xb0100000,data={size},data-len=8','-device','loader,addr=0xb0100008,data=1,data-len=8']
+            '-device',f'loader,addr=0xb0100000,data={size},data-len=8','-device','loader,addr=0xb0100008,data=1,data-len=8','-append',bootargs()]
         job={'name':'stulp-persist-check','driver':'hop','artifacts':[{'url':f'http://10.0.2.2:{server.server_port}/stulp.elf'}],
             'memory_limit':33554432,'volumes':{'/volumes/stulp-persist-check':'/data'}}
         for sock in held:sock.close()

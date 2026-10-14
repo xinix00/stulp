@@ -11,9 +11,9 @@ use stulp_protocol::{
     token::{self, Direction},
 };
 mod datagrams;
-mod device_tls;
 #[cfg(target_os = "macos")]
 mod dnssd;
+mod fetch;
 mod http;
 mod media;
 mod resolve;
@@ -321,10 +321,7 @@ impl Transport for Connection {
         u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
     fn random(&mut self) -> Result<[u8; 32]> {
-        let entropy = hostnet::entropy().map_err(|_| Error::Transport("OS entropy unavailable"))?;
-        let mut bytes = [0; 32];
-        bytes.copy_from_slice(entropy.get(..32).ok_or(Error::Invalid("short entropy"))?);
-        Ok(bytes)
+        stulp_platform::host::entropy().map_err(|_| Error::Transport("OS entropy unavailable"))
     }
 }
 
@@ -359,7 +356,7 @@ pub fn run<P: Plugin>(factory: impl Fn() -> P) -> std::process::ExitCode {
         let result = match result {
             Ok(connection) => {
                 delay = 1;
-                hostnet::block_on(stulp_sdk::Client::new(connection).serve(plugin))
+                stulp_platform::host::block_on(stulp_sdk::Client::new(connection).serve(plugin))
             }
             Err(error) => Err(error),
         };

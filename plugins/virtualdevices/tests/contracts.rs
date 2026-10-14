@@ -85,14 +85,14 @@ fn value(s: &str) -> Value {
 }
 fn client(stored: &str, fail: bool) -> Client<Wire> {
     let mut c = Client::new(Wire::new(stored, fail));
-    hostnet::block_on(c.hello("com.stulp.virtualdevices")).unwrap();
+    stulp_platform::host::block_on(c.hello("com.stulp.virtualdevices")).unwrap();
     c
 }
 
 #[test]
 fn restore_does_not_overwrite_durable_state_and_marks_available() {
     let mut c = client(r#"{"onoff":true}"#, false);
-    hostnet::block_on(VirtualDevices::default().handle(
+    stulp_platform::host::block_on(VirtualDevices::default().handle(
         &mut c,
         "device.init",
         &value(r#"{"deviceId":"d","driverId":"switch"}"#),
@@ -109,7 +109,7 @@ fn restore_does_not_overwrite_durable_state_and_marks_available() {
 fn absent_or_invalid_state_is_persisted_before_publishing() {
     for stored in ["{}", r#"{"onoff":"aan"}"#] {
         let mut c = client(stored, false);
-        hostnet::block_on(VirtualDevices::default().handle(
+        stulp_platform::host::block_on(VirtualDevices::default().handle(
             &mut c,
             "device.init",
             &value(r#"{"deviceId":"d","driverId":"switch"}"#),
@@ -124,7 +124,7 @@ fn absent_or_invalid_state_is_persisted_before_publishing() {
 #[test]
 fn rejected_store_write_never_publishes_a_new_value() {
     let mut c = client(r#"{"onoff":false}"#, true);
-    let error = hostnet::block_on(VirtualDevices::default().handle(
+    let error = stulp_platform::host::block_on(VirtualDevices::default().handle(
         &mut c,
         "capability.invoke",
         &value(r#"{"deviceId":"d","capability":"onoff","value":true}"#),
@@ -136,7 +136,7 @@ fn rejected_store_write_never_publishes_a_new_value() {
 #[test]
 fn accepted_write_survives_controller_restart() {
     let mut c = client(r#"{"onoff":false}"#, false);
-    hostnet::block_on(VirtualDevices::default().handle(
+    stulp_platform::host::block_on(VirtualDevices::default().handle(
         &mut c,
         "capability.invoke",
         &value(r#"{"deviceId":"d","capability":"onoff","value":true}"#),
@@ -156,7 +156,7 @@ fn pair_sessions_keep_separate_candidates_and_retry_identity() {
     let mut c = client("{}", false);
     let mut plugin = VirtualDevices::default();
     for id in ["first", "second"] {
-        hostnet::block_on(plugin.handle(
+        stulp_platform::host::block_on(plugin.handle(
             &mut c,
             "pair.start",
             &value(&format!(r#"{{"driverId":"switch","sessionId":"{id}"}}"#)),
@@ -164,18 +164,19 @@ fn pair_sessions_keep_separate_candidates_and_retry_identity() {
         .unwrap();
     }
     let list = value(r#"{"sessionId":"first","event":"list_devices"}"#);
-    assert!(hostnet::block_on(plugin.handle(&mut c, "pair.emit", &list)).is_err());
+    assert!(stulp_platform::host::block_on(plugin.handle(&mut c, "pair.emit", &list)).is_err());
     let mut ids = Vec::new();
     for id in ["first", "second"] {
         let params = value(&format!(
             r#"{{"sessionId":"{id}","event":"create","data":{{"name":"  Alarm  "}}}}"#
         ));
-        let candidate = hostnet::block_on(plugin.handle(&mut c, "pair.emit", &params)).unwrap();
+        let candidate =
+            stulp_platform::host::block_on(plugin.handle(&mut c, "pair.emit", &params)).unwrap();
         assert_eq!(json::text(&candidate, "name"), "Alarm");
         ids.push(json::text(json::get(&candidate, "data").unwrap(), "id").to_string());
     }
     assert_ne!(ids[0], ids[1]);
-    let one = hostnet::block_on(plugin.handle(&mut c, "pair.emit", &list)).unwrap();
-    let two = hostnet::block_on(plugin.handle(&mut c, "pair.emit", &list)).unwrap();
+    let one = stulp_platform::host::block_on(plugin.handle(&mut c, "pair.emit", &list)).unwrap();
+    let two = stulp_platform::host::block_on(plugin.handle(&mut c, "pair.emit", &list)).unwrap();
     assert_eq!(one, two);
 }

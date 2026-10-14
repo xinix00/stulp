@@ -8,9 +8,10 @@ license.workspace = true
 stulp-platform = { path = "../platform" }
 stulp-protocol = { path = "../protocol" }
 zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
-hostnet = { git = "https://github.com/xinix00/hop.git", tag = "v3.0.0-alpha.10" }
-leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.11" }
-leantls = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.11", features = ["mozilla-roots"] }
+stulp-device-tls = { path = "../device-tls" }
+leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.12", features = ["std"] }
+leanhttps = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.12", features = ["mozilla-roots"] }
+leantls = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.12", features = ["mozilla-roots"] }
 # De privésleutel van de server blijft bij Stulp; leantls tekent via Identity.
 p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa", "ecdh", "pkcs8", "alloc"] }
 p384 = { version = "=0.13.1", default-features = false, features = ["ecdsa", "pkcs8", "alloc"] }

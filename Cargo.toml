@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/controller",
     "crates/core",
+    "crates/device-tls",
     "crates/hopos",
     "crates/hopos-app",
     "crates/hopos-plugins",

@@ -55,5 +55,132 @@
     "mesh/state": { "method": "POST", "path": "/mesh/state" },
     "diagnostics": { "method": "POST", "path": "/diagnostics" },
     "diagnostics/state": { "method": "POST", "path": "/diagnostics/state" }
+  },
+  "flow": {
+    "triggers": [
+      {
+        "id": "matter_event",
+        "title": {
+          "en": "A button was used",
+          "nl": "Een knop werd bediend"
+        },
+        "titleFormatted": {
+          "en": "[[device]]: [[event]]",
+          "nl": "[[device]]: [[event]]"
+        },
+        "hint": {
+          "en": "One trigger per Matter switch event, also for repeated presses whose on/off state did not change. The data token carries the event fields, such as the number of presses.",
+          "nl": "Eén trigger per Matter-schakelgebeurtenis, ook bij herhaalde drukken waarbij aan/uit niet veranderde. Het token data bevat de velden van de gebeurtenis, zoals het aantal drukken."
+        },
+        "args": [
+          {
+            "name": "device",
+            "type": "device",
+            "filter": "driver_id=matter"
+          },
+          {
+            "name": "event",
+            "type": "dropdown",
+            "title": {
+              "en": "Event",
+              "nl": "Gebeurtenis"
+            },
+            "values": [
+              {
+                "id": "initial_press",
+                "label": {
+                  "en": "Pressed",
+                  "nl": "Ingedrukt"
+                }
+              },
+              {
+                "id": "short_release",
+                "label": {
+                  "en": "Released after a short press",
+                  "nl": "Kort losgelaten"
+                }
+              },
+              {
+                "id": "long_press",
+                "label": {
+                  "en": "Long press",
+                  "nl": "Lang ingedrukt"
+                }
+              },
+              {
+                "id": "long_release",
+                "label": {
+                  "en": "Released after a long press",
+                  "nl": "Lang losgelaten"
+                }
+              },
+              {
+                "id": "multi_press_ongoing",
+                "label": {
+                  "en": "Pressed again (multi-press)",
+                  "nl": "Nogmaals gedrukt"
+                }
+              },
+              {
+                "id": "multi_press_complete",
+                "label": {
+                  "en": "Multi-press finished",
+                  "nl": "Meerdere keren gedrukt"
+                }
+              },
+              {
+                "id": "switch_latched",
+                "label": {
+                  "en": "Switch flipped",
+                  "nl": "Schakelaar omgezet"
+                }
+              }
+            ]
+          }
+        ],
+        "tokens": [
+          {
+            "name": "device",
+            "type": "string",
+            "title": {
+              "en": "Device",
+              "nl": "Apparaat"
+            }
+          },
+          {
+            "name": "event",
+            "type": "string",
+            "title": {
+              "en": "Event",
+              "nl": "Gebeurtenis"
+            }
+          },
+          {
+            "name": "capability",
+            "type": "string",
+            "title": {
+              "en": "Button",
+              "nl": "Knop"
+            }
+          },
+          {
+            "name": "endpoint",
+            "type": "number",
+            "title": {
+              "en": "Endpoint",
+              "nl": "Endpoint"
+            }
+          },
+          {
+            "name": "data",
+            "type": "string",
+            "title": {
+              "en": "Event data",
+              "nl": "Gegevens"
+            }
+          }
+        ]
+      }
+    ]
   }
 }

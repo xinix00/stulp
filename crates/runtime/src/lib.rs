@@ -470,8 +470,11 @@ pub fn callback_timeout(method: &str) -> u64 {
     if method == "video.resolve" {
         return 60_000;
     }
+    // Onder de 95 s waarna de tunnel (cloudflared-lean HEADER_TIMEOUT) zonder
+    // antwoordkop opgeeft: anders ziet de browser nooit de 504 van Stulp en
+    // blijft de HTTP-werker daarna nog een halve minuut bezet (14-10).
     if matches!(method, "pair.list" | "pair.emit" | "api.invoke") {
-        120_000
+        90_000
     } else {
         30_000
     }

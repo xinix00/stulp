@@ -882,12 +882,18 @@ async function ensureDeviceDetail(id) {
   if (current?.detailComplete === true) return current;
   if (deviceDetailPromises.has(id)) return deviceDetailPromises.get(id);
   const promise = (async () => {
-    for (;;) {
+    // Begrensd, net als ensureResource: een detail dat tijdens het ophalen
+    // ongeldig werd, wordt hooguit twee keer opnieuw gelezen. Daarna telt het
+    // laatste antwoord en blijft het detail niet "compleet", zodat de volgende
+    // opening alsnog vers leest. Onbegrensd bleef "Apparaat laden…" staan
+    // zolang er events binnenkwamen (14-10).
+    for (let attempt = 0; ; attempt++) {
       const generation = deviceDetailGenerations.get(id) || 0;
       const detail = await api(`/api/manager/devices/device/${encode(id)}`);
-      if (generation !== (deviceDetailGenerations.get(id) || 0)) continue;
+      const stale = generation !== (deviceDetailGenerations.get(id) || 0);
+      if (stale && attempt < 2) continue;
       const previous = state.devices.find(device => device.id === id);
-      const merged = mergeDevice({ ...detail, detailComplete: true, capabilitiesComplete: true }, previous);
+      const merged = mergeDevice({ ...detail, detailComplete: !stale, capabilitiesComplete: true }, previous);
       const index = state.devices.findIndex(device => device.id === id);
       if (index < 0) state.devices.push(merged);
       else state.devices[index] = merged;
@@ -908,14 +914,15 @@ async function ensureDriver(driverID) {
   if (cached && loadedDriverIDs.has(driverID)) return cached;
   if (driverDetailPromises.has(driverID)) return driverDetailPromises.get(driverID);
   const promise = (async () => {
-    for (;;) {
+    for (let attempt = 0; ; attempt++) {
       const generation = driverDetailGenerations.get(driverID) || 0;
       const driver = await api(`/api/manager/drivers/driver/${encode(driverID)}`);
-      if (generation !== (driverDetailGenerations.get(driverID) || 0)) continue;
+      const stale = generation !== (driverDetailGenerations.get(driverID) || 0);
+      if (stale && attempt < 2) continue;
       const index = state.drivers.findIndex(item => item.id === driver.id);
       if (index < 0) state.drivers.push(driver);
       else state.drivers[index] = driver;
-      loadedDriverIDs.add(driver.id);
+      if (!stale) loadedDriverIDs.add(driver.id);
       return driver;
     }
   })();
@@ -943,13 +950,14 @@ async function ensureScene(sceneID) {
   if (cached) return cached;
   if (sceneDetailPromises.has(sceneID)) return sceneDetailPromises.get(sceneID);
   const promise = (async () => {
-    for (;;) {
+    for (let attempt = 0; ; attempt++) {
       const generation = sceneDetailGenerations.get(sceneID) || 0;
       const scene = await api(`/api/stulp/scenes/${encode(sceneID)}`);
-      if (generation !== (sceneDetailGenerations.get(sceneID) || 0)) continue;
+      const stale = generation !== (sceneDetailGenerations.get(sceneID) || 0);
+      if (stale && attempt < 2) continue;
       const index = state.scenes.findIndex(item => item.id === scene.id);
-      if (index < 0) state.scenes.push(scene);
-      else state.scenes[index] = scene;
+      if (index < 0 && !stale) state.scenes.push(scene);
+      else if (index >= 0) state.scenes[index] = scene;
       return scene;
     }
   })();
@@ -3646,7 +3654,14 @@ function handleRealtimeEvent(event) {
   }
   if (event.manager === 'apps') {
     invalidateResources('apps', 'drivers', 'flows', 'flowCards');
-    invalidateAllDeviceDetails();
+    // Alleen de apparaten van déze app: een app die elke minuut opnieuw
+    // probeert aan te melden maakte eerst alle details van alle apparaten
+    // ongeldig, en daarmee elke open "Configuratie laden…" (14-10).
+    if (event.id) {
+      state.devices.filter(device => device.appId === event.id).forEach(device => invalidateDeviceDetail(device.id));
+    } else {
+      invalidateAllDeviceDetails();
+    }
     scheduleRealtimeReload(false, true);
     return;
   }

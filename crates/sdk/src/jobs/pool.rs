@@ -23,6 +23,13 @@ pub trait Key {
     fn key(&self, snapshot: &Value, method: &str, params: &Value) -> Result<Option<u64>>;
     /// Lifecycle mutations wait until command workers finish and prevent later overtaking.
     fn barrier(&self, method: &str) -> bool;
+    /// Callbacks voor de UI die een wachtende of lopende barrière mogen
+    /// passeren: ze raken geen apparaatstaat, en de controller beantwoordt
+    /// ze in zijn gate. Tot 14-10 hield één `device.delete` achter een
+    /// CASE-time-out van 26 s ook elke pair-, asset- en api-aanroep vast.
+    fn passes_barrier(&self, _method: &str) -> bool {
+        false
+    }
 }
 struct Lease {
     request: u64,
@@ -301,6 +308,9 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
             let active = core::array::from_fn(|w| w == 0 || leases[w].is_some());
             fan_out(c, &mut writers, &mut sent, &mut revision, active).await?;
             let mut at = 0;
+            // Zolang een barrière loopt of op werkers wacht, haalt niets hem
+            // in, behalve de UI-callbacks die de sleutel daarvoor aanwijst.
+            let mut blocked = barrier.is_some();
             while at < pending.len() {
                 let frame = &pending[at];
                 let target = match key.key(
@@ -317,8 +327,10 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
                         continue;
                     }
                 };
-                if barrier.is_some() {
-                    break;
+                let ui = target.is_none() && key.passes_barrier(frame.method());
+                if blocked && !ui {
+                    at += 1;
+                    continue;
                 }
                 if let Some(node) = target {
                     if leases.iter().flatten().any(|l| l.key == node) {
@@ -343,11 +355,14 @@ pub async fn serve<T: Transport, P: Plugin, W: Plugin, K: Key>(
                 } else {
                     let is_barrier = key.barrier(frame.method());
                     if is_barrier && leases.iter().any(Option::is_some) {
-                        break;
+                        blocked = true;
+                        at += 1;
+                        continue;
                     }
                     let frame = pending.remove(at);
                     if is_barrier {
                         barrier = Some(frame.id);
+                        blocked = true;
                     }
                     if sent[0] != c.state.revision {
                         snapshot(c, &mut writers[0]).await?;
@@ -461,6 +476,69 @@ mod tests {
             }
             Ok(Value::Null)
         }
+    }
+    /// Sleutels zoals Matter ze gebruikt: commando's per node, `settings` als
+    /// barrière, en een pair-event dat de barrière mag passeren.
+    struct BarrierKeys;
+    impl Key for BarrierKeys {
+        fn key(&self, _: &Value, method: &str, p: &Value) -> Result<Option<u64>> {
+            Ok((method == "command").then(|| json::uint(p, "node")))
+        }
+        fn barrier(&self, method: &str) -> bool {
+            method == "settings"
+        }
+        fn passes_barrier(&self, method: &str) -> bool {
+            method == "pair.emit"
+        }
+    }
+    #[test]
+    fn a_ui_callback_passes_a_barrier_that_waits_for_a_slow_command() {
+        let mut input = VecDeque::new();
+        for (id, method, node, delay) in [
+            (100, "command", 1, 1500),
+            (101, "settings", 0, 0),
+            (102, "pair.emit", 0, 0),
+        ] {
+            input.push_back(
+                decode(
+                    Frame::request(
+                        id,
+                        method,
+                        &json::fields(&[
+                            ("node", Value::uint(node)),
+                            ("delay", Value::uint(delay)),
+                        ])
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            );
+        }
+        let wire = Wire {
+            now: 0,
+            input,
+            answers: Vec::new(),
+        };
+        let snapshot = json::parse(
+            br#"{"protocol":1,"appId":"com.test.pool","devices":{},"settings":{},"manifest":{}}"#,
+        )
+        .unwrap();
+        let mut c = Client::from_snapshot(wire, snapshot).unwrap();
+        let result = hostnet::block_on(serve(
+            &mut c,
+            &mut Worker,
+            core::array::from_fn(|_| Worker),
+            BarrierKeys,
+        ));
+        assert!(matches!(result, Err(Error::Transport("finished"))));
+        let out = c.into_transport().answers;
+        // Het pair-event wacht niet op de barrière; de barrière zelf wacht op
+        // het trage commando en komt daarna.
+        let at = |id: u64| out.iter().find(|a| a.0 == id).map(|a| a.1).unwrap();
+        assert!(at(102) < 500, "pair.emit na {} ms", at(102));
+        assert!(at(100) >= 1500);
+        assert!(at(101) >= at(100));
     }
     #[test]
     fn different_nodes_complete_independently_but_same_node_keeps_order() {

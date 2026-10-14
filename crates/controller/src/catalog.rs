@@ -21,14 +21,55 @@ struct Job<R: Reply> {
     registrations: Value,
     reply: R,
 }
+/// De registraties van een app, geldig zolang zijn manifest gelijk blijft.
+/// Een plugin registreert zijn kaarten bij de start en verandert ze daarna
+/// niet; een nieuwe versie heeft een nieuw manifest. Tot 14-10 vroeg elke
+/// GET /api/stulp/flow/cards ze aan álle plugins en wachtte op de traagste.
+struct Cached {
+    app: String,
+    manifest: Value,
+    registrations: Value,
+}
 /// Collects active plugin card registrations without blocking other requests.
 pub struct Catalog<R: Reply> {
     jobs: Vec<Job<R>>,
+    cache: Vec<Cached>,
 }
 impl<R: Reply> Catalog<R> {
     /// Create an empty registration-job owner.
     pub fn new() -> Self {
-        Self { jobs: Vec::new() }
+        Self {
+            jobs: Vec::new(),
+            cache: Vec::new(),
+        }
+    }
+    fn cached<S: Storage>(&self, store: &Store<S>, id: &str) -> Option<&Value> {
+        let manifest = store.manifest(id)?;
+        self.cache
+            .iter()
+            .find(|c| c.app == id && json::equal(&c.manifest, manifest))
+            .map(|c| &c.registrations)
+    }
+    fn remember<S: Storage>(
+        &mut self,
+        store: &Store<S>,
+        app: &str,
+        registrations: &Value,
+    ) -> Result {
+        let Some(manifest) = store.manifest(app) else {
+            return Ok(());
+        };
+        let entry = Cached {
+            app: json::copy(app)?,
+            manifest: manifest.try_clone()?,
+            registrations: registrations.try_clone()?,
+        };
+        if let Some(c) = self.cache.iter_mut().find(|c| c.app == app) {
+            *c = entry;
+        } else {
+            json::push(&mut self.cache, entry, 64)?;
+        }
+        Ok(())
     }
     /// Start a card-catalog request if this is its HTTP route.
     pub fn route<S: Storage>(
@@ -60,6 +101,10 @@ impl<R: Reply> Catalog<R> {
                     .and_then(|m| json::get(m, "flow"))
                     .is_none()
             {
+                continue;
+            }
+            if let Some(cached) = self.cached(store, id) {
+                json::set(&mut job.registrations, id, cached.try_clone()?)?;
                 continue;
             }
             if job.calls.len() == 32 {
@@ -96,7 +141,16 @@ impl<R: Reply> Catalog<R> {
         let call = job.calls.remove(j);
         if !c.failed {
             json::set(&mut job.registrations, &call.app, c.value.try_clone()?)?;
+            let registrations = c.value.try_clone()?;
+            let app = call.app;
+            // De job leent self.jobs; de cache raakt die niet.
+            self.remember(store, &app, &registrations)?;
+            return self.finish(store, i);
         }
+        self.finish(store, i)
+    }
+    fn finish<S: Storage>(&mut self, store: &Store<S>, i: usize) -> Result<bool> {
+        let job = self.jobs.get(i).ok_or(Error::Full)?;
         if job.calls.is_empty() {
             let job = self.jobs.remove(i);
             let response = stulp_web::flow_cards(store, &job.registrations)

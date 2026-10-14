@@ -17,6 +17,10 @@ pub struct Asset {
     locales: Vec<String>,
     original: Option<Value>,
     locale: Value,
+    /// Versie van de app plus pad, voor `If-None-Match`; leeg voor HTML, dat
+    /// per verzoek context en locale ingespoten krijgt. Tot 14-10 ging de
+    /// 688 kB van vis-network bij elke settings-pagina drie keer door JSON.
+    pub etag: String,
 }
 fn sdk(e: stulp_sdk::Error) -> Error {
     match e {
@@ -159,6 +163,16 @@ pub fn prepare<S: Storage>(
     {
         return Err(Error::Missing("app asset not declared"));
     }
+    let etag = if path.ends_with(".html") {
+        String::new()
+    } else {
+        let version = json::text(manifest, "version");
+        if version.is_empty() {
+            String::new()
+        } else {
+            join(&["\"", version, ":", &path, "\""])?
+        }
+    };
     let mut locales = Vec::new();
     if path.ends_with(".html") {
         for language in [store.language(), "en"] {
@@ -185,8 +199,26 @@ pub fn prepare<S: Storage>(
             locales,
             original: None,
             locale: json::object(),
+            etag,
         },
     )))
+}
+/// Het antwoord op een `If-None-Match` dat nog klopt: geen plugin-aanroep.
+pub fn not_modified(etag: &str) -> Result<Response> {
+    Ok(Response {
+        status: 304,
+        content_type: "text/plain; charset=utf-8",
+        body: stulp_web::Body::Static(b""),
+        cookie: None,
+        headers: cache_headers(etag)?,
+    })
+}
+fn cache_headers(etag: &str) -> Result<Vec<(&'static str, String)>> {
+    let mut headers = Vec::new();
+    headers.try_reserve_exact(2).map_err(|_| Error::Memory)?;
+    headers.push(("ETag", json::copy(etag)?));
+    headers.push(("Cache-Control", json::copy("private, no-cache")?));
+    Ok(headers)
 }
 impl Asset {
     /// Whether this asset belongs to an installed filesystem bundle.
@@ -297,12 +329,17 @@ impl Asset {
         } else {
             "application/octet-stream"
         };
+        let headers = if self.etag.is_empty() {
+            Vec::new()
+        } else {
+            cache_headers(&self.etag)?
+        };
         Ok(Response {
             status: 200,
             content_type,
             body: Body::Bytes(bytes),
             cookie: None,
-            headers: Vec::new(),
+            headers,
         })
     }
 }
@@ -327,6 +364,50 @@ mod tests {
             ),
         ])
         .unwrap()
+    }
+    #[test]
+    fn scripts_get_a_versioned_etag_and_html_does_not() {
+        let mut store = Store::open(
+            br#"{"version":2,"apps":[{"id":"a","enabled":true}]}"#,
+            Memory,
+        )
+        .unwrap();
+        store.announce("a", json::parse(br#"{"id":"a","sdk":3,"version":"1.4.0","ui":{"assets":["settings/index.html","settings/page.js"]}}"#).unwrap()).unwrap();
+        let request = |path: &str| Request {
+            method: "GET".into(),
+            path: path.into(),
+            query: String::new(),
+            body: Vec::new(),
+            cookie: String::new(),
+            host: String::new(),
+            origin: String::new(),
+            headers: json::object(),
+        };
+        let (_, _, script) = prepare(&store, &request("/app-ui/a/settings/page.js"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(script.etag, "\"1.4.0:settings/page.js\"");
+        let response = script.response(&asset("console.log(1)"), false).unwrap();
+        assert_eq!(response.status, 200);
+        assert!(
+            response
+                .headers
+                .iter()
+                .any(|(n, v)| *n == "ETag" && v == "\"1.4.0:settings/page.js\"")
+        );
+        assert!(
+            response
+                .headers
+                .iter()
+                .any(|(n, v)| *n == "Cache-Control" && v == "private, no-cache")
+        );
+        let (_, _, page) = prepare(&store, &request("/app-ui/a/settings/"))
+            .unwrap()
+            .unwrap();
+        assert!(page.etag.is_empty());
+        let cached = not_modified("\"1.4.0:settings/page.js\"").unwrap();
+        assert_eq!(cached.status, 304);
+        assert!(cached.body.bytes().is_empty());
     }
     #[test]
     fn html_locale_falls_back_and_escapes_script_content() {

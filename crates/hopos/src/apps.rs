@@ -552,12 +552,23 @@ impl Connection {
             ])?;
             store.put("apps", record, true, None, &env.now()?)?;
         }
-        store.announce(id, runtime.manifest().try_clone()?)?;
         let app = store.document().record("apps", id)?;
         if !json::boolean(app, "enabled") || json::boolean(app, "offered") {
+            // Een app uit de bundel die niet aan staat probeert het elke
+            // minuut opnieuw. Tot 14-10 gaf elke poging twee app.update-events
+            // (announce zet "starting", dan "stopped"), en die maakten in
+            // Manage alle apparaatdetails ongeldig. Alleen een nog onbekend of
+            // gewijzigd manifest is het melden waard; de status blijft "stopped".
+            let known = store
+                .manifest(id)
+                .is_some_and(|m| json::equal(m, runtime.manifest()));
+            if !known {
+                store.announce(id, runtime.manifest().try_clone()?)?;
+            }
             store.set_app_status(id, "stopped")?;
             return Err(Error::Invalid("app awaits installation or is disabled"));
         }
+        store.announce(id, runtime.manifest().try_clone()?)?;
         if id == "com.stulp.matter" {
             stulp_matter::devices::reconcile(store, &env.now()?).map_err(|e| match e {
                 stulp_sdk::Error::Core(e) => e,

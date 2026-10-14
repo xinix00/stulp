@@ -239,9 +239,9 @@ fn scan_deadlines_are_scoped_to_discovery_and_bounded() {
         ("com.stulp.sigenergy", "api.invoke", &test, 900_000),
         ("com.stulp.sigenergy", "pair.emit", &emit, 900_000),
         ("com.stulp.sigenergy", "pair.list", &Value::Null, 900_000),
-        ("com.stulp.sigenergy", "api.invoke", &Value::Null, 120_000),
+        ("com.stulp.sigenergy", "api.invoke", &Value::Null, 90_000),
         ("com.stulp.sigenergy", "capability.invoke", &test, 30_000),
-        ("other", "api.invoke", &test, 120_000),
+        ("other", "api.invoke", &test, 90_000),
     ] {
         assert_eq!(
             stulp_runtime::callback_timeout_for(app, method, params),

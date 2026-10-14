@@ -324,7 +324,18 @@ pub async fn run<T: Transport, G: Gate, R>(
         c.journal_lost = false;
     }
     let mut deferred = Vec::new();
+    // Wat de pomp onder handen heeft als `work` klaar is: een opgenomen
+    // callback die nog geen antwoord kreeg, of een antwoord dat nog niet
+    // helemaal de deur uit is. `select` dropt de pomp zodra `work` klaar is;
+    // tot 14-10 verdween zo'n frame dan stil, en de host wachtte tot zijn
+    // time-out op een antwoord dat nooit kwam.
+    let held: core::cell::RefCell<Option<Frame>> = core::cell::RefCell::new(None);
+    let unsent: core::cell::RefCell<Option<Value>> = core::cell::RefCell::new(None);
     let (result, interrupted) = {
+        // De Ref op `unsent` leeft bewust over de await: de pomp wordt als
+        // geheel gedropt en geeft hem dan vrij, en de opruiming hieronder
+        // leent pas daarna. Niets anders raakt `unsent` intussen.
+        #[allow(clippy::await_holding_refcell_ref)]
         let pump = async {
             loop {
                 for _ in 0..16 {
@@ -357,10 +368,14 @@ pub async fn run<T: Transport, G: Gate, R>(
                 } else {
                     Some(c.inbox.remove(0))
                 };
+                if let Some(f) = frame.filter(|f| f.kind == Kind::Request) {
+                    *held.borrow_mut() = Some(f);
+                }
                 if c.journal.as_ref().is_some_and(|j| !j.is_empty()) || c.journal_lost {
                     forward(c, &mut to_work).await?;
                 }
-                if let Some(f) = frame.filter(|f| f.kind == Kind::Request) {
+                let taken = held.borrow_mut().take();
+                if let Some(f) = taken {
                     let params = crate::util::field(&f.value, "p");
                     let action = gate
                         .handle(c.state().root(), c.wall_time()?, f.method(), params)
@@ -381,7 +396,14 @@ pub async fn run<T: Transport, G: Gate, R>(
                         Ok(v) => Frame::response(f.id, Ok(v))?,
                         Err(e) => Frame::response(f.id, Err(&message(&e)?))?,
                     };
-                    c.transport.send(&response).await?;
+                    *unsent.borrow_mut() = Some(response);
+                    {
+                        let pending = unsent.borrow();
+                        if let Some(response) = pending.as_ref() {
+                            c.transport.send(response).await?;
+                        }
+                    }
+                    *unsent.borrow_mut() = None;
                     if cancel {
                         to_work.send(In::Cancel).await;
                     }
@@ -403,6 +425,16 @@ pub async fn run<T: Transport, G: Gate, R>(
         }
     };
     c.interrupted_job |= interrupted;
+    // Afmaken wat de gedropte pomp onder handen had: het antwoord alsnog
+    // versturen, een onbeantwoorde callback terug in de rij.
+    let late = unsent.borrow_mut().take();
+    if let Some(response) = late {
+        c.transport.send(&response).await?;
+    }
+    let kept = held.borrow_mut().take();
+    if let Some(f) = kept {
+        json::push(&mut deferred, f, super::MAX_INBOX)?;
+    }
     if journaled {
         c.journal = None;
         c.journal_lost = false;
@@ -461,6 +493,8 @@ mod tests {
         fail_at: Option<u64>,
         dns_ready: Option<u64>,
         dns_delay: u64,
+        /// Gezet zodra een antwoord onderweg is, vóór de eerste Pending.
+        sending: Option<alloc::rc::Rc<core::cell::Cell<bool>>>,
     }
     impl Transport for Wire {
         fn start_resolve(&mut self, _: alloc::string::String) -> Result {
@@ -480,6 +514,11 @@ mod tests {
         async fn send(&mut self, value: &Value) -> Result {
             let f = decode(clone(value)?)?;
             if f.kind == Kind::Response {
+                if let Some(flag) = &self.sending {
+                    // Zoals Port::send bij een vol kanaal: eerst Pending.
+                    flag.set(true);
+                    hop_sync::yield_now().await;
+                }
                 self.replies.push(f.id);
                 return Ok(());
             }
@@ -556,8 +595,27 @@ mod tests {
             ));
         }
         Client::from_snapshot(Wire { now: 0, incoming: VecDeque::new(), callbacks: input,
-            replies: vec![], pings: 0, closes: 0, saved: Value::Null, fail_at: None, dns_ready: None, dns_delay: 7000 },
+            replies: vec![], pings: 0, closes: 0, saved: Value::Null, fail_at: None, dns_ready: None, dns_delay: 7000, sending: None },
             json::parse(br#"{"protocol":1,"appId":"test","manifest":{},"devices":{},"settings":{},"appState":{}}"#).unwrap()).unwrap()
+    }
+    #[test]
+    fn a_reply_in_flight_when_the_job_finishes_is_still_delivered() {
+        let sending = alloc::rc::Rc::new(core::cell::Cell::new(false));
+        let mut c = client(&[(200, 9002, "status")]);
+        c.transport.sending = Some(sending.clone());
+        let mut gate = Front { statuses: 0 };
+        let seen = sending.clone();
+        let result = hostnet::block_on(run(&mut c, &mut gate, async |_worker| {
+            // Klaar op het moment dat de pomp midden in het versturen zit.
+            while !seen.get() {
+                hop_sync::yield_now().await;
+            }
+            Ok(7)
+        }))
+        .unwrap();
+        assert_eq!(result, 7);
+        assert_eq!(gate.statuses, 1);
+        assert_eq!(c.into_transport().replies, [9002]);
     }
     #[test]
     fn progress_heartbeat_snapshot_and_deferred_order_survive_long_job() {

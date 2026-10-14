@@ -42,8 +42,15 @@ pub(crate) struct Call {
 }
 // Only this executor core accesses these queues. Local is required because reply handles are !Send.
 pub(crate) static WORK: Local<Mailbox<Work, 8>> = Local::new(Mailbox::new());
-static SOCKETS: [Local<Mailbox<TcpStream, 1>>; WORKERS] =
+static SOCKETS: [Local<Mailbox<(TcpStream, u64), 1>>; WORKERS] =
     [const { Local::new(Mailbox::new()) }; WORKERS];
+/// Per werker: wacht hij echt in `recv`? De brievenbus alleen zegt dat niet.
+/// Tot 14-10 keek de acceptor alleen of het ene slot leeg was, en dat is het
+/// ook terwijl de werker zijn vorige verbinding nog bedient. Een verbinding
+/// die zo bij de werker van de Manage-eventstroom belandde, bleef liggen tot
+/// die stroom sloot: "1 op de X verzoeken komt nooit terug".
+static IDLE: [Local<core::cell::Cell<bool>>; WORKERS] =
+    [const { Local::new(core::cell::Cell::new(false)) }; WORKERS];
 /// Gaat af zodra een werker vrij is: de acceptor deelt dan de wachtrij uit.
 static FREED: Local<Signal> = Local::new(Signal::new());
 /// Zoveel aangenomen verbindingen mogen wachten op een vrije werker. Tot
@@ -58,13 +65,35 @@ const STALE_NS: u64 = 90_000_000_000;
 /// Vanaf deze wachttijd in de rij komt een verbinding op de console, zodat
 /// een volle pool een getal heeft (tot 03-10 telde [stulp:slow] pas vanaf de werker).
 const QUEUE_SLOW_NS: u64 = 1_000_000_000;
-/// Geeft `stream` aan de eerste vrije werker vanaf `next`, of geeft hem terug.
-fn hand_off(stream: TcpStream, next: &mut usize) -> Option<TcpStream> {
+/// De eerste werker vanaf `next` die in `recv` wacht, round-robin; `next`
+/// schuift voorbij de gekozen werker. Los van de brievenbussen, zodat de
+/// keuze te testen is.
+fn pick(idle: &[bool], next: &mut usize) -> Option<usize> {
+    let n = idle.len();
+    for _ in 0..n {
+        let i = *next;
+        *next = (*next + 1) % n;
+        if idle.get(i).copied().unwrap_or(false) {
+            return Some(i);
+        }
+    }
+    None
+}
+/// Geeft `stream` aan de eerste echt vrije werker vanaf `next`, of geeft hem terug.
+fn hand_off(stream: TcpStream, since: u64, next: &mut usize) -> Option<TcpStream> {
+    let idle: [bool; WORKERS] = core::array::from_fn(|i| IDLE[i].get().get());
     let mut available = Some(stream);
-    for _ in 0..WORKERS {
+    let mut cursor = *next;
+    while let Some(i) = pick(&idle, &mut cursor) {
         let stream = available.take()?;
-        available = SOCKETS[*next].try_send(stream).err().map(|e| e.0);
-        *next = (*next + 1) % WORKERS;
+        match SOCKETS[i].try_send((stream, since)) {
+            Ok(()) => {
+                IDLE[i].get().set(false);
+                *next = cursor;
+                return None;
+            }
+            Err(e) => available = Some(e.0.0),
+        }
     }
     available
 }
@@ -77,10 +106,10 @@ pub fn start_http(
 ) -> stulp_core::Result {
     let listener =
         TcpListener::bind(port).map_err(|_| stulp_core::Error::Invalid("HTTP bind failed"))?;
-    for queue in &SOCKETS {
+    for index in 0..WORKERS {
         let dial = crate::network::Dial::new(app, &env.random());
         EXEC.get()
-            .spawn(worker(queue, dial))
+            .spawn(worker(index, dial))
             .map_err(|_| stulp_core::Error::Memory)?;
     }
     EXEC.get()
@@ -99,7 +128,7 @@ pub fn start_http(
                         );
                         continue;
                     }
-                    if let Some(back) = hand_off(stream, &mut next) {
+                    if let Some(back) = hand_off(stream, since, &mut next) {
                         backlog.push_front((back, since));
                         break;
                     }
@@ -136,10 +165,11 @@ pub fn start_http(
                 };
                 match accepted {
                     Either::Left(Ok(stream)) => {
-                        if let Some(back) = hand_off(stream, &mut next)
+                        let since = applib::clock::now_ns();
+                        if let Some(back) = hand_off(stream, since, &mut next)
                             && backlog.try_reserve(1).is_ok()
                         {
-                            backlog.push_back((back, applib::clock::now_ns()));
+                            backlog.push_back((back, since));
                         }
                     }
                     Either::Left(Err(e)) => {
@@ -607,6 +637,20 @@ pub fn run<S: Storage>(
                             }
                             continue;
                         }
+                        Ok(Some((_, _, asset)))
+                            if !asset.etag.is_empty()
+                                && json::text(&call.request.headers, "if-none-match")
+                                    == asset.etag =>
+                        {
+                            // De browser heeft deze versie al: geen plugin-aanroep,
+                            // geen base64 van honderden kB door drie lagen.
+                            if let Ok(response) =
+                                stulp_controller::app_ui::not_modified(&asset.etag)
+                            {
+                                let _ = call.reply.send(response);
+                            }
+                            continue;
+                        }
                         Ok(Some((app, params, asset))) => {
                             Ok(Some((app, "ui.asset", params, Some(asset))))
                         }
@@ -747,11 +791,23 @@ impl Drop for MediaGuard {
         let _ = WORK.try_send(Work::MediaDone(self.owner));
     }
 }
-async fn worker(queue: &'static Local<Mailbox<TcpStream, 1>>, mut dial: crate::network::Dial) {
+async fn worker(index: usize, mut dial: crate::network::Dial) {
+    let queue = &SOCKETS[index];
     loop {
         // Vrij: de acceptor mag een wachtende verbinding sturen.
+        IDLE[index].get().set(true);
         FREED.get().set();
-        let stream = queue.recv().await;
+        let (stream, since) = queue.recv().await;
+        IDLE[index].get().set(false);
+        // Hoort nul te zijn sinds de IDLE-vlag; staat hij er toch, dan is
+        // dit weer een geparkeerde verbinding en niet een trage werker.
+        let parked = applib::clock::now_ns().saturating_sub(since);
+        if parked >= QUEUE_SLOW_NS {
+            log!(
+                "[stulp:http-queue] parked_ms={} worker={index}",
+                parked / 1_000_000
+            );
+        }
         let mut stream = match crate::upload::Prefix::open(stream).await {
             Ok(s) => s,
             Err(e) => {
@@ -797,6 +853,7 @@ async fn worker(queue: &'static Local<Mailbox<TcpStream, 1>>, mut dial: crate::n
                     ("Content-Type", "content-type"),
                     ("Accept", "accept"),
                     ("MCP-Protocol-Version", "mcp-protocol-version"),
+                    ("If-None-Match", "if-none-match"),
                 ] {
                     json::set(
                         &mut protocol_headers,
@@ -886,3 +943,23 @@ async fn worker(queue: &'static Local<Mailbox<TcpStream, 1>>, mut dial: crate::n
 }
 /// Vanaf deze duur is een aanvraag of een eigenaarsstap een consoleregel waard.
 const SLOW_MS: u64 = 200;
+
+#[cfg(test)]
+mod tests {
+    use super::pick;
+    #[test]
+    fn pick_geeft_alleen_aan_een_werker_die_echt_wacht() {
+        // Werker 1 bedient een eventstroom (niet idle), 0 en 2 wachten.
+        let idle = [true, false, true, false];
+        let mut next = 1;
+        assert_eq!(pick(&idle, &mut next), Some(2));
+        assert_eq!(next, 3);
+        assert_eq!(pick(&idle, &mut next), Some(0));
+        assert_eq!(next, 1);
+        // Niemand vrij: niets kiezen, de verbinding gaat naar de wachtrij.
+        let busy = [false; 4];
+        let mut next = 0;
+        assert_eq!(pick(&busy, &mut next), None);
+        assert_eq!(pick(&[], &mut 0), None);
+    }
+}

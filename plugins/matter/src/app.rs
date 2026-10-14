@@ -531,6 +531,20 @@ impl jobs::pool::Key for Nodes {
     fn barrier(&self, method: &str) -> bool {
         matches!(method, "app.init" | "device.settings" | "device.delete")
     }
+    /// Koppelen, assets en de settings-pagina raken geen node en wachten
+    /// niet op een lifecycle-stap; de Ui-gate beantwoordt ze direct.
+    fn passes_barrier(&self, method: &str) -> bool {
+        matches!(
+            method,
+            "pair.list"
+                | "pair.start"
+                | "pair.emit"
+                | "pair.close"
+                | "ui.asset"
+                | "api.invoke"
+                | "registrations"
+        )
+    }
 }
 /// Een commandowerker bezit zijn nodes ([`jobs::pool::owner`]): hun abonnement,
 /// onderhoud en commando's, over één sessie per apparaat.

@@ -182,6 +182,9 @@ fn vid_pid(subject: &[u8]) -> Result<(u16, u16)> {
     let mut name = Reader(only(subject, 0x30)?.value);
     let mut vendor = None;
     let mut product = None;
+    let mut legacy_vendor = None;
+    let mut legacy_product = None;
+    let mut common: Option<&[u8]> = None;
     let mut count = 0;
     while !name.0.is_empty() {
         let mut rdn = Reader(name.take(0x31)?.value);
@@ -194,6 +197,13 @@ fn vid_pid(subject: &[u8]) -> Result<(u16, u16)> {
             let oid = a.take(6)?.value;
             let text = a.next()?;
             a.end()?;
+            if oid == COMMON_NAME && matches!(text.tag, 12 | 19) {
+                common = Some(text.value);
+                let (v, p) = legacy(text.value);
+                legacy_vendor = legacy_vendor.or(v);
+                legacy_product = legacy_product.or(p);
+                continue;
+            }
             if oid.len() != 10 || &oid[..9] != MATTER || !matches!(oid[9], 1 | 2) {
                 continue;
             }
@@ -215,11 +225,47 @@ fn vid_pid(subject: &[u8]) -> Result<(u16, u16)> {
             *target = Some(value);
         }
     }
-    // Een DAC voor een hele productlijn noemt geen product-id; dat mag.
-    Ok((
-        vendor.ok_or(Error::Invalid("DAC vendor ID missing"))?,
-        product.unwrap_or(0),
-    ))
+    // De Matter-OID's gaan voor; zonder die geldt de terugvalvorm in de
+    // commonName (spec 6.2.2.2). Een DAC voor een hele productlijn noemt geen
+    // product-id; dat mag.
+    let Some(vendor) = vendor.or(legacy_vendor) else {
+        // Wat er wél stond, zodat een volgende afwijkende vorm te zien is.
+        let mut text = alloc::string::String::new();
+        if text.try_reserve(128).is_err() {
+            return Err(Error::Invalid("DAC vendor ID missing"));
+        }
+        text.push_str("DAC vendor ID missing (CN: ");
+        for c in common.unwrap_or(b"-").iter().take(64) {
+            text.push(if c.is_ascii_graphic() || *c == b' ' {
+                char::from(*c)
+            } else {
+                '?'
+            });
+        }
+        text.push(')');
+        return Err(Error::Remote(text));
+    };
+    Ok((vendor, product.or(legacy_product).unwrap_or(0)))
+}
+/// 2.5.4.3, commonName.
+const COMMON_NAME: &[u8] = &[0x55, 0x04, 0x03];
+/// De terugvalcodering van Matter (spec 6.2.2.2): `Mvid:` en `Mpid:` met
+/// precies vier hoofdletter-hexcijfers ergens in de commonName, zoals
+/// "Hue Bridge Mvid:100B Mpid:0002". Sommige fabrikanten, waaronder Signify
+/// voor de Hue Bridge (17-10), gebruiken alleen deze vorm.
+fn legacy(cn: &[u8]) -> (Option<u16>, Option<u16>) {
+    let find = |tag: &[u8]| -> Option<u16> {
+        let at = cn.windows(tag.len()).position(|w| w == tag)?;
+        let digits = cn.get(at + tag.len()..at + tag.len() + 4)?;
+        if !digits
+            .iter()
+            .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(b))
+        {
+            return None;
+        }
+        u16::from_str_radix(core::str::from_utf8(digits).ok()?, 16).ok()
+    };
+    (find(b"Mvid:"), find(b"Mpid:"))
 }
 /// Het geverifieerde DAC, gebonden aan onboarding vendor/product wanneer opgegeven.
 pub struct Verified {
@@ -380,6 +426,38 @@ fn signature_der(bits: &[u8]) -> Result<Signature> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Een subject met één RDN: een attribuut met `oid` en een UTF8String.
+    fn subject(attributes: &[(&[u8], &str)]) -> alloc::vec::Vec<u8> {
+        fn tlv(tag: u8, body: &[u8]) -> alloc::vec::Vec<u8> {
+            let mut out = alloc::vec![tag, body.len() as u8];
+            out.extend_from_slice(body);
+            out
+        }
+        let mut rdns = alloc::vec::Vec::new();
+        for (oid, text) in attributes {
+            let mut attr = tlv(6, oid);
+            attr.extend(tlv(12, text.as_bytes()));
+            rdns.extend(tlv(0x31, &tlv(0x30, &attr)));
+        }
+        tlv(0x30, &rdns)
+    }
+    #[test]
+    fn vendor_and_product_come_from_the_common_name_when_the_oids_are_missing() -> Result {
+        let cn = subject(&[(COMMON_NAME, "Hue Bridge Mvid:100B Mpid:0002")]);
+        assert_eq!(vid_pid(&cn)?, (0x100b, 0x0002));
+        // Alleen een vendor in de commonName is genoeg.
+        let cn = subject(&[(COMMON_NAME, "Signify DAC Mvid:100B")]);
+        assert_eq!(vid_pid(&cn)?, (0x100b, 0));
+        // Kleine letters of te weinig cijfers tellen niet mee.
+        assert!(vid_pid(&subject(&[(COMMON_NAME, "x Mvid:100b")])).is_err());
+        assert!(vid_pid(&subject(&[(COMMON_NAME, "x Mvid:10B")])).is_err());
+        // De Matter-OID gaat voor op de commonName.
+        let mut vid = MATTER.to_vec();
+        vid.push(1);
+        let both = subject(&[(COMMON_NAME, "Mvid:FFF2"), (&vid, "FFF1")]);
+        assert_eq!(vid_pid(&both)?.0, 0xfff1);
+        Ok(())
+    }
     #[test]
     fn original_go_attestation_and_csr_bind_nonce_session_and_device() -> Result {
         let pai = include_bytes!("../tests/fixtures/pai.der");

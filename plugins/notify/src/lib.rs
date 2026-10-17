@@ -126,7 +126,10 @@ impl Notify {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .unwrap_or("mailto:stulp@localhost"),
+                // Zonder ingesteld adres gaat er géén sub mee: Apple's pushdienst
+                // weigert een JWT met "mailto:stulp@localhost" als BadJwtToken
+                // (14-10, gemeten), terwijl een JWT zonder sub gewoon aankomt.
+                .unwrap_or(""),
         )?;
         let now = c.wall_time()?;
         let authorization =

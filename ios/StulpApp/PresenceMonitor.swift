@@ -16,7 +16,7 @@ final class PresenceMonitor: NSObject, ObservableObject, CLLocationManagerDelega
   @Published private(set) var lastEvent = ""
 
   private let manager = CLLocationManager()
-  private let logger = Logger(subsystem: "com.xinix00.stulp", category: "Presence")
+  private let logger = Logger(subsystem: "software.haas.stulp", category: "Presence")
   private var monitor: CLMonitor?
   private var listening: Task<Void, Never>?
   private var locating: CheckedContinuation<CLLocation, any Error>?

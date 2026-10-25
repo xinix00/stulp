@@ -8,7 +8,7 @@ het daarna rechtstreeks aan Stulps eigen fabric toevoegen.
 
 1. Open `Stulp.xcodeproj` in Xcode.
 2. Kies voor **Stulp** en **StulpMatterSetup** hetzelfde development team.
-3. Vervang zo nodig `com.xinix00.stulp`, `group.com.xinix00.stulp` en de gedeelde
+3. Vervang zo nodig `software.haas.stulp`, `group.software.haas.stulp` en de gedeelde
    keychain-groep in `project.yml` door identifiers van dat team en draai daarna
    opnieuw `xcodegen generate`. De Info.plists en entitlements worden daaruit
    gegenereerd.
@@ -53,6 +53,19 @@ het profiel registreert, archiveert met development-signing, exporteert
 `build/Stulp.ipa` volgens `ExportOptions.plist` en installeert met `devicectl`.
 Xcode registreert bij de eerste keer zelf de App IDs en de app group. Een development-build blijft zeven dagen geldig op een gratis account
 en een jaar op een betaald account; daarna gewoon opnieuw draaien.
+
+## TestFlight
+
+```sh
+cd ios
+./testflight.sh export   # ondertekenen voor App Store Connect, zonder te uploaden
+./testflight.sh          # archiveren en uploaden
+```
+
+Net als de andere haas.software-apps: automatische signing met het Xcode-account
+van team `QVY3KR44QS`, geen App Store Connect-sleutel, en het buildnummer is de
+tijd (`YYYYMMDD.HHMM`) voor app en extensie tegelijk. Het app-record met bundle-id
+`software.haas.stulp` moet in App Store Connect bestaan.
 
 ## Bouwen en testen
 

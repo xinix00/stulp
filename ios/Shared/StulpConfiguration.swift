@@ -61,7 +61,7 @@ enum StulpConnectionError: LocalizedError, Equatable {
 }
 
 enum SharedStulpConfiguration {
-  private static let service = "com.xinix00.stulp.connection"
+  private static let service = "software.haas.stulp.connection"
   private static let account = "primary"
 
   static func load() throws -> StulpConnection? {

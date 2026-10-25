@@ -1,6 +1,6 @@
 name: Stulp
 options:
-  bundleIdPrefix: com.xinix00
+  bundleIdPrefix: software.haas
   deploymentTarget:
     iOS: "17.0"
   xcodeVersion: "26.0"
@@ -26,6 +26,8 @@ targets:
       path: StulpApp/Info.plist
       properties:
         CFBundleDevelopmentRegion: nl
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Stulp
         LSRequiresIPhoneOS: true
         NSAppTransportSecurity:
@@ -35,10 +37,11 @@ targets:
           - _matterc._udp
           - _matterd._udp
         NSLocalNetworkUsageDescription: Stulp gebruikt je lokale netwerk om het nieuwe Matter-apparaat rechtstreeks aan je eigen controller toe te voegen.
+        ITSAppUsesNonExemptEncryption: false
         NSLocationWhenInUseUsageDescription: Stulp gebruikt je locatie om je thuis in te stellen.
         NSLocationAlwaysAndWhenInUseUsageDescription: Stulp meldt aan je eigen controller wanneer je thuiskomt of weggaat, ook als de app niet open is. Je locatie zelf gaat nergens heen.
-        StulpAppGroup: group.com.xinix00.stulp
-        StulpKeychainAccessGroup: $(AppIdentifierPrefix)com.xinix00.stulp.shared
+        StulpAppGroup: group.software.haas.stulp
+        StulpKeychainAccessGroup: $(AppIdentifierPrefix)software.haas.stulp.shared
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UILaunchScreen: {}
@@ -51,12 +54,12 @@ targets:
       path: StulpApp/Stulp.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.xinix00.stulp
+          - group.software.haas.stulp
         keychain-access-groups:
-          - $(AppIdentifierPrefix)com.xinix00.stulp.shared
+          - $(AppIdentifierPrefix)software.haas.stulp.shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.xinix00.stulp
+        PRODUCT_BUNDLE_IDENTIFIER: software.haas.stulp
         PRODUCT_NAME: Stulp
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -79,6 +82,8 @@ targets:
       path: StulpMatterSetup/Info.plist
       properties:
         CFBundleDevelopmentRegion: nl
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: Stulp Matter Setup
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -90,19 +95,19 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.matter.support.extension.device-setup
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).MatterRequestHandler
-        StulpAppGroup: group.com.xinix00.stulp
-        StulpKeychainAccessGroup: $(AppIdentifierPrefix)com.xinix00.stulp.shared
+        StulpAppGroup: group.software.haas.stulp
+        StulpKeychainAccessGroup: $(AppIdentifierPrefix)software.haas.stulp.shared
     entitlements:
       path: StulpMatterSetup/StulpMatterSetup.entitlements
       properties:
         com.apple.developer.matter.allow-setup-payload: true
         com.apple.security.application-groups:
-          - group.com.xinix00.stulp
+          - group.software.haas.stulp
         keychain-access-groups:
-          - $(AppIdentifierPrefix)com.xinix00.stulp.shared
+          - $(AppIdentifierPrefix)software.haas.stulp.shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.xinix00.stulp.MatterSetup
+        PRODUCT_BUNDLE_IDENTIFIER: software.haas.stulp.MatterSetup
         PRODUCT_NAME: StulpMatterSetup
         CODE_SIGN_STYLE: Automatic
         SKIP_INSTALL: YES
@@ -120,7 +125,7 @@ targets:
       - path: StulpTests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.xinix00.stulp.tests
+        PRODUCT_BUNDLE_IDENTIFIER: software.haas.stulp.tests
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - sdk: Security.framework

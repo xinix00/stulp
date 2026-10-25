@@ -17,9 +17,11 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -40,9 +42,9 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Stulp gebruikt je locatie om je thuis in te stellen.</string>
 	<key>StulpAppGroup</key>
-	<string>group.com.xinix00.stulp</string>
+	<string>group.software.haas.stulp</string>
 	<key>StulpKeychainAccessGroup</key>
-	<string>$(AppIdentifierPrefix)com.xinix00.stulp.shared</string>
+	<string>$(AppIdentifierPrefix)software.haas.stulp.shared</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

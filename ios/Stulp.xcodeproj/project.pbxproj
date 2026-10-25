@@ -360,7 +360,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp.MatterSetup;
+				PRODUCT_BUNDLE_IDENTIFIER = software.haas.stulp.MatterSetup;
 				PRODUCT_NAME = StulpMatterSetup;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -378,7 +378,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = software.haas.stulp.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -397,7 +397,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp;
+				PRODUCT_BUNDLE_IDENTIFIER = software.haas.stulp;
 				PRODUCT_NAME = Stulp;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -476,7 +476,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp.MatterSetup;
+				PRODUCT_BUNDLE_IDENTIFIER = software.haas.stulp.MatterSetup;
 				PRODUCT_NAME = StulpMatterSetup;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -497,7 +497,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp;
+				PRODUCT_BUNDLE_IDENTIFIER = software.haas.stulp;
 				PRODUCT_NAME = Stulp;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -581,7 +581,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.xinix00.stulp.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = software.haas.stulp.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

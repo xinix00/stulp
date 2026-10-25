@@ -2,7 +2,7 @@ import MatterSupport
 import os
 
 final class MatterRequestHandler: MatterAddDeviceExtensionRequestHandler {
-  private let logger = Logger(subsystem: "com.xinix00.stulp", category: "MatterSetup")
+  private let logger = Logger(subsystem: "software.haas.stulp", category: "MatterSetup")
 
   /// Dezelfde regels gaan naar de console van de node (POST /api/stulp/log),
   /// zodat een koppeling zonder sudo-logarchief van de telefoon te volgen is.

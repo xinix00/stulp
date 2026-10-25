@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
@@ -41,8 +41,8 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Stulp gebruikt je lokale netwerk om het nieuwe Matter-apparaat rechtstreeks aan je eigen controller toe te voegen.</string>
 	<key>StulpAppGroup</key>
-	<string>group.com.xinix00.stulp</string>
+	<string>group.software.haas.stulp</string>
 	<key>StulpKeychainAccessGroup</key>
-	<string>$(AppIdentifierPrefix)com.xinix00.stulp.shared</string>
+	<string>$(AppIdentifierPrefix)software.haas.stulp.shared</string>
 </dict>
 </plist>

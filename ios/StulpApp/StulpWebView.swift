@@ -8,6 +8,8 @@ import WebKit
 struct StulpWebView: UIViewRepresentable {
   let connection: StulpConnection
   @Binding var reloadToken: Int
+  /// Een apparaat om te openen, bijvoorbeeld de camera van een melding.
+  @Binding var openDevice: String?
 
   func makeCoordinator() -> Coordinator { Coordinator(host: connection.baseURL.host) }
 
@@ -40,6 +42,13 @@ struct StulpWebView: UIViewRepresentable {
     if context.coordinator.reloadToken != reloadToken {
       context.coordinator.reloadToken = reloadToken
       view.load(URLRequest(url: connection.entryURL))
+    }
+    if let id = openDevice {
+      // Manage opent `#device=<id>` zelf, ook als de pagina al open staat.
+      let literal = (try? JSONSerialization.data(withJSONObject: [id]))
+        .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+      view.evaluateJavaScript("location.hash = 'device=' + encodeURIComponent(\(literal)[0])")
+      DispatchQueue.main.async { openDevice = nil }
     }
   }
 

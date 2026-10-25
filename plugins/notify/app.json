@@ -75,6 +75,17 @@
             "placeholder": { "en": "Someone is at the door", "nl": "Iemand belt aan" }
           },
           {
+            "name": "level",
+            "type": "dropdown",
+            "title": { "en": "Urgency", "nl": "Hoe dringend" },
+            "optional": true,
+            "values": [
+              { "id": "active", "label": { "en": "Normal", "nl": "Gewoon" } },
+              { "id": "time-sensitive", "label": { "en": "Urgent, through Focus", "nl": "Dringend, door Focus heen" } },
+              { "id": "critical", "label": { "en": "Critical, also when silenced", "nl": "Kritiek, ook als hij op stil staat" } }
+            ]
+          },
+          {
             "name": "image",
             "type": "autocomplete",
             "title": { "en": "Picture", "nl": "Foto" },
@@ -87,6 +98,7 @@
   },
   "api": {
     "test": { "method": "POST", "path": "/test" },
-    "report": { "method": "POST", "path": "/report" }
+    "report": { "method": "POST", "path": "/report" },
+    "register_push": { "method": "POST", "path": "/register_push" }
   }
 }

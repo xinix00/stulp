@@ -14,6 +14,8 @@ use stulp_webpush::{self as push, Subscription};
 #[derive(Default)]
 pub struct Notify {
     private: Option<[u8; 32]>,
+    /// Provider-token voor APNs en het moment van uitgifte (wandklok, seconden).
+    apns: Option<(String, u64)>,
     phones: Vec<String>,
     pairs: Vec<String>,
 }
@@ -78,6 +80,88 @@ impl Notify {
         .await?;
         Ok(Value::Null)
     }
+    /// Het provider-token voor APNs, hergebruikt tot het half verlopen is.
+    fn apns_token<T: Transport>(&mut self, c: &mut Client<T>) -> Result<String> {
+        let now = c.wall_time()?;
+        if let Some((token, issued)) = &self.apns
+            && now.saturating_sub(*issued) < push::apns::TOKEN_SECONDS
+        {
+            return Ok(json::copy(token)?);
+        }
+        let setting = |key: &str| {
+            c.state()
+                .setting(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+        };
+        let pem = setting("apnsKey");
+        let key_id = setting("apnsKeyId");
+        let team_id = match setting("apnsTeamId") {
+            "" => "QVY3KR44QS",
+            team => team,
+        };
+        if pem.is_empty() || key_id.is_empty() {
+            return Err(Error::Invalid(
+                "Meldingen via de app: stel apnsKey en apnsKeyId in bij de Meldingen-app.",
+            ));
+        }
+        let key = push::apns::key_from_p8(pem)?;
+        let token = push::apns::token(&key, key_id, team_id, now)?;
+        self.apns = Some((json::copy(&token)?, now));
+        Ok(token)
+    }
+    async fn send_apns<T: Transport>(
+        &mut self,
+        c: &mut Client<T>,
+        id: &str,
+        (device_token, environment): (&str, &str),
+        (title, body, level): (&str, &str, push::apns::Level),
+        extras: push::apns::Extras<'_>,
+        result: Value,
+    ) -> Result<Value> {
+        let payload = push::apns::payload(title, body, level, &extras)?;
+        let provider = self.apns_token(c)?;
+        let req = push::apns::request(device_token, environment, &provider, level, payload)?;
+        let response = c.http(req).await?;
+        if (200..=299).contains(&response.status) {
+            c.available(id, true).await?;
+            return Ok(result);
+        }
+        let reason = push::apns::reason(&response.body)?;
+        use core::fmt::Write as _;
+        let mut line = alloc::string::String::new();
+        if line.try_reserve(160).is_ok() {
+            let _ = write!(
+                line,
+                "NOTIFY_APNS status={} reason={reason}",
+                response.status
+            );
+            c.log("warn", &line)?;
+        }
+        match reason.as_str() {
+            // Een verlopen of geweigerd provider-token: de volgende keer vers.
+            "ExpiredProviderToken" | "InvalidProviderToken" => self.apns = None,
+            // De app is verwijderd of het token hoort bij de andere omgeving.
+            "Unregistered" | "BadDeviceToken" | "DeviceTokenNotForTopic" => {
+                c.unavailable(
+                    id,
+                    "Open de Stulp-app op dit toestel opnieuw voor meldingen.",
+                )
+                .await?;
+            }
+            _ => {}
+        }
+        let mut text = alloc::string::String::new();
+        text.try_reserve(120)
+            .map_err(|_| stulp_core::Error::Memory)?;
+        let _ = write!(text, "Apple weigerde de melding ({}", response.status);
+        if !reason.is_empty() {
+            let _ = write!(text, ", {reason}");
+        }
+        text.push_str(").");
+        Err(Error::Remote(text))
+    }
     async fn send<T: Transport>(&mut self, c: &mut Client<T>, args: &Value) -> Result<Value> {
         let id = device_arg(args);
         if !self.phones.iter().any(|s| s == id) {
@@ -87,12 +171,20 @@ impl Notify {
         if json::get(field(device, "state"), "onoff").is_some_and(|v| v.as_bool() != Some(true)) {
             return Err(Error::Invalid("Meldingen staan uit voor dit toestel."));
         }
-        if json::text(field(device, "data"), "kind") == "app" {
+        let store = field(device, "store");
+        let apns_token = json::copy(json::text(store, "apns.token"))?;
+        let apns_environment = json::copy(json::text(store, "apns.environment"))?;
+        let app = json::text(field(device, "data"), "kind") == "app";
+        if app && apns_token.is_empty() {
             return Err(Error::Invalid(
-                "Dit toestel is via de Stulp-app gekoppeld; meldingen via de app komen nog.",
+                "Open de Stulp-app op dit toestel en sta meldingen toe.",
             ));
         }
-        let subscription = Subscription::read(field(device, "data"))?;
+        let subscription = if apns_token.is_empty() {
+            Some(Subscription::read(field(device, "data"))?)
+        } else {
+            None
+        };
         let body = push::text(field(args, "message"))?;
         let body = body.trim();
         if body.is_empty() {
@@ -126,6 +218,26 @@ impl Notify {
                 )?,
             }
         }
+        if subscription.is_none() {
+            let level = push::apns::Level::parse(push::choice(field(args, "level")));
+            let camera = (!source.is_empty()).then_some(source);
+            return self
+                .send_apns(
+                    c,
+                    id,
+                    (&apns_token, &apns_environment),
+                    (title, body, level),
+                    push::apns::Extras {
+                        image: image.as_deref(),
+                        camera,
+                    },
+                    result,
+                )
+                .await;
+        }
+        let Some(subscription) = subscription else {
+            return Err(Error::Invalid("Dit toestel heeft geen pushabonnement."));
+        };
         let message = push::message(title, body, image.as_deref())?;
         let subject = json::copy(
             c.state()
@@ -355,6 +467,38 @@ impl Plugin for Notify {
                     return Err(Error::Invalid("Geen waarden om te melden."));
                 }
                 c.values(id, patch).await?;
+                c.available(id, true).await?;
+                Ok(Value::Null)
+            }
+            // De app meldt zijn APNs-token na toestemming; het hoort bij dit
+            // toestel en is plugin-privé, dus in store, niet in data.
+            "api.invoke" if json::text(p, "handler") == "register_push" => {
+                let body = field(p, "body");
+                let id = json::text(body, "deviceId");
+                if !self.phones.iter().any(|s| s == id) {
+                    return Err(Error::Invalid("Kies in de app eerst dit toestel."));
+                }
+                let token = json::text(body, "token");
+                let environment = json::text(body, "environment");
+                if token.is_empty()
+                    || token.len() > 200
+                    || !token.bytes().all(|b| b.is_ascii_hexdigit())
+                {
+                    return Err(Error::Invalid("Ongeldig push-token."));
+                }
+                if !matches!(environment, "development" | "production") {
+                    return Err(Error::Invalid(
+                        "Omgeving moet development of production zijn.",
+                    ));
+                }
+                c.store(
+                    id,
+                    json::fields(&[
+                        ("apns.token", json::string(token)?),
+                        ("apns.environment", json::string(environment)?),
+                    ])?,
+                )
+                .await?;
                 c.available(id, true).await?;
                 Ok(Value::Null)
             }

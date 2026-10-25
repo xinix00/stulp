@@ -27,6 +27,13 @@ const DEVICE: Texts = Texts {
 };
 
 pub(super) fn execute(request: HttpRequest) -> Result<HttpResponse> {
+    // Als HTTP/1.1 versturen zou bij een HTTP/2-dienst (APNs) iets onleesbaars
+    // opleveren; liever een duidelijke fout tot de HTTP/2-client er is.
+    if request.http2 {
+        return Err(Error::Invalid(
+            "HTTP/2 is op deze host nog niet beschikbaar",
+        ));
+    }
     let timeout = Duration::from_millis(request.timeout_ms);
     // Eén budget voor verbinden, TLS, kop, body en elke redirect; de
     // termijn geldt ook per fase en als stilte per lees of schrijf.

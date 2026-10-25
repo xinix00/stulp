@@ -5,6 +5,7 @@ import SwiftUI
 /// Manage met al je apps, Instellingen is wat deze telefoon voor Stulp doet.
 struct ContentView: View {
   @ObservedObject var model: StulpAppModel
+  @ObservedObject private var push = PushCenter.shared
   @State private var tab = ContentView.initialTab
 
   var body: some View {
@@ -16,6 +17,9 @@ struct ContentView: View {
         SettingsView(model: model, connection: connection)
           .tabItem { Label("Instellingen", systemImage: "gearshape.fill") }
           .tag("settings")
+      }
+      .onChange(of: push.openDevice) { _, id in
+        if id != nil { tab = "home" }
       }
     } else {
       OnboardingView(model: model)
@@ -38,6 +42,7 @@ extension ContentView {
 
 private struct HomeView: View {
   @ObservedObject var model: StulpAppModel
+  @ObservedObject private var push = PushCenter.shared
   let connection: StulpConnection
   @State private var adding = false
   @State private var reloadToken = 0
@@ -46,7 +51,7 @@ private struct HomeView: View {
     // Manage heeft zijn eigen kop; daar komt geen iOS-balk boven. De pagina
     // loopt door tot onder de statusbalk in Manage's eigen achtergrond, en
     // Matter toevoegen is één zwevende knop boven de tabbalk.
-    StulpWebView(connection: connection, reloadToken: $reloadToken)
+    StulpWebView(connection: connection, reloadToken: $reloadToken, openDevice: $push.openDevice)
       .background(Self.manageBackground.ignoresSafeArea())
       .overlay(alignment: .bottomTrailing) {
         Button {
@@ -182,6 +187,7 @@ private struct MatterProgressView: View {
 private struct SettingsView: View {
   @ObservedObject var model: StulpAppModel
   @ObservedObject private var presence = PresenceMonitor.shared
+  @ObservedObject private var push = PushCenter.shared
   let connection: StulpConnection
   @State private var newName = ""
   @State private var confirmDisconnect = false
@@ -276,12 +282,35 @@ private struct SettingsView: View {
         }
 
         Section {
-          Label("Via de app: binnenkort", systemImage: "bell.badge")
+          switch push.status {
+          case .authorized, .provisional, .ephemeral:
+            Label(
+              push.registered ? "Meldingen: aan" : "Meldingen: toegestaan, nog niet bij Stulp",
+              systemImage: push.registered ? "checkmark.circle.fill" : "bell.badge")
+              .foregroundStyle(push.registered ? .green : .orange)
+          case .denied:
+            Button {
+              if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+            } label: {
+              Label("Zet meldingen aan in Instellingen", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            }
+          default:
+            Button {
+              Task { await push.request() }
+            } label: {
+              Label("Sta meldingen toe", systemImage: "bell.badge")
+            }
+            .disabled(model.presence == nil)
+          }
+          if !push.lastError.isEmpty {
+            Text(push.lastError).font(.footnote).foregroundStyle(.secondary)
+          }
         } header: {
           Text("Meldingen")
         } footer: {
           Text(
-            "Meldingen, ook dringende en met camerabeeld, komen straks rechtstreeks in deze app. Tot dan komen ze via Stulp op je beginscherm (Safari, Deel, Zet op beginscherm)."
+            "Stulp stuurt meldingen rechtstreeks naar deze app: gewoon, dringend (door Focus heen) of kritiek, met camerabeeld. Tik op een melding met camerabeeld en Thuis opent die camera. Kies eerst welk toestel dit is."
           )
         }
 

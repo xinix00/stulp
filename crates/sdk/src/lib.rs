@@ -73,6 +73,9 @@ pub struct HttpRequest {
     pub limit: usize,
     /// Totale tijd voor verbinden en antwoord.
     pub timeout_ms: u64,
+    /// Via HTTP/2 (ALPN "h2"), één verzoek per verbinding. Alleen voor diensten
+    /// die niets anders spreken, zoals Apple's pushdienst APNs.
+    pub http2: bool,
 }
 impl HttpRequest {
     /// JSON-API-aanroep, begrensd op 1 MiB en twintig seconden.
@@ -85,6 +88,7 @@ impl HttpRequest {
             body: Vec::new(),
             limit: 1 << 20,
             timeout_ms: 20_000,
+            http2: false,
         })
     }
 }

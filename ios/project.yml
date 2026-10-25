@@ -53,6 +53,9 @@ targets:
     entitlements:
       path: StulpApp/Stulp.entitlements
       properties:
+        # Xcode zet dit bij een App Store-export zelf op production.
+        aps-environment: development
+        com.apple.developer.usernotifications.time-sensitive: true
         com.apple.security.application-groups:
           - group.software.haas.stulp
         keychain-access-groups:
@@ -67,6 +70,8 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
     dependencies:
       - target: StulpMatterSetup
+        embed: true
+      - target: StulpNotification
         embed: true
       - sdk: Matter.framework
       - sdk: MatterSupport.framework
@@ -117,6 +122,31 @@ targets:
       - sdk: MatterSupport.framework
       - sdk: Security.framework
 
+  StulpNotification:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: StulpNotification
+    info:
+      path: StulpNotification/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: nl
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDisplayName: Stulp-meldingen
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: software.haas.stulp.Notification
+        PRODUCT_NAME: StulpNotification
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+    dependencies:
+      - sdk: UserNotifications.framework
+
   StulpTests:
     type: bundle.unit-test
     platform: iOS
@@ -136,6 +166,7 @@ schemes:
       targets:
         Stulp: all
         StulpMatterSetup: all
+        StulpNotification: all
     test:
       targets:
         - StulpTests

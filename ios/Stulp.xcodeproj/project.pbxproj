@@ -15,6 +15,7 @@
 		5DBFB0200CE67CA44F780BBC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83E056019C24853575DE8911 /* Security.framework */; };
 		61C228DE03D6DF9456A35C08 /* StulpConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5653D6639F5060568726EA78 /* StulpConfiguration.swift */; };
 		64EC54540D685993FC8D2E8E /* StulpClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02AE1924BF1922B64C136F31 /* StulpClientTests.swift */; };
+		6D55701FC4D4A3E396562715 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DF1A080F07B049F6CB746F /* NotificationService.swift */; };
 		6DA74AA7B78831F0E642D600 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83E056019C24853575DE8911 /* Security.framework */; };
 		773C155F158E7A74C3DDB075 /* Matter.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C69155DB6161D4DBD0B07E0 /* Matter.framework */; };
 		8A9AAD015CD822B40BDF7E57 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 72DBABE41AB6B60128EA5AA2 /* Assets.xcassets */; };
@@ -23,17 +24,27 @@
 		B6D7EE7685B67B746B6F8084 /* StulpAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77BCD2C148E4A5DDFC4AA2E5 /* StulpAppModel.swift */; };
 		B8123A9B0CABD247AD8D4897 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83E056019C24853575DE8911 /* Security.framework */; };
 		BB82AECA77B0043575B07673 /* StulpMatterSetup.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BC9CC2922D3B470D44F7760A /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 054394D1803DAD4AC358A3C1 /* UserNotifications.framework */; };
 		CE82EC490A9F09B6A73DAF70 /* StulpConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5653D6639F5060568726EA78 /* StulpConfiguration.swift */; };
+		D02AC225BF0A15383AD30552 /* StulpNotification.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1AA2270B35DBCB291CB345AB /* StulpNotification.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D323A5C445B0C826DC639D9B /* StulpApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B99E566786425961656933 /* StulpApp.swift */; };
 		D7AE09664A2A1137F0E01CBB /* MatterSupport.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A27C742A34A8A838013515CC /* MatterSupport.framework */; };
 		D919430837642FF91D96EDC6 /* StulpConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5653D6639F5060568726EA78 /* StulpConfiguration.swift */; };
 		E0931212142A9253026FD652 /* Matter.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C69155DB6161D4DBD0B07E0 /* Matter.framework */; };
 		E0A178945BEC4DE4CB41FA0E /* StulpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750F5C6B88DDEBFD2E42AE2E /* StulpClient.swift */; };
+		E37800CB07DDF35EEEEA6782 /* PushCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EDF40B2B784F398727894EC /* PushCenter.swift */; };
 		F7CC2EABEB45891023698430 /* StulpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750F5C6B88DDEBFD2E42AE2E /* StulpClient.swift */; };
 		FD82EBAE98910D086C746E0B /* PresenceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C82F65C68D19A10BE806961B /* PresenceMonitor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		CB68C56D6794E8AF329327C5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F7DD2946D52E99515703E648 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8237565899D6A31CB7159656;
+			remoteInfo = StulpNotification;
+		};
 		F9A3A00824E043EA101CC61E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = F7DD2946D52E99515703E648 /* Project object */;
@@ -51,6 +62,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				BB82AECA77B0043575B07673 /* StulpMatterSetup.appex in Embed Foundation Extensions */,
+				D02AC225BF0A15383AD30552 /* StulpNotification.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -60,12 +72,16 @@
 /* Begin PBXFileReference section */
 		02AE1924BF1922B64C136F31 /* StulpClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpClientTests.swift; sourceTree = "<group>"; };
 		0332A77976DC10B879522D4C /* MatterRequestHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatterRequestHandler.swift; sourceTree = "<group>"; };
+		054394D1803DAD4AC358A3C1 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
+		1AA2270B35DBCB291CB345AB /* StulpNotification.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = StulpNotification.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		3120B54BF9679107EEC67959 /* Stulp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Stulp.entitlements; sourceTree = "<group>"; };
+		53DF1A080F07B049F6CB746F /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		5653D6639F5060568726EA78 /* StulpConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpConfiguration.swift; sourceTree = "<group>"; };
 		71FA3C0D7305776B8060CEF9 /* Stulp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Stulp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		72DBABE41AB6B60128EA5AA2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		750F5C6B88DDEBFD2E42AE2E /* StulpClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpClient.swift; sourceTree = "<group>"; };
 		77BCD2C148E4A5DDFC4AA2E5 /* StulpAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpAppModel.swift; sourceTree = "<group>"; };
+		7EDF40B2B784F398727894EC /* PushCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushCenter.swift; sourceTree = "<group>"; };
 		829363CDBEC4ABFDA0251E79 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		83E056019C24853575DE8911 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		8C69155DB6161D4DBD0B07E0 /* Matter.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Matter.framework; path = System/Library/Frameworks/Matter.framework; sourceTree = SDKROOT; };
@@ -76,6 +92,7 @@
 		B2B99E566786425961656933 /* StulpApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpApp.swift; sourceTree = "<group>"; };
 		B88133CBD0BE021EDC5C37E5 /* StulpIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpIntents.swift; sourceTree = "<group>"; };
 		BC7A7A8567394C3C5BECF60C /* StulpConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpConnectionTests.swift; sourceTree = "<group>"; };
+		BD72A1F05EC59B9BFD340C44 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C82F65C68D19A10BE806961B /* PresenceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceMonitor.swift; sourceTree = "<group>"; };
 		CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = StulpMatterSetup.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E357E83364C9C83E52DB3881 /* StulpWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpWebView.swift; sourceTree = "<group>"; };
@@ -88,6 +105,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				5DBFB0200CE67CA44F780BBC /* Security.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		52DEE46B74CED383D49E7F82 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BC9CC2922D3B470D44F7760A /* UserNotifications.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -120,6 +145,7 @@
 				91C7FF098A0EB1B5214CC44B /* Shared */,
 				4C42CE947F1AE6AAC68C6889 /* StulpApp */,
 				83EB88409F172C43476F3DE1 /* StulpMatterSetup */,
+				FA5CEF2138EA1505C98A6C88 /* StulpNotification */,
 				8F81A5C0C7D2AFA0217E2013 /* StulpTests */,
 				8ED584BE8AC9EB55CD121E1D /* Frameworks */,
 				FE81B68948C28A22EEC4286B /* Products */,
@@ -133,6 +159,7 @@
 				A6774D88719857E62146B76E /* ContentView.swift */,
 				829363CDBEC4ABFDA0251E79 /* Info.plist */,
 				C82F65C68D19A10BE806961B /* PresenceMonitor.swift */,
+				7EDF40B2B784F398727894EC /* PushCenter.swift */,
 				3120B54BF9679107EEC67959 /* Stulp.entitlements */,
 				B2B99E566786425961656933 /* StulpApp.swift */,
 				77BCD2C148E4A5DDFC4AA2E5 /* StulpAppModel.swift */,
@@ -158,6 +185,7 @@
 				8C69155DB6161D4DBD0B07E0 /* Matter.framework */,
 				A27C742A34A8A838013515CC /* MatterSupport.framework */,
 				83E056019C24853575DE8911 /* Security.framework */,
+				054394D1803DAD4AC358A3C1 /* UserNotifications.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -180,11 +208,21 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		FA5CEF2138EA1505C98A6C88 /* StulpNotification */ = {
+			isa = PBXGroup;
+			children = (
+				BD72A1F05EC59B9BFD340C44 /* Info.plist */,
+				53DF1A080F07B049F6CB746F /* NotificationService.swift */,
+			);
+			path = StulpNotification;
+			sourceTree = "<group>";
+		};
 		FE81B68948C28A22EEC4286B /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				71FA3C0D7305776B8060CEF9 /* Stulp.app */,
 				CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */,
+				1AA2270B35DBCB291CB345AB /* StulpNotification.appex */,
 				EFCB9019B47187A68BC078A7 /* StulpTests.xctest */,
 			);
 			name = Products;
@@ -210,6 +248,24 @@
 			productName = StulpTests;
 			productReference = EFCB9019B47187A68BC078A7 /* StulpTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		8237565899D6A31CB7159656 /* StulpNotification */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F6BB2565E5ED41086A1A2537 /* Build configuration list for PBXNativeTarget "StulpNotification" */;
+			buildPhases = (
+				179A5B07D0D2E8C833D9064B /* Sources */,
+				52DEE46B74CED383D49E7F82 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = StulpNotification;
+			packageProductDependencies = (
+			);
+			productName = StulpNotification;
+			productReference = 1AA2270B35DBCB291CB345AB /* StulpNotification.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		8AFF5CF616EB2FB6C73DA2F0 /* StulpMatterSetup */ = {
 			isa = PBXNativeTarget;
@@ -242,6 +298,7 @@
 			);
 			dependencies = (
 				44C68FA91D116BA3DD4F795F /* PBXTargetDependency */,
+				F82CA41C82A3EB32E23006C5 /* PBXTargetDependency */,
 			);
 			name = Stulp;
 			packageProductDependencies = (
@@ -261,6 +318,10 @@
 				TargetAttributes = {
 					265F9E53F6D88BC1F2B7E0BC = {
 						DevelopmentTeam = QVY3KR44QS;
+					};
+					8237565899D6A31CB7159656 = {
+						DevelopmentTeam = QVY3KR44QS;
+						ProvisioningStyle = Automatic;
 					};
 					8AFF5CF616EB2FB6C73DA2F0 = {
 						DevelopmentTeam = QVY3KR44QS;
@@ -288,6 +349,7 @@
 			targets = (
 				A6AEDD6EDE89B9F1C34D6444 /* Stulp */,
 				8AFF5CF616EB2FB6C73DA2F0 /* StulpMatterSetup */,
+				8237565899D6A31CB7159656 /* StulpNotification */,
 				265F9E53F6D88BC1F2B7E0BC /* StulpTests */,
 			);
 		};
@@ -305,6 +367,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		179A5B07D0D2E8C833D9064B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6D55701FC4D4A3E396562715 /* NotificationService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3AD3D9286FC88F1120A973F1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -332,6 +402,7 @@
 			files = (
 				20B5D5401A449E04D56E2483 /* ContentView.swift in Sources */,
 				FD82EBAE98910D086C746E0B /* PresenceMonitor.swift in Sources */,
+				E37800CB07DDF35EEEEA6782 /* PushCenter.swift in Sources */,
 				D323A5C445B0C826DC639D9B /* StulpApp.swift in Sources */,
 				B6D7EE7685B67B746B6F8084 /* StulpAppModel.swift in Sources */,
 				E0A178945BEC4DE4CB41FA0E /* StulpClient.swift in Sources */,
@@ -348,6 +419,11 @@
 			isa = PBXTargetDependency;
 			target = 8AFF5CF616EB2FB6C73DA2F0 /* StulpMatterSetup */;
 			targetProxy = F9A3A00824E043EA101CC61E /* PBXContainerItemProxy */;
+		};
+		F82CA41C82A3EB32E23006C5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8237565899D6A31CB7159656 /* StulpNotification */;
+			targetProxy = CB68C56D6794E8AF329327C5 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -407,6 +483,25 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
+		};
+		359143C6BFC258B10B20C010 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = StulpNotification/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = software.haas.stulp.Notification;
+				PRODUCT_NAME = StulpNotification;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		8CD45AA36B1A9AF692A82C1E /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -575,6 +670,25 @@
 			};
 			name = Debug;
 		};
+		DF0B336C13392ECBEB73C277 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = StulpNotification/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = software.haas.stulp.Notification;
+				PRODUCT_NAME = StulpNotification;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		E4AAFD64BDB4F85D79E85769 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -626,6 +740,15 @@
 			buildConfigurations = (
 				B315BD27F5A98959CC45AED1 /* Debug */,
 				16039F13FFE08A8303E766D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F6BB2565E5ED41086A1A2537 /* Build configuration list for PBXNativeTarget "StulpNotification" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				359143C6BFC258B10B20C010 /* Debug */,
+				DF0B336C13392ECBEB73C277 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

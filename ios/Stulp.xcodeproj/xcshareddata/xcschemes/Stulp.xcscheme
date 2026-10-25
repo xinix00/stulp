@@ -35,6 +35,20 @@
                ReferencedContainer = "container:Stulp.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "8237565899D6A31CB7159656"
+               BuildableName = "StulpNotification.appex"
+               BlueprintName = "StulpNotification"
+               ReferencedContainer = "container:Stulp.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction

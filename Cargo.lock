@@ -734,7 +734,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-controller"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "libm",
  "stulp-core",
@@ -746,14 +746,14 @@ dependencies = [
 
 [[package]]
 name = "stulp-core"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "types",
 ]
 
 [[package]]
 name = "stulp-device-tls"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "leanhttp",
  "leanhttps",
@@ -762,7 +762,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-hopos"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "applib",
  "leanhttp",
@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-hopos-app"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "applib",
  "stulp-core",
@@ -791,7 +791,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-hopos-plugins"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "applib",
  "stulp-core",
@@ -810,7 +810,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-host"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "leanhttp",
  "stulp-controller",
@@ -826,7 +826,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-matter"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "aes",
  "der",
@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-nibe"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "leancrypto",
  "stulp-core",
@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-notify"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "stulp-core",
  "stulp-platform",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-persist-check"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "applib",
  "stulp-core",
@@ -882,14 +882,14 @@ dependencies = [
 
 [[package]]
 name = "stulp-platform"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "stulp-plugin-host"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "leanhttp",
  "leanhttps",
@@ -903,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-protocol"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "leanbase64",
  "leancrypto",
@@ -912,7 +912,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-runtime"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "stulp-core",
  "stulp-protocol",
@@ -920,7 +920,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-sdk"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "leanbase64",
  "rand_chacha",
@@ -933,7 +933,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-sigenergy"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "aes",
  "stulp-core",
@@ -947,7 +947,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-somfy"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "leancookie",
  "stulp-core",
@@ -960,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-spotify"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "leancrypto",
  "stulp-core",
@@ -973,7 +973,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-transport"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "ed25519-dalek",
  "leanhttp",
@@ -992,7 +992,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-unifi"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "leanbase64",
  "leancrypto",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-virtualdevices"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "stulp-core",
  "stulp-platform",
@@ -1018,7 +1018,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-weather"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "stulp-core",
  "stulp-platform",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-web"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "leancrypto",
  "stulp-core",
@@ -1039,10 +1039,11 @@ dependencies = [
 
 [[package]]
 name = "stulp-webpush"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "aes-gcm",
  "hkdf",
+ "leanbase64",
  "p256",
  "sha2",
  "stulp-core",
@@ -1053,7 +1054,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-wiim"
-version = "3.0.31"
+version = "3.0.32"
 dependencies = [
  "stulp-core",
  "stulp-platform",

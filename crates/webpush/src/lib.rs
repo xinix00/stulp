@@ -2,6 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 extern crate alloc;
+pub mod apns;
 use aes_gcm::{Aes128Gcm, KeyInit, Nonce, aead::AeadInPlace};
 use alloc::{string::String, vec::Vec};
 use hkdf::Hkdf;

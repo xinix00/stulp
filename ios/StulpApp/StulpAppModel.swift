@@ -75,6 +75,7 @@ final class StulpAppModel: ObservableObject {
       try settings.save()
       presence = settings
       status = "Dit toestel is \(phone.name) in Stulp."
+      Task { await PushCenter.shared.send() }
     } catch {
       status = error.localizedDescription
     }

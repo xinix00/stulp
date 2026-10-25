@@ -129,6 +129,12 @@ impl Requests {
         }
     }
     pub(super) fn http(&mut self, r: HttpRequest) -> Result {
+        // Zie plugin-host: liever een duidelijke fout dan HTTP/1.1 naar APNs.
+        if r.http2 {
+            return Err(stulp_sdk::Error::Invalid(
+                "HTTP/2 is op HopOS nog niet beschikbaar",
+            ));
+        }
         if self.http {
             let _ = take(&self.queues.http_out, self.generation, &mut self.http);
         }

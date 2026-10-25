@@ -85,6 +85,19 @@ actor StulpClient {
     return try JSONDecoder().decode(StulpPhone.self, from: data)
   }
 
+  /// Het APNs-token van deze app voor dit toestel; Stulp stuurt daarheen.
+  func registerPush(deviceId: String, token: String, environment: String) async throws {
+    let body = try JSONSerialization.data(withJSONObject: [
+      "deviceId": deviceId, "token": token, "environment": environment,
+    ])
+    _ = try await requestData(
+      "/api/stulp/apps/com.stulp.notify/api/register_push",
+      method: "POST",
+      body: body,
+      contentType: "application/json"
+    )
+  }
+
   /// Meldt wat de telefoon weet (lader, thuis) op zijn apparaat.
   func report(deviceId: String, values: [String: Bool]) async throws {
     let body = try JSONSerialization.data(withJSONObject: [

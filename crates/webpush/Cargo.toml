@@ -9,6 +9,7 @@ license.workspace = true
 stulp-sdk = { path = "../sdk" }
 stulp-core = { path = "../core" }
 stulp-protocol = { path = "../protocol" }
+leanbase64 = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.12" }
 p256 = { version = "=0.13.2", default-features = false, features = ["ecdh", "ecdsa"] }
 aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes"] }
 hkdf = { version = "=0.12.4", default-features = false }

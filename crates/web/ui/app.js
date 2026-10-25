@@ -3830,3 +3830,20 @@ window.addEventListener('pointercancel', event => { finishDeviceOrder(event, fal
 // grens start dezelfde compacte bootstrap zelfstandig.
 initialLoadFallbackTimer = setTimeout(() => { void load(); }, 120);
 connectRealtime();
+
+// `#device=<id>` opent dat apparaat, ook later via hashchange. De iOS-app
+// gebruikt dit na een tik op een melding met camerabeeld (25-10): de liveview
+// zit in het apparaatvenster, en zo is er één speler in plaats van twee.
+async function openDeviceFromHash() {
+  const id = new URLSearchParams(location.hash.slice(1)).get('device');
+  if (!id) return;
+  for (let tries = 0; tries < 50 && !state.devices.some(d => d.id === id); tries++) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  const device = state.devices.find(d => d.id === id);
+  if (!device) return toast('Dit apparaat bestaat niet meer.', true);
+  history.replaceState(null, '', location.pathname + location.search);
+  await prepareDevicePopover(device);
+}
+window.addEventListener('hashchange', () => { void openDeviceFromHash(); });
+void openDeviceFromHash();

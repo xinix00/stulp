@@ -1,10 +1,13 @@
-//! Apple Push Notification service: de pushdienst van een eigen iOS-app.
+//! Apple Push Notification service: de pushdienst van de Stulp-app.
 //!
-//! Web Push bereikt een webapp op het beginscherm, maar zonder dringende of
-//! kritieke meldingen en zonder beeld op iOS. APNs bereikt de Stulp-app zelf.
+//! Meldingen gaan alleen nog naar de app zelf, niet naar een browser: APNs kent
+//! dringende en kritieke meldingen en een camerabeeld, Web Push op iOS niet.
 //! Wat hier staat is wat Stulp er zonder netwerk van kan maken: de sleutel uit
 //! de .p8 van Apple, het ondertekende token (JWT, ES256), de JSON-payload en
 //! het HTTP/2-verzoek. Verzenden doet de plugin via [`stulp_sdk::Client::http`].
+#![no_std]
+#![forbid(unsafe_code)]
+extern crate alloc;
 use alloc::{string::String, vec::Vec};
 use p256::ecdsa::{Signature, SigningKey, signature::Signer};
 use stulp_core::json::{self, Value};
@@ -108,7 +111,7 @@ pub fn key_from_p8(pem: &str) -> Result<Zeroizing<[u8; 32]>> {
 struct Wipe(Vec<u8>);
 impl Drop for Wipe {
     fn drop(&mut self) {
-        super::erase(&mut self.0);
+        zeroize::Zeroize::zeroize(self.0.as_mut_slice());
     }
 }
 

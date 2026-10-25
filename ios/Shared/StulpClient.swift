@@ -68,8 +68,8 @@ actor StulpClient {
       .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
   }
 
-  /// Maakt voor deze app een eigen telefoon-apparaat in Stulp, zonder
-  /// browser-pushabonnement. `installation` is per installatie vast, zodat
+  /// Maakt voor deze app een eigen telefoon-apparaat in Stulp; meldingen komen
+  /// daarna via het APNs-token. `installation` is per installatie vast, zodat
   /// opnieuw registreren hetzelfde apparaat teruggeeft.
   func registerPhone(name: String, installation: String) async throws -> StulpPhone {
     let body = try JSONSerialization.data(withJSONObject: [

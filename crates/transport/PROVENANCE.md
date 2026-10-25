@@ -16,7 +16,7 @@ private parts on Drop, and `KeyPair::new` checks that the key matches the leaf
 certificate before anything listens.
 
 The pinned registry sources and their transitive dependencies are vendored under
-`../webpush/vendor`, with upstream license files and Cargo checksums.
+`../apns/vendor`, with upstream license files and Cargo checksums.
 
 Every connection has one owner, without Arc, a mutex or a new executor. The host
 adapter bounds attach connections to 32 and HTTP workers to eight. It borrows the

@@ -24,7 +24,7 @@ only `types` remains, as a source overlay pinned by local source hashes in
 from `leancrypto` and `leanbase64`. No Tokio,
 SQLite, Arc or application mutex. Logic crates use `no_std`, fallible allocation
 and forbid unsafe code. `stulp-platform` isolates the host's checked libc ABI
-calls. Pinned, vendored crypto provenance is in `crates/webpush/PROVENANCE.md`.
+calls. Pinned, vendored crypto provenance is in `crates/apns/PROVENANCE.md`.
 
 ```sh
 ./build.sh
@@ -165,7 +165,7 @@ markers/settings only when they actually change.
 | Somfy | Private account/cookie sessions, seven covering drivers, execution cancellation and scenarios; auth refresh, heartbeat, command/storage failure and actual UI/API proxy tests. |
 | Nibe | PKCE/machine login, token rotation, S/F parameter maps, capabilities, polling and energy splitting; OAuth, state and persistence tests. |
 | Spotify | PKCE, Connect discovery/control, changed IDs, polling, search and playback; identity, search, payload and redirect tests. |
-| Notify | Durable VAPID, encrypted Web Push, muting, expired subscriptions and controller image integration; validated during the port by independent Go decryption and signature verification. |
+| Notify | Phones from the Stulp app; APNs over HTTP/2 with an ES256 provider token, interruption levels, a camera picture, muting and unregistered apps; contract tests against a fake push service. Web Push was removed on 25-10: notifications go to the app only. |
 | WiiM | UPnP/DIDL, commands, SSDP/manual pairing and recovery/diagnostics; original XML fixtures, heartbeat/pairing tests and independent local TLS peer. |
 | Sigenergy | Five Modbus drivers, grouped reads/fallback, discovery, mySigen tokens and Gateway writes; register scales, polarity, token persistence and no-write-retry tests. |
 | UniFi | Five drivers, REST, two reconnecting WebSockets, events, camera snapshots and RTSP/RTSPS-to-fMP4 video; real controller/plugin test with synthetic TLS Protect and RTSP camera, plus ffmpeg decoding; the mux was compared against the original Go implementation during the port. |

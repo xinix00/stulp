@@ -2,7 +2,7 @@
 replace-with = "stulp-vendor"
 
 [source.stulp-vendor]
-directory = "crates/webpush/vendor"
+directory = "crates/apns/vendor"
 
 # Linux-hostbinaries worden vanaf elke host statisch gelinkt met de meegeleverde
 # lld; er is geen C-toolchain of sysroot nodig.

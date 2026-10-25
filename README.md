@@ -69,7 +69,7 @@ already in the house.
 | `crates/device-tls` | TLS to local devices with their own certificate, shared by the host and HopOS |
 | `crates/transport` | framed attach connections, the server key for Lean's TLS 1.3 (`leantls`), and outbound HTTP(S) over Lean's `TcpDial` and `WebDial` |
 | `crates/platform` | the checked libc calls, isolated and Miri-tested, plus the host's clock, entropy and `block_on` |
-| `crates/webpush` | VAPID and encrypted Web Push, with vendored crypto |
+| `crates/apns` | APNs for the Stulp app (ES256 token, payload, request), with vendored crypto |
 | `crates/hopos`, `hopos-app`, `hopos-plugins` | the HopOS slot controller, its image and the per-plugin and all-plugins images |
 | `plugins/<name>` | one app each: Rust source next to its `app.json`, settings pages and pair views |
 | `vendor/types` | Hop's `types` with in-place JSON edits (see `vendor/PROVENANCE.md`) |

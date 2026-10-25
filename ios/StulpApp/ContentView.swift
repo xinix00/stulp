@@ -12,22 +12,7 @@ struct ContentView: View {
 
   var body: some View {
     if let connection = model.connection {
-      TabView(selection: $tab) {
-        HomeView(model: model, connection: connection, adding: $adding, floating: width != .regular)
-          .tabItem { Label("Thuis", systemImage: "house.fill") }
-          .tag("home")
-        SettingsView(model: model, connection: connection)
-          .tabItem { Label("Instellingen", systemImage: "gearshape.fill") }
-          .tag("settings")
-      }
-      // Breed (iPad, Duo open) staan de tabbladen bovenin; toevoegen staat
-      // dan rechts in die rij, naast het menu in plaats van over Manage.
-      .overlay(alignment: .topTrailing) {
-        if width == .regular && tab == "home" {
-          AddDeviceButton { adding = true }
-            .padding(.trailing, 20)
-        }
-      }
+      tabs(connection)
       .sheet(isPresented: $adding) {
         AddDeviceView(model: model)
           .presentationDetents([.medium, .large])
@@ -37,6 +22,43 @@ struct ContentView: View {
       }
     } else {
       OnboardingView(model: model)
+    }
+  }
+
+  /// Smal (iPhone, Duo dicht) een tabbalk met de zwevende plus; breed (iPad,
+  /// Duo open) een zijbalk met de tabbladen en daaronder het toevoegen.
+  @ViewBuilder private func tabs(_ connection: StulpConnection) -> some View {
+    if #available(iOS 18, *) {
+      TabView(selection: $tab) {
+        Tab("Thuis", systemImage: "house.fill", value: "home") {
+          HomeView(model: model, connection: connection, adding: $adding, floating: width != .regular)
+        }
+        Tab("Instellingen", systemImage: "gearshape.fill", value: "settings") {
+          SettingsView(model: model, connection: connection)
+        }
+      }
+      .tabViewStyle(.sidebarAdaptable)
+      .defaultAdaptableTabBarPlacement(.sidebar)
+      .tabViewSidebarBottomBar {
+        Button {
+          adding = true
+        } label: {
+          Label("Apparaat toevoegen", systemImage: "plus.circle.fill")
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.borderless)
+        .padding()
+        .accessibilityIdentifier("add-device")
+      }
+    } else {
+      TabView(selection: $tab) {
+        HomeView(model: model, connection: connection, adding: $adding, floating: true)
+          .tabItem { Label("Thuis", systemImage: "house.fill") }
+          .tag("home")
+        SettingsView(model: model, connection: connection)
+          .tabItem { Label("Instellingen", systemImage: "gearshape.fill") }
+          .tag("settings")
+      }
     }
   }
 }
@@ -90,26 +112,6 @@ private struct HomeView: View {
 
   /// Manage's `--bg`.
   static let manageBackground = Color(red: 0x0B / 255, green: 0x0B / 255, blue: 0x0C / 255)
-}
-
-/// De plus in de tabbladenrij van de brede weergave, even hoog als die rij.
-private struct AddDeviceButton: View {
-  let action: () -> Void
-
-  var body: some View {
-    let button = Button(action: action) {
-      Image(systemName: "plus")
-        .font(.title3.weight(.semibold))
-        .frame(width: 30, height: 30)
-    }
-    .accessibilityLabel("Matter-apparaat toevoegen")
-    .accessibilityIdentifier("add-device")
-    if #available(iOS 26, *) {
-      button.buttonStyle(.glass).buttonBorderShape(.circle)
-    } else {
-      button.foregroundStyle(.white).background(Color.accentColor, in: Circle())
-    }
-  }
 }
 
 // MARK: - Apparaat toevoegen

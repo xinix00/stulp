@@ -1,70 +1,24 @@
-//! Een browser is een apparaat; abonnement en meldingsschakelaar volgen zijn lifecycle.
+//! Een telefoon met de Stulp-app is een apparaat; meldingen gaan via APNs.
 #![no_std]
 #![forbid(unsafe_code)]
 extern crate alloc;
 use alloc::{string::String, vec::Vec};
+use stulp_apns as apns;
 use stulp_core::json::{self, Value};
-use stulp_protocol::token::base64;
 use stulp_sdk::{
-    Client, Error, HttpRequest, Plugin, Result, Transport,
+    Client, Error, Plugin, Result, Transport,
     util::{device_arg, field, join},
 };
-use stulp_webpush::{self as push, Subscription};
-/// De VAPID-identiteit wordt pas gebruikt nadat Stulp hem duurzaam bevestigd heeft.
+/// De telefoons met de Stulp-app, en het APNs-provider-token zolang het geldt.
 #[derive(Default)]
 pub struct Notify {
-    private: Option<[u8; 32]>,
     /// Provider-token voor APNs en het moment van uitgifte (wandklok, seconden).
     apns: Option<(String, u64)>,
     phones: Vec<String>,
-    pairs: Vec<String>,
-}
-impl Drop for Notify {
-    fn drop(&mut self) {
-        if let Some(private) = self.private.as_mut() {
-            push::erase(private);
-        }
-    }
 }
 /// De toestand die de iOS-app van de telefoon meldt, als booleans.
 const REPORTED: [&str; 2] = ["charging", "home"];
 impl Notify {
-    async fn key<T: Transport>(&mut self, c: &mut Client<T>) -> Result<&[u8; 32]> {
-        if self.private.is_none() {
-            if let Some(s) = c
-                .state()
-                .setting("vapidPrivateKey")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-            {
-                let mut decoded = push::decode(s)?;
-                let parsed: Result<[u8; 32]> = decoded.as_slice().try_into().map_err(|_| {
-                    Error::Invalid("De bewaarde VAPID-sleutel heeft een ongeldige lengte.")
-                });
-                push::erase(&mut decoded);
-                let mut key = parsed?;
-                if let Err(error) = push::public(&key) {
-                    push::erase(&mut key);
-                    return Err(error);
-                }
-                self.private = Some(key);
-                push::erase(&mut key);
-            } else {
-                let mut key = c.random()?;
-                push::public(&key)?;
-                let encoded = base64(&key)?;
-                if let Err(e) = c.setting("vapidPrivateKey", json::string(&encoded)?).await {
-                    push::erase(&mut key);
-                    return Err(e);
-                }
-                self.private = Some(key);
-                push::erase(&mut key);
-            }
-        }
-        self.private
-            .as_ref()
-            .ok_or(Error::Invalid("VAPID key missing"))
-    }
     async fn capability<T: Transport>(&self, c: &mut Client<T>, p: &Value) -> Result<Value> {
         let id = json::text(p, "deviceId");
         if !self.phones.iter().any(|v| v == id) {
@@ -84,7 +38,7 @@ impl Notify {
     fn apns_token<T: Transport>(&mut self, c: &mut Client<T>) -> Result<String> {
         let now = c.wall_time()?;
         if let Some((token, issued)) = &self.apns
-            && now.saturating_sub(*issued) < push::apns::TOKEN_SECONDS
+            && now.saturating_sub(*issued) < apns::TOKEN_SECONDS
         {
             return Ok(json::copy(token)?);
         }
@@ -106,8 +60,8 @@ impl Notify {
                 "Meldingen via de app: stel apnsKey en apnsKeyId in bij de Meldingen-app.",
             ));
         }
-        let key = push::apns::key_from_p8(pem)?;
-        let token = push::apns::token(&key, key_id, team_id, now)?;
+        let key = apns::key_from_p8(pem)?;
+        let token = apns::token(&key, key_id, team_id, now)?;
         self.apns = Some((json::copy(&token)?, now));
         Ok(token)
     }
@@ -116,19 +70,19 @@ impl Notify {
         c: &mut Client<T>,
         id: &str,
         (device_token, environment): (&str, &str),
-        (title, body, level): (&str, &str, push::apns::Level),
-        extras: push::apns::Extras<'_>,
+        (title, body, level): (&str, &str, apns::Level),
+        extras: apns::Extras<'_>,
         result: Value,
     ) -> Result<Value> {
-        let payload = push::apns::payload(title, body, level, &extras)?;
+        let payload = apns::payload(title, body, level, &extras)?;
         let provider = self.apns_token(c)?;
-        let req = push::apns::request(device_token, environment, &provider, level, payload)?;
+        let req = apns::request(device_token, environment, &provider, level, payload)?;
         let response = c.http(req).await?;
         if (200..=299).contains(&response.status) {
             c.available(id, true).await?;
             return Ok(result);
         }
-        let reason = push::apns::reason(&response.body)?;
+        let reason = apns::reason(&response.body)?;
         use core::fmt::Write as _;
         let mut line = alloc::string::String::new();
         if line.try_reserve(160).is_ok() {
@@ -174,30 +128,24 @@ impl Notify {
         let store = field(device, "store");
         let apns_token = json::copy(json::text(store, "apns.token"))?;
         let apns_environment = json::copy(json::text(store, "apns.environment"))?;
-        let app = json::text(field(device, "data"), "kind") == "app";
-        if app && apns_token.is_empty() {
+        if apns_token.is_empty() {
             return Err(Error::Invalid(
                 "Open de Stulp-app op dit toestel en sta meldingen toe.",
             ));
         }
-        let subscription = if apns_token.is_empty() {
-            Some(Subscription::read(field(device, "data"))?)
-        } else {
-            None
-        };
-        let body = push::text(field(args, "message"))?;
+        let body = text(field(args, "message"))?;
         let body = body.trim();
         if body.is_empty() {
             return Err(Error::Invalid("Een melding heeft tekst nodig."));
         }
-        let title = push::text(field(args, "title"))?;
+        let title = text(field(args, "title"))?;
         let title = if title.trim().is_empty() {
             "Stulp"
         } else {
             title.trim()
         };
         let mut result = json::fields(&[("device", json::string(json::text(device, "name"))?)])?;
-        let source = push::choice(field(args, "image"));
+        let source = choice(field(args, "image"));
         let mut image = None;
         if !source.is_empty() {
             match c
@@ -218,104 +166,20 @@ impl Notify {
                 )?,
             }
         }
-        if subscription.is_none() {
-            let level = push::apns::Level::parse(push::choice(field(args, "level")));
-            let camera = (!source.is_empty()).then_some(source);
-            return self
-                .send_apns(
-                    c,
-                    id,
-                    (&apns_token, &apns_environment),
-                    (title, body, level),
-                    push::apns::Extras {
-                        image: image.as_deref(),
-                        camera,
-                    },
-                    result,
-                )
-                .await;
-        }
-        let Some(subscription) = subscription else {
-            return Err(Error::Invalid("Dit toestel heeft geen pushabonnement."));
-        };
-        let message = push::message(title, body, image.as_deref())?;
-        let subject = json::copy(
-            c.state()
-                .setting("contact")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                // Zonder ingesteld adres gaat er géén sub mee: Apple's pushdienst
-                // weigert een JWT met "mailto:stulp@localhost" als BadJwtToken
-                // (14-10, gemeten), terwijl een JWT zonder sub gewoon aankomt.
-                .unwrap_or(""),
-        )?;
-        let now = c.wall_time()?;
-        let authorization =
-            push::authorization(self.key(c).await?, subscription.endpoint(), &subject, now)?;
-        let mut ephemeral = c.random()?;
-        let mut random = c.random()?;
-        let mut salt = [0u8; 16];
-        salt.copy_from_slice(&random[..16]);
-        push::erase(&mut random);
-        let encrypted = push::encrypt(&subscription, &ephemeral, &salt, &message);
-        push::erase(&mut ephemeral);
-        let encrypted = encrypted?;
-        let mut req = HttpRequest::get(subscription.endpoint())?;
-        req.method = json::copy("POST")?;
-        req.body = encrypted;
-        req.limit = 4096;
-        for (k, v) in [
-            ("Authorization", authorization.as_str()),
-            ("Content-Encoding", "aes128gcm"),
-            ("Content-Type", "application/octet-stream"),
-            ("TTL", "600"),
-            ("Urgency", "high"),
-        ] {
-            json::push(&mut req.headers, (json::copy(k)?, json::copy(v)?), 8)?;
-        }
-        let response = c.http(req).await?;
-        match response.status {
-            200..=299 => c.available(id, true).await?,
-            404 | 410 => {
-                c.unavailable(id, "Deze browser is afgemeld. Koppel dit toestel opnieuw.")
-                    .await?;
-                return Err(Error::Invalid(
-                    "De pushdienst kent dit abonnement niet meer.",
-                ));
-            }
-            status => {
-                // De statuscode in de melding en op de console: 403 is vrijwel
-                // altijd een VAPID-sleutel die niet bij het abonnement hoort
-                // (14-10: een telefoon gekoppeld met een sleutel uit een leeg
-                // document, daarna een restore met de oude sleutel).
-                use core::fmt::Write as _;
-                let mut text = alloc::string::String::new();
-                if text.try_reserve(160).is_err() {
-                    return Err(Error::Invalid("De pushdienst heeft het bericht geweigerd."));
-                }
-                let _ = write!(
-                    text,
-                    "De pushdienst heeft het bericht geweigerd ({status})."
-                );
-                if status == 403 {
-                    text.push_str(
-                        " Koppel dit toestel opnieuw: het abonnement hoort bij een andere sleutel.",
-                    );
-                }
-                let mut line = alloc::string::String::new();
-                if line.try_reserve(200).is_ok() {
-                    let _ = write!(
-                        line,
-                        "NOTIFY_REJECTED status={status} bytes={}",
-                        response.body.len()
-                    );
-                    c.log("warn", &line)?;
-                }
-                return Err(Error::Remote(text));
-            }
-        }
-        Ok(result)
+        let level = apns::Level::parse(choice(field(args, "level")));
+        let camera = (!source.is_empty()).then_some(source);
+        self.send_apns(
+            c,
+            id,
+            (&apns_token, &apns_environment),
+            (title, body, level),
+            apns::Extras {
+                image: image.as_deref(),
+                camera,
+            },
+            result,
+        )
+        .await
     }
 }
 impl Plugin for Notify {
@@ -330,9 +194,9 @@ impl Plugin for Notify {
     ) -> Result<Value> {
         match method {
             "app.init" => {
-                // Een herstart of restore kan een andere sleutel in het document
-                // zetten; de gecachete sleutel mag dan niet blijven hangen.
-                self.private = None;
+                // Een restore kan een andere APNs-sleutel in de instellingen
+                // zetten; het provider-token van de oude mag niet blijven hangen.
+                self.apns = None;
                 Ok(Value::Null)
             }
             "driver.init" => {
@@ -347,12 +211,6 @@ impl Plugin for Notify {
                 let d = c.state().device(id)?;
                 if json::text(d, "driverId") != "phone" {
                     return Err(Error::Invalid("unknown notification driver"));
-                }
-                // Een telefoon uit de Stulp-app heeft (nog) geen browser-push-
-                // abonnement: hij meldt lader en thuis, en krijgt meldingen
-                // straks via APNs. Een browser moet wel een abonnement hebben.
-                if json::text(field(d, "data"), "kind") != "app" {
-                    Subscription::read(field(d, "data"))?;
                 }
                 let initialize = json::get(field(d, "state"), "onoff").is_none();
                 // Telefoons van vóór 25-10 hebben alleen onoff; de toestandsmeldingen
@@ -409,33 +267,9 @@ impl Plugin for Notify {
                 }
                 Ok(failed)
             }
-            "pair.list" => Err(Error::Invalid(
-                "Een telefoon meldt zichzelf aan; er valt niets te zoeken.",
+            "pair.list" | "pair.start" => Err(Error::Invalid(
+                "Een telefoon meldt zich aan vanuit de Stulp-app.",
             )),
-            "pair.start" => {
-                let id = json::text(p, "sessionId");
-                if id.is_empty()
-                    || json::text(p, "driverId") != "phone"
-                    || self.pairs.iter().any(|s| s == id)
-                {
-                    return Err(Error::Invalid("invalid pairing session"));
-                }
-                json::push(&mut self.pairs, json::copy(id)?, 32)?;
-                json::parse(br#"["publicKey"]"#).map_err(|e| Error::Core(e.into()))
-            }
-            "pair.emit" => {
-                if json::text(p, "event") != "publicKey"
-                    || !self.pairs.iter().any(|s| s == json::text(p, "sessionId"))
-                {
-                    return Err(Error::Invalid("invalid pairing event"));
-                }
-                let key = base64(&push::public(self.key(c).await?)?)?;
-                Ok(json::fields(&[("publicKey", json::string(&key)?)])?)
-            }
-            "pair.close" => {
-                self.pairs.retain(|s| s != json::text(p, "sessionId"));
-                Ok(Value::Null)
-            }
             "flow.run" => {
                 if json::text(p, "kind") != "action" || json::text(p, "id") != "send" {
                     return Err(Error::Invalid("unknown notification card"));
@@ -566,6 +400,20 @@ impl Plugin for Notify {
             _ => Err(Error::Invalid("unknown notification method")),
         }
     }
+}
+/// Accepteert dezelfde tekstvormen als de Flow-kaart, zonder debug-JSON voor strings.
+fn text(value: &Value) -> Result<String> {
+    match value {
+        Value::Null => Ok(String::new()),
+        Value::String(s) => Ok(json::copy(s)?),
+        _ => json::to_string(value).map_err(|e| Error::Core(e.into())),
+    }
+}
+/// Autocomplete-keuzes bewaren een id; een apparaatargument is een apart type.
+fn choice(value: &Value) -> &str {
+    value
+        .as_str()
+        .unwrap_or_else(|| field(value, "id").as_str().unwrap_or(""))
 }
 fn lower(s: &str) -> Result<String> {
     let mut out = String::new();

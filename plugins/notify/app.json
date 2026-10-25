@@ -5,8 +5,8 @@
   "compatibility": ">=1.0.0",
   "name": { "en": "Notifications", "nl": "Meldingen" },
   "description": {
-    "en": "Your phone or browser as a device, so a Flow can send a notification to it",
-    "nl": "Je telefoon of browser als apparaat, zodat een Flow er een melding naartoe kan sturen"
+    "en": "Your phone with the Stulp app as a device, so a Flow can send a notification to it",
+    "nl": "Je telefoon met de Stulp-app als apparaat, zodat een Flow er een melding naartoe kan sturen"
   },
   "author": { "name": "Stulp" },
   "category": ["tools"],
@@ -33,13 +33,12 @@
   "drivers": [
     {
       "id": "phone",
-      "name": { "en": "Phone or browser", "nl": "Telefoon of browser" },
+      "name": { "en": "Phone", "nl": "Telefoon" },
       "class": "phone",
       "capabilities": ["onoff", "charging", "home"],
       "capabilitiesOptions": {
         "onoff": { "title": { "en": "Notifications", "nl": "Meldingen" } }
-      },
-      "pair": [{ "id": "subscribe", "template": "push_subscription" }]
+      }
     }
   ],
   "flow": {
@@ -52,8 +51,8 @@
           "nl": "Stuur [[message]] naar [[device]]"
         },
         "hint": {
-          "en": "Arrives on that phone even when nobody has Stulp open. A picture is optional and comes from a camera that offers one; Android shows it, Safari does not.",
-          "nl": "Komt op die telefoon aan, ook als niemand Stulp open heeft. Een foto is optioneel en komt van een camera die er een levert; Android toont hem, Safari niet."
+          "en": "Arrives through the Stulp app on that phone, also when the app is closed. A picture is optional and comes from a camera that offers one; tapping it opens that camera.",
+          "nl": "Komt via de Stulp-app op die telefoon aan, ook als de app dicht is. Een foto is optioneel en komt van een camera die er een levert; tikken opent die camera."
         },
         "args": [
           {

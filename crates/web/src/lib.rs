@@ -314,10 +314,7 @@ impl Web {
         }
         let public = request.path.starts_with("/assets/")
             || (request.method == "GET" && request.path.starts_with("/image/"))
-            || matches!(
-                request.path.as_str(),
-                "/sw.js" | "/manifest.webmanifest" | "/stulp.js"
-            );
+            || matches!(request.path.as_str(), "/manifest.webmanifest" | "/stulp.js");
         if !public && !self.token.is_empty() && !self.has_cookie(&request.cookie) {
             return Response::error(
                 if request.path.starts_with("/api/") {
@@ -403,10 +400,6 @@ fn asset(path: &str) -> Option<Response> {
         "/stulp.js" | "/assets/stulp.js" => (
             "text/javascript; charset=utf-8",
             include_bytes!("../ui/stulp.js"),
-        ),
-        "/sw.js" => (
-            "text/javascript; charset=utf-8",
-            include_bytes!("../ui/sw.js"),
         ),
         "/manifest.webmanifest" => (
             "application/manifest+json",

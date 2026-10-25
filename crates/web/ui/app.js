@@ -1051,21 +1051,11 @@ function renderDeviceOverview(device) {
   const actions = node('div', 'row-actions');
   if (device.mediaLoading) actions.append(node('span', 'hint', 'Media laden…'));
   if (device.appId === 'com.stulp.notify') {
-    // Een telefoon: direct te testen, en opnieuw te koppelen onder hetzelfde
-    // id, zodat de Flows die ernaar wijzen blijven staan.
+    // Een telefoon uit de Stulp-app: direct te testen.
     actions.append(actionButton('Testmelding', async () => {
       try {
         await api('/api/stulp/apps/com.stulp.notify/api/test', { method: 'POST', body: JSON.stringify({ deviceId: device.id }) });
         toast('Testmelding verstuurd');
-      } catch (error) { toast(error.message, true); }
-    }));
-    actions.append(actionButton('Koppel opnieuw', async () => {
-      try {
-        const driver = await ensureDriver(device.driverId);
-        if (!driver) throw new Error('De driver van dit toestel is niet geladen.');
-        $('device-popover').close();
-        openModal($('pair-dialog'));
-        await startPair(driver, { replace: device.id });
       } catch (error) { toast(error.message, true); }
     }));
   }
@@ -1634,63 +1624,6 @@ async function restoreBackup(event) {
 		button.disabled = false;
 		button.textContent = 'Backup herstellen';
 	}
-}
-
-// ---- Meldingen op een toestel ----
-//
-// Een telefoon is een device: je voegt hem toe met "Device toevoegen", en de
-// koppelstap hieronder bindt deze browser aan dat device. Wat er verder met
-// meldingen gebeurt is de plugin com.stulp.notify, niet deze pagina.
-//
-// Wat hier wél moet staan is de aanmelding zelf. Drie dingen moeten kloppen
-// voordat een browser een abonnement mag aanvragen, en geen ervan gaat over
-// Stulp: een beveiligde verbinding, een service worker en toestemming van de
-// gebruiker. Ontbreekt er één, dan zegt de koppelstap welke -- dat is beter dan
-// een knop die niets doet.
-
-const iOSLike = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const standaloneApp = navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-
-function pushBlocker() {
-  if (!window.isSecureContext) return 'Alleen via https of op localhost. Zet Stulp achter een https-adres met een certificaat dat je telefoon vertrouwt.';
-  // Deze volgorde is het hele punt. Safari geeft de push-API niet aan een
-  // tabblad maar alleen aan een webapp op het beginscherm -- in een tabblad
-  // bestaan Notification en PushManager domweg niet. Stond de test hieronder
-  // eerst, dan kreeg juist de iPhone te horen dat hij geen meldingen kan
-  // ontvangen, terwijl hij dat prima kan zodra Stulp op het beginscherm staat.
-  if (iOSLike && !standaloneApp) {
-    return 'Op een iPhone of iPad mogen alleen webapps meldingen ontvangen. Voeg Stulp toe via Deel → Zet op beginscherm, open hem daar en koppel dit apparaat opnieuw.';
-  }
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
-    return iOSLike
-      ? 'Deze iOS-versie kan nog geen pushberichten ontvangen; dat kan vanaf iOS 16.4.'
-      : 'Deze browser kan geen pushberichten ontvangen.';
-  }
-  if (Notification.permission === 'denied') return 'Meldingen staan geblokkeerd voor deze site. Zet ze aan in de instellingen van je browser.';
-  return '';
-}
-
-function base64UrlToBytes(value) {
-  const standard = value.replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(standard + '='.repeat((4 - standard.length % 4) % 4));
-  return Uint8Array.from(raw, character => character.charCodeAt(0));
-}
-
-function bytesToBase64Url(buffer) {
-  let binary = '';
-  for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-// suggestedPhoneName is een voorstel, geen antwoord: "iPhone" zegt niets als er
-// drie in huis zijn, dus typt de gebruiker er zijn eigen naam over.
-function suggestedPhoneName() {
-  if (/iPhone/.test(navigator.userAgent)) return 'iPhone';
-  if (iOSLike) return 'iPad';
-  if (/Android/.test(navigator.userAgent)) return 'Android';
-  if (/Macintosh/.test(navigator.userAgent)) return 'Mac';
-  if (/Windows/.test(navigator.userAgent)) return 'Windows';
-  return 'Browser';
 }
 
 async function openNotifications() {
@@ -3143,13 +3076,13 @@ async function chooseDriver() {
   content.append(groups);
 }
 
-async function startPair(driver, options = {}) {
+async function startPair(driver) {
   const appId = driver.ownerUri.replace('stulp:app:', '');
   const driverId = driver.id.slice(driver.id.lastIndexOf(':') + 1);
   try {
     const session = await api('/api/stulp/pair', { method: 'POST', body: JSON.stringify({ appId, driverId }) });
-    state.pair = { ...session, driver, replace: options.replace || '' };
-    $('pair-title').textContent = options.replace ? `${driver.name} opnieuw koppelen` : driver.name;
+    state.pair = { ...session, driver };
+    $('pair-title').textContent = driver.name;
     const first = driver.pairViews?.[0];
     if (first?.id && driver.customPairViews?.includes(first.id)) showPairView(first.id);
     else {
@@ -3157,10 +3090,9 @@ async function startPair(driver, options = {}) {
         const result = await pairEmit('validate', null);
         if (result === 'nok' || result === false) throw new Error('Configureer de app eerst.');
       }
-      // Het template van de driver bepaalt de eerste stap. Zonder een bekend
-      // template is dat zoeken naar apparaten, want dat is wat vrijwel elke
-      // driver doet.
-      await showPairView(first?.template === 'push_subscription' ? 'push_subscription' : 'list_devices');
+      // Zonder eigen koppelpagina is de eerste stap zoeken naar apparaten,
+      // want dat is wat vrijwel elke driver doet.
+      await showPairView('list_devices');
     }
   } catch (error) { toast(error.message, true); }
 }
@@ -3174,7 +3106,6 @@ async function showPairView(view) {
     return;
   }
   $('pair-frame').classList.add('hidden');
-  if (view === 'push_subscription') return showPushSubscriptionView();
   if (view === 'list_devices') {
     // Zoeken kan seconden duren -- een Modbus-systeem wordt unit voor unit
     // afgetast, een cloud moet antwoorden. Zonder dit staat er al die tijd een
@@ -3192,104 +3123,6 @@ async function showPairView(view) {
     }
   }
 }
-// De koppelstap voor een toestel dat meldingen ontvangt.
-//
-// Deze stap tekent Manage zelf in plaats van de app, en dat is geen luiheid maar
-// noodzaak: een koppelpagina van een app staat in een sandbox zonder eigen
-// herkomst, en daarin mag een browser geen service worker registreren en dus geen
-// abonnement aanvragen. Alleen de bovenste pagina kan dat.
-//
-// Wat er over de grens gaat is precies wat pairing altijd doet: de browser geeft
-// de identiteit af van het ding dat gekoppeld wordt. Dat het hier om zichzelf gaat
-// verandert daar niets aan -- de driver bewaart het abonnement in de data van het
-// device, net zoals een lamp zijn serienummer bewaart.
-async function showPushSubscriptionView() {
-  const content = $('pair-content');
-  content.replaceChildren();
-
-  const blocker = pushBlocker();
-  if (blocker) return void content.append(node('p', 'empty bad', blocker));
-  if (!state.pair.handlers.includes('publicKey')) {
-    return void content.append(node('p', 'empty bad', 'Deze app levert geen sleutel om je aan te melden.'));
-  }
-
-  const form = node('form', 'matter-pair-form');
-  const label = node('label', 'settings-field');
-  const input = node('input');
-  input.type = 'text';
-  input.maxLength = 80;
-  input.required = true;
-  input.value = suggestedPhoneName();
-  input.placeholder = 'Bijvoorbeeld iPhone van Derek';
-  label.append(node('span', '', 'Naam van dit apparaat'), input);
-  const hint = node('small', 'settings-hint', 'Onder deze naam kies je hem in een Flow. Dit is de browser waarin je nu kijkt.');
-  const status = node('p', 'hint', '');
-  const submit = node('button', 'primary');
-  submit.type = 'submit';
-  submit.textContent = 'Koppel dit apparaat';
-  const actions = node('div', 'actions');
-  actions.append(submit);
-  form.append(label, hint, status, actions);
-  content.append(form);
-  input.select();
-
-  form.addEventListener('submit', async event => {
-    event.preventDefault();
-    const name = input.value.trim();
-    if (!name) return;
-    submit.disabled = true;
-    status.className = 'hint busy';
-    status.textContent = 'Aanmelden bij je browser…';
-    try {
-      // Toestemming eerst, en meteen na de klik: een browser stelt die vraag
-      // alleen na een echte handeling, en op een iPhone wordt daar streng over
-      // gedaan.
-      if (await Notification.requestPermission() !== 'granted') {
-        throw new Error('Je hebt meldingen niet toegestaan.');
-      }
-      const answer = await pairEmit('publicKey', null);
-      const publicKey = answer?.publicKey || answer;
-      if (typeof publicKey !== 'string' || !publicKey) throw new Error('De app gaf geen geldige sleutel.');
-      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-      const registration = await navigator.serviceWorker.ready;
-      const wanted = base64UrlToBytes(publicKey);
-      // Een browser geeft een bestaand abonnement terug, ook als dat met een
-      // andere sleutel is gemaakt; de pushdienst weigert dan alles (14-10).
-      // Hoort het bestaande abonnement niet bij deze sleutel, dan eerst weg.
-      const existing = await registration.pushManager.getSubscription();
-      if (existing) {
-        const key = existing.options?.applicationServerKey;
-        if (!key || !sameBytes(new Uint8Array(key), wanted)) await existing.unsubscribe();
-      }
-      const subscription = await registration.pushManager.subscribe({
-        // userVisibleOnly is verplicht: de browser staat pushen alleen toe onder
-        // de belofte dat er ook echt iets te zien is.
-        userVisibleOnly: true,
-        applicationServerKey: wanted,
-      });
-      await addCandidate({
-        name,
-        ...(state.pair.replace ? { replace: state.pair.replace } : {}),
-        data: {
-          endpoint: subscription.endpoint,
-          p256dh: bytesToBase64Url(subscription.getKey('p256dh')),
-          auth: bytesToBase64Url(subscription.getKey('auth')),
-        },
-      });
-    } catch (error) {
-      status.className = 'app-error';
-      status.textContent = error.message || String(error);
-      submit.disabled = false;
-    }
-  });
-}
-
-function sameBytes(a, b) {
-  if (!a || !b || a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
-}
-
 function renderCandidates(candidates) {
   const content = $('pair-content'); content.replaceChildren();
   const choices = node('div', 'choices');

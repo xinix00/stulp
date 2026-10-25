@@ -85,7 +85,10 @@ enum SharedStulpConfiguration {
     ]
     let query = try baseQuery()
     let status = SecItemUpdate(query as CFDictionary, values as CFDictionary)
-    if status == errSecSuccess { return }
+    if status == errSecSuccess {
+      SharedBaseURL.save(connection.baseURL)
+      return
+    }
     guard status == errSecItemNotFound else { throw KeychainError(status: status) }
 
     var item = query
@@ -94,6 +97,7 @@ enum SharedStulpConfiguration {
     }
     let addStatus = SecItemAdd(item as CFDictionary, nil)
     guard addStatus == errSecSuccess else { throw KeychainError(status: addStatus) }
+    SharedBaseURL.save(connection.baseURL)
   }
 
   static func remove() throws {
@@ -101,6 +105,7 @@ enum SharedStulpConfiguration {
     guard status == errSecSuccess || status == errSecItemNotFound else {
       throw KeychainError(status: status)
     }
+    SharedBaseURL.save(nil)
   }
 
   private static func baseQuery() throws -> [String: Any] {
@@ -154,6 +159,23 @@ enum PendingMatterDevices {
 
   private static func defaults() throws -> UserDefaults {
     try sharedDefaults()
+  }
+}
+
+/// Het adres van Stulp zonder toegangssleutel, voor de meldingsextensie: Stulp
+/// stuurt een camerabeeld als `/image/<id>`, en de keychain is dicht zolang de
+/// telefoon vergrendeld is. Het adres zelf is niet geheim.
+enum SharedBaseURL {
+  /// Dezelfde sleutel staat in `NotificationService`, dat Shared niet meeneemt.
+  static let key = "stulp-base-url"
+
+  static func save(_ url: URL?) {
+    guard let defaults = try? sharedDefaults() else { return }
+    if let url {
+      defaults.set(url.absoluteString, forKey: key)
+    } else {
+      defaults.removeObject(forKey: key)
+    }
   }
 }
 

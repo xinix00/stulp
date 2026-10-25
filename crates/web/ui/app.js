@@ -3666,9 +3666,12 @@ connectRealtime();
 
 // `#device=<id>` opent dat apparaat, ook later via hashchange. De iOS-app
 // gebruikt dit na een tik op een melding met camerabeeld (25-10): de liveview
-// zit in het apparaatvenster, en zo is er één speler in plaats van twee.
+// zit in het apparaatvenster, en zo is er één speler in plaats van twee. Met
+// `&live=1` start het live beeld meteen; wie op de melding tikt wil de camera
+// zien, niet eerst de foto die hij net al zag.
 async function openDeviceFromHash() {
-  const id = new URLSearchParams(location.hash.slice(1)).get('device');
+  const params = new URLSearchParams(location.hash.slice(1));
+  const id = params.get('device');
   if (!id) return;
   for (let tries = 0; tries < 50 && !state.devices.some(d => d.id === id); tries++) {
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -3677,6 +3680,10 @@ async function openDeviceFromHash() {
   if (!device) return toast('Dit apparaat bestaat niet meer.', true);
   history.replaceState(null, '', location.pathname + location.search);
   await prepareDevicePopover(device);
+  if (params.get('live') !== '1') return;
+  const media = await api(`/api/stulp/devices/${encode(id)}/media`).catch(() => []);
+  const video = (Array.isArray(media) ? media : []).find(item => item.kind === 'video');
+  if (video && state.openDeviceID === id) startVideo(device, video);
 }
 window.addEventListener('hashchange', () => { void openDeviceFromHash(); });
 void openDeviceFromHash();

@@ -94,6 +94,7 @@
 		BC7A7A8567394C3C5BECF60C /* StulpConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpConnectionTests.swift; sourceTree = "<group>"; };
 		BD72A1F05EC59B9BFD340C44 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C82F65C68D19A10BE806961B /* PresenceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceMonitor.swift; sourceTree = "<group>"; };
+		C8FAB879B5D426D4BFDB4FD2 /* StulpNotification.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StulpNotification.entitlements; sourceTree = "<group>"; };
 		CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = StulpMatterSetup.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E357E83364C9C83E52DB3881 /* StulpWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpWebView.swift; sourceTree = "<group>"; };
 		EFCB9019B47187A68BC078A7 /* StulpTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StulpTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -213,6 +214,7 @@
 			children = (
 				BD72A1F05EC59B9BFD340C44 /* Info.plist */,
 				53DF1A080F07B049F6CB746F /* NotificationService.swift */,
+				C8FAB879B5D426D4BFDB4FD2 /* StulpNotification.entitlements */,
 			);
 			path = StulpNotification;
 			sourceTree = "<group>";
@@ -488,6 +490,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = StulpNotification/StulpNotification.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				INFOPLIST_FILE = StulpNotification/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -674,6 +677,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = StulpNotification/StulpNotification.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				INFOPLIST_FILE = StulpNotification/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -44,10 +44,11 @@ struct StulpWebView: UIViewRepresentable {
       view.load(URLRequest(url: connection.entryURL))
     }
     if let id = openDevice {
-      // Manage opent `#device=<id>` zelf, ook als de pagina al open staat.
+      // Manage opent `#device=<id>&live=1` zelf, ook als de pagina al open
+      // staat, en start dan meteen het live beeld.
       let literal = (try? JSONSerialization.data(withJSONObject: [id]))
         .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-      view.evaluateJavaScript("location.hash = 'device=' + encodeURIComponent(\(literal)[0])")
+      view.evaluateJavaScript("location.hash = 'device=' + encodeURIComponent(\(literal)[0]) + '&live=1'")
       DispatchQueue.main.async { openDevice = nil }
     }
   }

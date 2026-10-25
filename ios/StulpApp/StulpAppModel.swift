@@ -25,6 +25,8 @@ final class StulpAppModel: ObservableObject {
   init() {
     do {
       connection = try SharedStulpConfiguration.load()
+      // Een verbinding van vóór de meldingsextensie: die kent het adres nog niet.
+      if let connection { SharedBaseURL.save(connection.baseURL) }
     } catch {
       status = error.localizedDescription
     }

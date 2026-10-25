@@ -2,7 +2,9 @@ import UserNotifications
 
 /// Haalt het camerabeeld bij een melding op. Stulp stuurt alleen het adres
 /// (`stulp.image`), want 4 KiB payload past geen foto; dat adres is een kwartier
-/// geldig, niet te raden, en heeft geen sleutel nodig.
+/// geldig, niet te raden, en heeft geen sleutel nodig. Het is relatief
+/// (`/image/<id>`): Stulp weet niet onder welk adres de telefoon hem bereikt,
+/// de app wel, en die zet dat in de app-groep (`SharedBaseURL`).
 ///
 /// iOS roept `didReceive` en `serviceExtensionTimeWillExpire` op zijn eigen
 /// queue aan en de download eindigt op een andere; een slot zorgt dat de
@@ -24,7 +26,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
     guard
       let stulp = request.content.userInfo["stulp"] as? [String: Any],
       let address = stulp["image"] as? String,
-      let url = URL(string: address), url.scheme == "https" || url.scheme == "http"
+      let url = URL(string: address, relativeTo: Self.base())?.absoluteURL,
+      url.scheme == "https" || url.scheme == "http"
     else {
       contentHandler(content)
       return
@@ -42,6 +45,13 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
       content.attachments = [attachment]
     }
     task.resume()
+  }
+
+  private static func base() -> URL? {
+    guard let group = Bundle.main.object(forInfoDictionaryKey: "StulpAppGroup") as? String,
+      let address = UserDefaults(suiteName: group)?.string(forKey: "stulp-base-url")
+    else { return nil }
+    return URL(string: address)
   }
 
   private func finish() {

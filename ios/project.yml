@@ -137,6 +137,12 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+        StulpAppGroup: group.software.haas.stulp
+    entitlements:
+      path: StulpNotification/StulpNotification.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.software.haas.stulp
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: software.haas.stulp.Notification

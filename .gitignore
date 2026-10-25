@@ -23,3 +23,6 @@ __pycache__/
 /stulp.json
 /*.json.apps/
 *.log
+
+# Lokale Claude Code-staat, zoals agent-worktrees
+/.claude/

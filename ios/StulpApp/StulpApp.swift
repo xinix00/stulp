@@ -13,6 +13,10 @@ struct StulpApp: App {
   var body: some Scene {
     WindowGroup {
       ContentView(model: model)
+        // Manage is altijd donker; de app volgt dat, zodat web en native
+        // één geheel zijn in plaats van een witte balk boven een zwarte pagina.
+        .preferredColorScheme(.dark)
+        .tint(Color.accentColor)
     }
   }
 }

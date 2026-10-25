@@ -87,6 +87,11 @@ impl Notify {
         if json::get(field(device, "state"), "onoff").is_some_and(|v| v.as_bool() != Some(true)) {
             return Err(Error::Invalid("Meldingen staan uit voor dit toestel."));
         }
+        if json::text(field(device, "data"), "kind") == "app" {
+            return Err(Error::Invalid(
+                "Dit toestel is via de Stulp-app gekoppeld; meldingen via de app komen nog.",
+            ));
+        }
         let subscription = Subscription::read(field(device, "data"))?;
         let body = push::text(field(args, "message"))?;
         let body = body.trim();
@@ -231,7 +236,12 @@ impl Plugin for Notify {
                 if json::text(d, "driverId") != "phone" {
                     return Err(Error::Invalid("unknown notification driver"));
                 }
-                Subscription::read(field(d, "data"))?;
+                // Een telefoon uit de Stulp-app heeft (nog) geen browser-push-
+                // abonnement: hij meldt lader en thuis, en krijgt meldingen
+                // straks via APNs. Een browser moet wel een abonnement hebben.
+                if json::text(field(d, "data"), "kind") != "app" {
+                    Subscription::read(field(d, "data"))?;
+                }
                 let initialize = json::get(field(d, "state"), "onoff").is_none();
                 // Telefoons van vóór 25-10 hebben alleen onoff; de toestandsmeldingen
                 // van de app (lader, thuis) komen er los bij.

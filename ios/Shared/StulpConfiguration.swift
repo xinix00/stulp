@@ -261,6 +261,17 @@ enum StulpPresenceReport {
   }
 }
 
+/// Een vaste id per installatie, voor het telefoon-apparaat van deze app.
+enum StulpInstallation {
+  static var id: String {
+    let key = "installation-id"
+    if let existing = try? sharedDefaults().string(forKey: key), !existing.isEmpty { return existing }
+    let fresh = UUID().uuidString
+    try? sharedDefaults().set(fresh, forKey: key)
+    return fresh
+  }
+}
+
 enum StulpPresenceError: LocalizedError {
   case notConnected
   case noPhone

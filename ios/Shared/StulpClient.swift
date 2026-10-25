@@ -68,7 +68,24 @@ actor StulpClient {
       .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
   }
 
-  /// Meldt wat de telefoon weet (lader, thuis, bijna thuis) op zijn apparaat.
+  /// Maakt voor deze app een eigen telefoon-apparaat in Stulp, zonder
+  /// browser-pushabonnement. `installation` is per installatie vast, zodat
+  /// opnieuw registreren hetzelfde apparaat teruggeeft.
+  func registerPhone(name: String, installation: String) async throws -> StulpPhone {
+    let body = try JSONSerialization.data(withJSONObject: [
+      "name": name,
+      "data": ["kind": "app", "installation": installation],
+    ])
+    let data = try await requestData(
+      "/api/stulp/apps/com.stulp.notify/drivers/phone/pair/devices",
+      method: "POST",
+      body: body,
+      contentType: "application/json"
+    )
+    return try JSONDecoder().decode(StulpPhone.self, from: data)
+  }
+
+  /// Meldt wat de telefoon weet (lader, thuis) op zijn apparaat.
   func report(deviceId: String, values: [String: Bool]) async throws {
     let body = try JSONSerialization.data(withJSONObject: [
       "deviceId": deviceId, "values": values,

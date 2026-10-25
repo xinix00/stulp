@@ -11,6 +11,7 @@
 		0EED009DAC31475564706C44 /* MatterRequestHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0332A77976DC10B879522D4C /* MatterRequestHandler.swift */; };
 		17D97C63DFC46F4C42AD3FBD /* MatterSupport.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A27C742A34A8A838013515CC /* MatterSupport.framework */; };
 		20B5D5401A449E04D56E2483 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6774D88719857E62146B76E /* ContentView.swift */; };
+		5209012127848D3EC1088E6F /* StulpWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E357E83364C9C83E52DB3881 /* StulpWebView.swift */; };
 		5DBFB0200CE67CA44F780BBC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83E056019C24853575DE8911 /* Security.framework */; };
 		61C228DE03D6DF9456A35C08 /* StulpConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5653D6639F5060568726EA78 /* StulpConfiguration.swift */; };
 		64EC54540D685993FC8D2E8E /* StulpClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02AE1924BF1922B64C136F31 /* StulpClientTests.swift */; };
@@ -77,6 +78,7 @@
 		BC7A7A8567394C3C5BECF60C /* StulpConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpConnectionTests.swift; sourceTree = "<group>"; };
 		C82F65C68D19A10BE806961B /* PresenceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceMonitor.swift; sourceTree = "<group>"; };
 		CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = StulpMatterSetup.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E357E83364C9C83E52DB3881 /* StulpWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpWebView.swift; sourceTree = "<group>"; };
 		EFCB9019B47187A68BC078A7 /* StulpTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StulpTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -135,6 +137,7 @@
 				B2B99E566786425961656933 /* StulpApp.swift */,
 				77BCD2C148E4A5DDFC4AA2E5 /* StulpAppModel.swift */,
 				B88133CBD0BE021EDC5C37E5 /* StulpIntents.swift */,
+				E357E83364C9C83E52DB3881 /* StulpWebView.swift */,
 			);
 			path = StulpApp;
 			sourceTree = "<group>";
@@ -334,6 +337,7 @@
 				E0A178945BEC4DE4CB41FA0E /* StulpClient.swift in Sources */,
 				61C228DE03D6DF9456A35C08 /* StulpConfiguration.swift in Sources */,
 				9F06319429DE413070803ABA /* StulpIntents.swift in Sources */,
+				5209012127848D3EC1088E6F /* StulpWebView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

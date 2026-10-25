@@ -28,12 +28,40 @@ final class StulpAppModel: ObservableObject {
     } catch {
       status = error.localizedDescription
     }
+    #if DEBUG
+      // Alleen voor de simulator: `-stulpEntry <Manage-link>` verbindt meteen,
+      // zodat het ontwerp met echte gegevens te bekijken is. Release negeert het.
+      if connection == nil, let entry = UserDefaults.standard.string(forKey: "stulpEntry") {
+        self.entry = entry
+        Task { await self.connect() }
+      }
+    #endif
   }
 
   func loadPhones() async {
     guard let connection else { return }
     do {
       phones = try await StulpClient(connection: connection).phones()
+    } catch {
+      status = error.localizedDescription
+    }
+  }
+
+  /// Registreert deze app als eigen telefoon-apparaat in Stulp en kiest hem.
+  func registerPhone(name: String) async {
+    guard let connection else { return }
+    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty else {
+      status = "Geef dit toestel een naam."
+      return
+    }
+    isWorking = true
+    defer { isWorking = false }
+    do {
+      let phone = try await StulpClient(connection: connection)
+        .registerPhone(name: name, installation: StulpInstallation.id)
+      choosePhone(phone)
+      await loadPhones()
     } catch {
       status = error.localizedDescription
     }
@@ -93,6 +121,9 @@ final class StulpAppModel: ObservableObject {
     do {
       try SharedStulpConfiguration.remove()
       try PendingMatterDevices.remove()
+      StulpPresenceSettings.remove()
+      presence = nil
+      phones = []
       connection = nil
       status = "Verbinding verwijderd."
     } catch {

@@ -1,179 +1,150 @@
+import CoreLocation
 import SwiftUI
 
+/// Zonder verbinding de eenmalige koppeling; daarna twee tabbladen: Thuis is
+/// Manage met al je apps, Instellingen is wat deze telefoon voor Stulp doet.
 struct ContentView: View {
   @ObservedObject var model: StulpAppModel
+  @State private var tab = ContentView.initialTab
 
   var body: some View {
-    NavigationStack {
-      ScrollView {
-        VStack(alignment: .leading, spacing: 24) {
-          brand
-          if let connection = model.connection {
-            connected(connection)
-          } else {
-            setup
-          }
-          if !model.status.isEmpty {
-            Text(model.status)
-              .font(.footnote)
-              .foregroundStyle(.secondary)
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .accessibilityIdentifier("status")
-          }
-        }
-        .padding(24)
+    if let connection = model.connection {
+      TabView(selection: $tab) {
+        HomeView(model: model, connection: connection)
+          .tabItem { Label("Thuis", systemImage: "house.fill") }
+          .tag("home")
+        SettingsView(model: model, connection: connection)
+          .tabItem { Label("Instellingen", systemImage: "gearshape.fill") }
+          .tag("settings")
       }
-      .background(Color(.systemGroupedBackground))
-      .navigationTitle("Stulp")
+    } else {
+      OnboardingView(model: model)
     }
-  }
-
-  private var brand: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Image(systemName: "house.and.flag.fill")
-        .font(.system(size: 44))
-        .foregroundStyle(Color.accentColor)
-      Text("Je devices, direct naar huis.")
-        .font(.title2.bold())
-      Text(
-        "iOS regelt de Matter-code, Bluetooth en netwerktoegang. Stulp blijft zelf de controller en bewaart zijn eigen fabric."
-      )
-      .foregroundStyle(.secondary)
-    }
-  }
-
-  private var setup: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      Text("Verbind één keer")
-        .font(.headline)
-      Text(
-        "Plak de volledige Manage-link, inclusief de toegangssleutel. De app bewaart hem alleen in de gedeelde iOS-sleutelhanger."
-      )
-      .font(.subheadline)
-      .foregroundStyle(.secondary)
-      TextField("https://stulp.local/toegangssleutel", text: $model.entry)
-        .textContentType(.URL)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .keyboardType(.URL)
-        .submitLabel(.go)
-        .onSubmit { Task { await model.connect() } }
-        .padding(12)
-        .background(
-          Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12)
-        )
-        .accessibilityIdentifier("manage-url")
-      Button {
-        Task { await model.connect() }
-      } label: {
-        Label(model.isWorking ? "Controleren…" : "Verbind met Stulp", systemImage: "link")
-          .frame(maxWidth: .infinity)
-      }
-      .buttonStyle(.borderedProminent)
-      .disabled(
-        model.isWorking || model.entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-    }
-    .card()
-  }
-
-  private func connected(_ connection: StulpConnection) -> some View {
-    VStack(alignment: .leading, spacing: 18) {
-      Label(
-        "Verbonden met \(connection.baseURL.host ?? "Stulp")", systemImage: "checkmark.circle.fill"
-      )
-      .font(.headline)
-      .foregroundStyle(.green)
-
-      Button {
-        Task { await model.addMatterDevice() }
-      } label: {
-        VStack(spacing: 8) {
-          Image(systemName: "plus.circle.fill")
-            .font(.system(size: 34))
-          Text(model.isWorking ? "Bezig…" : "Matter-apparaat toevoegen")
-            .font(.headline)
-          Text("Scan de QR-code op het nieuwe apparaat")
-            .font(.caption)
-            .opacity(0.8)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-      }
-      .buttonStyle(.borderedProminent)
-      .disabled(model.isWorking)
-      .accessibilityIdentifier("add-matter-device")
-
-      if model.isWorking || !model.steps.isEmpty {
-        progress
-      }
-
-      presenceCard
-
-      Text(
-        "Thread werkt wanneer iOS het default Thread-netwerk kent en Stulp dat via een blijvende border router kan bereiken, meestal een Apple TV of HomePod."
-      )
-      .font(.footnote)
-      .foregroundStyle(.secondary)
-
-      HStack {
-        Link(destination: connection.entryURL) {
-          Label("Open Manage", systemImage: "safari")
-        }
-        Spacer()
-        Button("Wijzig verbinding", role: .destructive) {
-          model.disconnect()
-        }
-      }
-      .font(.subheadline)
-    }
-    .card()
   }
 }
 
 extension ContentView {
-  /// Dit toestel in Stulp, en thuis/weg via de geofence.
-  fileprivate var presenceCard: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Thuis en weg").font(.headline)
-      Menu {
-        ForEach(model.phones) { phone in
-          Button(phone.name) { model.choosePhone(phone) }
-        }
-      } label: {
-        Label(
-          model.presence.map { "Dit toestel: \($0.phoneName)" } ?? "Kies welk toestel dit is",
-          systemImage: "iphone")
-      }
-      .task { await model.loadPhones() }
+  static var initialTab: String {
+    #if DEBUG
+      // `-stulpTab settings` voor schermafbeeldingen in de simulator.
+      return UserDefaults.standard.string(forKey: "stulpTab") ?? "home"
+    #else
+      return "home"
+    #endif
+  }
+}
 
-      if model.presence != nil {
+// MARK: - Thuis
+
+private struct HomeView: View {
+  @ObservedObject var model: StulpAppModel
+  let connection: StulpConnection
+  @State private var adding = false
+  @State private var reloadToken = 0
+
+  var body: some View {
+    // Manage heeft zijn eigen kop; daar komt geen iOS-balk boven. De pagina
+    // loopt door tot onder de statusbalk in Manage's eigen achtergrond, en
+    // Matter toevoegen is één zwevende knop boven de tabbalk.
+    StulpWebView(connection: connection, reloadToken: $reloadToken)
+      .background(Self.manageBackground.ignoresSafeArea())
+      .overlay(alignment: .bottomTrailing) {
         Button {
-          Task { await model.setHomeHere() }
+          adding = true
         } label: {
-          Label(
-            model.presence?.latitude == nil ? "Stel thuis in op deze plek" : "Zet thuis opnieuw op deze plek",
-            systemImage: "house.fill")
+          Image(systemName: "plus")
+            .font(.title2.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(width: 56, height: 56)
+            .background(Color.accentColor, in: Circle())
+            .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
         }
-        .disabled(model.isWorking)
-        HStack {
-          Button("Meld thuis") { Task { await model.report(home: true) } }
-          Button("Meld weg") { Task { await model.report(home: false) } }
-        }
-        .font(.subheadline)
-        Text(
-          "Binnenkomen binnen 300 m meldt thuis, 150 m verlaten meldt weg; iOS doet dat ook als de app dicht is. Geef de app daarvoor locatie \"Altijd\". Aan de lader: maak in Opdrachten een automatisering op \"Lader is aangesloten\" en \"losgekoppeld\" met de actie \"Meld lader aan Stulp\"."
-        )
-        .font(.footnote)
-        .foregroundStyle(.secondary)
+        .padding(.trailing, 20)
+        .padding(.bottom, 16)
+        .accessibilityLabel("Matter-apparaat toevoegen")
+        .accessibilityIdentifier("add-device")
       }
-    }
-    .padding(12)
-    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+      .sheet(isPresented: $adding) {
+        AddDeviceView(model: model)
+          .presentationDetents([.medium, .large])
+      }
   }
 
-  /// De mijlpalen van de lopende koppeling, met de tijd sinds de start, en
-  /// de waarschuwing plus annuleerknop zodra Apple's fase blijft hangen.
-  fileprivate var progress: some View {
+  /// Manage's `--bg`.
+  static let manageBackground = Color(red: 0x0B / 255, green: 0x0B / 255, blue: 0x0C / 255)
+}
+
+// MARK: - Apparaat toevoegen
+
+private struct AddDeviceView: View {
+  @ObservedObject var model: StulpAppModel
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 20) {
+          Label {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Matter-apparaat").font(.headline)
+              Text(
+                "Scan de QR-code op het apparaat. iOS regelt Bluetooth en het netwerk, daarna voegt Stulp het rechtstreeks aan je eigen controller toe."
+              )
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+            }
+          } icon: {
+            Image(systemName: "qrcode.viewfinder")
+              .font(.title)
+              .foregroundStyle(Color.accentColor)
+          }
+
+          Button {
+            Task { await model.addMatterDevice() }
+          } label: {
+            Label(model.isWorking ? "Bezig…" : "Scan en voeg toe", systemImage: "plus.circle.fill")
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 6)
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(model.isWorking)
+          .accessibilityIdentifier("add-matter-device")
+
+          if model.isWorking || !model.steps.isEmpty {
+            MatterProgressView(model: model)
+          }
+
+          if !model.status.isEmpty {
+            Text(model.status)
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+          }
+
+          Text(
+            "Andere apparaten, zoals een camera, zonwering of warmtepomp, voeg je toe via Apparaat toevoegen in Thuis."
+          )
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+        }
+        .padding(20)
+      }
+      .navigationTitle("Apparaat toevoegen")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Klaar") { dismiss() }
+        }
+      }
+    }
+  }
+}
+
+/// De mijlpalen van de lopende koppeling, met de tijd sinds de start, en de
+/// waarschuwing plus annuleerknop zodra Apple's fase blijft hangen.
+private struct MatterProgressView: View {
+  @ObservedObject var model: StulpAppModel
+
+  var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       let start = model.steps.first?.at
       ForEach(Array(model.steps.suffix(8).enumerated()), id: \.offset) { _, step in
@@ -201,13 +172,232 @@ extension ContentView {
       }
     }
     .padding(12)
-    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
   }
 }
 
-extension View {
-  fileprivate func card() -> some View {
-    padding(20)
-      .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+// MARK: - Instellingen
+
+private struct SettingsView: View {
+  @ObservedObject var model: StulpAppModel
+  @ObservedObject private var presence = PresenceMonitor.shared
+  let connection: StulpConnection
+  @State private var newName = ""
+  @State private var confirmDisconnect = false
+  @Environment(\.openURL) private var openURL
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("Verbinding") {
+          LabeledContent("Stulp", value: connection.baseURL.host ?? "")
+          Button {
+            openURL(connection.entryURL)
+          } label: {
+            Label("Open in Safari", systemImage: "safari")
+          }
+          Button("Verbinding wijzigen", role: .destructive) { confirmDisconnect = true }
+        }
+
+        Section {
+          if let presence = model.presence {
+            LabeledContent("Dit toestel", value: presence.phoneName)
+          }
+          Menu {
+            ForEach(model.phones) { phone in
+              Button(phone.name) { model.choosePhone(phone) }
+            }
+          } label: {
+            Label(
+              model.presence == nil ? "Kies een bestaand toestel" : "Ander toestel kiezen",
+              systemImage: "iphone")
+          }
+          .disabled(model.phones.isEmpty)
+          HStack {
+            TextField("Bijvoorbeeld iPhone van Daphne", text: $newName)
+              .textInputAutocapitalization(.words)
+            Button("Registreer") {
+              Task {
+                await model.registerPhone(name: newName)
+                newName = ""
+              }
+            }
+            .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || model.isWorking)
+          }
+        } header: {
+          Text("Dit toestel in Stulp")
+        } footer: {
+          Text(
+            "Elke telefoon is een eigen apparaat in Stulp. Registreer hier een nieuw toestel, of kies er een die al bestaat."
+          )
+        }
+
+        Section {
+          permissionRow
+          Button {
+            Task { await model.setHomeHere() }
+          } label: {
+            Label(
+              model.presence?.latitude == nil ? "Stel thuis in op deze plek" : "Zet thuis opnieuw op deze plek",
+              systemImage: "mappin.and.ellipse")
+          }
+          .disabled(model.presence == nil || model.isWorking)
+          if !presence.lastEvent.isEmpty {
+            LabeledContent("Laatst gemeld", value: presence.lastEvent)
+          }
+          HStack {
+            Button("Meld thuis") { Task { await model.report(home: true) } }
+            Spacer()
+            Button("Meld weg") { Task { await model.report(home: false) } }
+          }
+          .buttonStyle(.borderless)
+          .disabled(model.presence == nil)
+        } header: {
+          Text("Thuis en weg")
+        } footer: {
+          Text(
+            "Binnen 300 m meldt thuis, zodat het alarm eraf kan voordat je bij de deur bent; 150 m verlaten meldt weg. iOS doet dat ook als de app dicht is."
+          )
+        }
+
+        Section {
+          Button {
+            if let url = URL(string: "shortcuts://") { openURL(url) }
+          } label: {
+            Label("Open Opdrachten", systemImage: "square.2.layers.3d")
+          }
+        } header: {
+          Text("Aan de lader")
+        } footer: {
+          Text(
+            "Maak bij Automatisering twee automatiseringen op Lader: \"Is aangesloten\" en \"Is losgekoppeld\", met de actie Meld lader aan Stulp, aan of uit. Zet ze op Direct uitvoeren."
+          )
+        }
+
+        Section {
+          Label("Via de app: binnenkort", systemImage: "bell.badge")
+        } header: {
+          Text("Meldingen")
+        } footer: {
+          Text(
+            "Meldingen, ook dringende en met camerabeeld, komen straks rechtstreeks in deze app. Tot dan komen ze via Stulp op je beginscherm (Safari, Deel, Zet op beginscherm)."
+          )
+        }
+
+        if !model.status.isEmpty {
+          Section {
+            Text(model.status).font(.footnote).foregroundStyle(.secondary)
+          }
+        }
+
+        Section("Over") {
+          LabeledContent("Versie", value: Self.version)
+        }
+      }
+      .navigationTitle("Instellingen")
+      .task { await model.loadPhones() }
+      .refreshable { await model.loadPhones() }
+      .confirmationDialog(
+        "Verbinding met Stulp verwijderen?", isPresented: $confirmDisconnect, titleVisibility: .visible
+      ) {
+        Button("Verwijderen", role: .destructive) { model.disconnect() }
+      } message: {
+        Text("De app vergeet de Manage-link, het gekozen toestel en de thuislocatie.")
+      }
+    }
+  }
+
+  /// Zonder "Altijd" wekt iOS de app niet voor thuis/weg; dat moet zichtbaar zijn.
+  @ViewBuilder private var permissionRow: some View {
+    switch presence.authorization {
+    case .authorizedAlways:
+      Label("Locatie: altijd", systemImage: "checkmark.circle.fill")
+        .foregroundStyle(.green)
+    case .notDetermined:
+      Button {
+        presence.requestAlways()
+      } label: {
+        Label("Locatie toestaan", systemImage: "location.circle")
+      }
+    default:
+      Button {
+        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+      } label: {
+        Label("Zet locatie op Altijd in Instellingen", systemImage: "exclamationmark.triangle.fill")
+          .foregroundStyle(.orange)
+      }
+    }
+  }
+
+  static var version: String {
+    let info = Bundle.main.infoDictionary
+    let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+    let build = info?["CFBundleVersion"] as? String ?? "?"
+    return "\(short) (\(build))"
+  }
+}
+
+// MARK: - Eerste keer
+
+private struct OnboardingView: View {
+  @ObservedObject var model: StulpAppModel
+
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 8) {
+          Image(systemName: "house.and.flag.fill")
+            .font(.system(size: 44))
+            .foregroundStyle(Color.accentColor)
+          Text("Je huis, op je telefoon.")
+            .font(.title2.bold())
+          Text(
+            "Stulp toont je huis, voegt Matter-apparaten toe, en meldt thuis, weg en aan de lader aan je eigen controller."
+          )
+          .foregroundStyle(.secondary)
+        }
+
+        VStack(alignment: .leading, spacing: 16) {
+          Text("Verbind één keer").font(.headline)
+          Text(
+            "Plak de volledige Manage-link, inclusief de toegangssleutel. De app bewaart hem alleen in de iOS-sleutelhanger."
+          )
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          TextField("https://stulp.local/toegangssleutel", text: $model.entry)
+            .textContentType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .keyboardType(.URL)
+            .submitLabel(.go)
+            .onSubmit { Task { await model.connect() } }
+            .padding(12)
+            .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            .accessibilityIdentifier("manage-url")
+          Button {
+            Task { await model.connect() }
+          } label: {
+            Label(model.isWorking ? "Controleren…" : "Verbind met Stulp", systemImage: "link")
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 6)
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(
+            model.isWorking || model.entry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(20)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+
+        if !model.status.isEmpty {
+          Text(model.status)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("status")
+        }
+      }
+      .padding(24)
+    }
+    .background(Color(.systemGroupedBackground))
   }
 }

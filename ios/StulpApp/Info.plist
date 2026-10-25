@@ -35,6 +35,10 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Stulp gebruikt je lokale netwerk om het nieuwe Matter-apparaat rechtstreeks aan je eigen controller toe te voegen.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Stulp meldt aan je eigen controller wanneer je thuiskomt of weggaat, ook als de app niet open is. Je locatie zelf gaat nergens heen.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Stulp gebruikt je locatie om je thuis in te stellen.</string>
 	<key>StulpAppGroup</key>
 	<string>group.com.xinix00.stulp</string>
 	<key>StulpKeychainAccessGroup</key>

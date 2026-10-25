@@ -24,6 +24,8 @@ impl Drop for Notify {
         }
     }
 }
+/// De toestand die de iOS-app van de telefoon meldt, als booleans.
+const REPORTED: [&str; 2] = ["charging", "home"];
 impl Notify {
     async fn key<T: Transport>(&mut self, c: &mut Client<T>) -> Result<&[u8; 32]> {
         if self.private.is_none() {
@@ -231,6 +233,27 @@ impl Plugin for Notify {
                 }
                 Subscription::read(field(d, "data"))?;
                 let initialize = json::get(field(d, "state"), "onoff").is_none();
+                // Telefoons van vóór 25-10 hebben alleen onoff; de toestandsmeldingen
+                // van de app (lader, thuis) komen er los bij.
+                let missing: alloc::vec::Vec<&str> = REPORTED
+                    .iter()
+                    .copied()
+                    .filter(|cap| {
+                        !json::array(d, "capabilities")
+                            .iter()
+                            .any(|v| v.as_str() == Some(cap))
+                    })
+                    .collect();
+                for cap in missing {
+                    c.call(
+                        "capability.add",
+                        &json::fields(&[
+                            ("deviceId", json::string(id)?),
+                            ("capability", json::string(cap)?),
+                        ])?,
+                    )
+                    .await?;
+                }
                 self.phones.retain(|s| s != id);
                 json::push(&mut self.phones, json::copy(id)?, 4096)?;
                 if initialize {
@@ -299,6 +322,32 @@ impl Plugin for Notify {
             }
             // Eén knop in Manage: stuurt een vaste melding naar dit toestel,
             // zodat een koppeling direct te controleren is.
+            // De iOS-app meldt hier wat de telefoon weet: aan de lader (via een
+            // Opdrachten-automatisering) en thuis (via de geofence).
+            "api.invoke" if json::text(p, "handler") == "report" => {
+                let body = field(p, "body");
+                let id = json::text(body, "deviceId");
+                if !self.phones.iter().any(|s| s == id) {
+                    return Err(Error::Invalid("Kies in de app eerst dit toestel."));
+                }
+                let values = field(body, "values");
+                let Some(fields) = values.as_object() else {
+                    return Err(Error::Invalid("values moet een object zijn."));
+                };
+                let mut patch = json::object();
+                for (key, value) in fields.iter() {
+                    if !REPORTED.contains(&key) || value.as_bool().is_none() {
+                        return Err(Error::Invalid("Alleen charging en home, als aan of uit."));
+                    }
+                    json::set(&mut patch, key, stulp_sdk::clone(value)?)?;
+                }
+                if patch.as_object().is_none_or(|o| o.is_empty()) {
+                    return Err(Error::Invalid("Geen waarden om te melden."));
+                }
+                c.values(id, patch).await?;
+                c.available(id, true).await?;
+                Ok(Value::Null)
+            }
             "api.invoke" if json::text(p, "handler") == "test" => {
                 let device = json::text(field(p, "body"), "deviceId");
                 let args = json::fields(&[

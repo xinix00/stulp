@@ -18,9 +18,56 @@ final class StulpAppModel: ObservableObject {
   /// tot Apple's eigen time-out, en de tweede poging slaagde meteen).
   static let stallSeconds: TimeInterval = 40
 
+  /// Telefoon-apparaten in Stulp, om dit toestel aan te wijzen.
+  @Published var phones: [StulpPhone] = []
+  @Published var presence: StulpPresenceSettings? = StulpPresenceSettings.load()
+
   init() {
     do {
       connection = try SharedStulpConfiguration.load()
+    } catch {
+      status = error.localizedDescription
+    }
+  }
+
+  func loadPhones() async {
+    guard let connection else { return }
+    do {
+      phones = try await StulpClient(connection: connection).phones()
+    } catch {
+      status = error.localizedDescription
+    }
+  }
+
+  func choosePhone(_ phone: StulpPhone) {
+    var settings = presence ?? StulpPresenceSettings(phoneId: phone.id, phoneName: phone.name)
+    settings.phoneId = phone.id
+    settings.phoneName = phone.name
+    do {
+      try settings.save()
+      presence = settings
+      status = "Dit toestel is \(phone.name) in Stulp."
+    } catch {
+      status = error.localizedDescription
+    }
+  }
+
+  func setHomeHere() async {
+    isWorking = true
+    defer { isWorking = false }
+    do {
+      try await PresenceMonitor.shared.setHome()
+      presence = StulpPresenceSettings.load()
+      status = "Thuis staat op deze plek. Thuis binnen 300 m, weg buiten 150 m."
+    } catch {
+      status = error.localizedDescription
+    }
+  }
+
+  func report(home: Bool) async {
+    do {
+      try await StulpPresenceReport.send(["home": home], source: "ios-app")
+      status = home ? "Thuis gemeld." : "Weg gemeld."
     } catch {
       status = error.localizedDescription
     }

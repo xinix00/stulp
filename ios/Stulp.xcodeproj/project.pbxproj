@@ -18,6 +18,7 @@
 		773C155F158E7A74C3DDB075 /* Matter.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C69155DB6161D4DBD0B07E0 /* Matter.framework */; };
 		8A9AAD015CD822B40BDF7E57 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 72DBABE41AB6B60128EA5AA2 /* Assets.xcassets */; };
 		9217CCE84FD7D95CC81DF402 /* StulpConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7A7A8567394C3C5BECF60C /* StulpConnectionTests.swift */; };
+		9F06319429DE413070803ABA /* StulpIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88133CBD0BE021EDC5C37E5 /* StulpIntents.swift */; };
 		B6D7EE7685B67B746B6F8084 /* StulpAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77BCD2C148E4A5DDFC4AA2E5 /* StulpAppModel.swift */; };
 		B8123A9B0CABD247AD8D4897 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83E056019C24853575DE8911 /* Security.framework */; };
 		BB82AECA77B0043575B07673 /* StulpMatterSetup.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -28,6 +29,7 @@
 		E0931212142A9253026FD652 /* Matter.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8C69155DB6161D4DBD0B07E0 /* Matter.framework */; };
 		E0A178945BEC4DE4CB41FA0E /* StulpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750F5C6B88DDEBFD2E42AE2E /* StulpClient.swift */; };
 		F7CC2EABEB45891023698430 /* StulpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750F5C6B88DDEBFD2E42AE2E /* StulpClient.swift */; };
+		FD82EBAE98910D086C746E0B /* PresenceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C82F65C68D19A10BE806961B /* PresenceMonitor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,7 +73,9 @@
 		A6774D88719857E62146B76E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AA960AE3B576D47263AE7FBA /* StulpMatterSetup.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StulpMatterSetup.entitlements; sourceTree = "<group>"; };
 		B2B99E566786425961656933 /* StulpApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpApp.swift; sourceTree = "<group>"; };
+		B88133CBD0BE021EDC5C37E5 /* StulpIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpIntents.swift; sourceTree = "<group>"; };
 		BC7A7A8567394C3C5BECF60C /* StulpConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StulpConnectionTests.swift; sourceTree = "<group>"; };
+		C82F65C68D19A10BE806961B /* PresenceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceMonitor.swift; sourceTree = "<group>"; };
 		CC8E4C015F2EA711B7185F58 /* StulpMatterSetup.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = StulpMatterSetup.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		EFCB9019B47187A68BC078A7 /* StulpTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StulpTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -126,9 +130,11 @@
 				72DBABE41AB6B60128EA5AA2 /* Assets.xcassets */,
 				A6774D88719857E62146B76E /* ContentView.swift */,
 				829363CDBEC4ABFDA0251E79 /* Info.plist */,
+				C82F65C68D19A10BE806961B /* PresenceMonitor.swift */,
 				3120B54BF9679107EEC67959 /* Stulp.entitlements */,
 				B2B99E566786425961656933 /* StulpApp.swift */,
 				77BCD2C148E4A5DDFC4AA2E5 /* StulpAppModel.swift */,
+				B88133CBD0BE021EDC5C37E5 /* StulpIntents.swift */,
 			);
 			path = StulpApp;
 			sourceTree = "<group>";
@@ -322,10 +328,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				20B5D5401A449E04D56E2483 /* ContentView.swift in Sources */,
+				FD82EBAE98910D086C746E0B /* PresenceMonitor.swift in Sources */,
 				D323A5C445B0C826DC639D9B /* StulpApp.swift in Sources */,
 				B6D7EE7685B67B746B6F8084 /* StulpAppModel.swift in Sources */,
 				E0A178945BEC4DE4CB41FA0E /* StulpClient.swift in Sources */,
 				61C228DE03D6DF9456A35C08 /* StulpConfiguration.swift in Sources */,
+				9F06319429DE413070803ABA /* StulpIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

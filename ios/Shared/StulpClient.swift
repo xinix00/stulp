@@ -59,6 +59,28 @@ actor StulpClient {
     Task { try? await self.log(level, message) }
   }
 
+  /// De telefoon-apparaten van de Meldingen-app, om dit toestel aan te wijzen.
+  func phones() async throws -> [StulpPhone] {
+    let data = try await requestData("/api/manager/devices/device")
+    let all = try JSONDecoder().decode([String: StulpPhone].self, from: data)
+    return all.values
+      .filter { $0.appId == "com.stulp.notify" }
+      .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+  }
+
+  /// Meldt wat de telefoon weet (lader, thuis, bijna thuis) op zijn apparaat.
+  func report(deviceId: String, values: [String: Bool]) async throws {
+    let body = try JSONSerialization.data(withJSONObject: [
+      "deviceId": deviceId, "values": values,
+    ])
+    _ = try await requestData(
+      "/api/stulp/apps/com.stulp.notify/api/report",
+      method: "POST",
+      body: body,
+      contentType: "application/json"
+    )
+  }
+
   func groups() async throws -> [StulpDeviceGroup] {
     try await request("/api/stulp/device-groups", as: [StulpDeviceGroup].self)
   }
@@ -365,6 +387,12 @@ actor StulpClient {
 struct StulpHealth: Decodable, Equatable, Sendable {
   let ok: Bool
   let stulpVersion: String
+}
+
+struct StulpPhone: Decodable, Equatable, Sendable, Identifiable {
+  let id: String
+  let name: String
+  let appId: String
 }
 
 struct StulpDeviceGroup: Decodable, Equatable, Sendable {

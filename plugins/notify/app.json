@@ -10,12 +10,32 @@
   },
   "author": { "name": "Stulp" },
   "category": ["tools"],
+  "capabilities": {
+    "charging": {
+      "type": "boolean",
+      "title": {
+        "en": "On the charger",
+        "nl": "Aan de lader"
+      },
+      "getable": true,
+      "setable": false
+    },
+    "home": {
+      "type": "boolean",
+      "title": {
+        "en": "Home",
+        "nl": "Thuis"
+      },
+      "getable": true,
+      "setable": false
+    }
+  },
   "drivers": [
     {
       "id": "phone",
       "name": { "en": "Phone or browser", "nl": "Telefoon of browser" },
       "class": "phone",
-      "capabilities": ["onoff"],
+      "capabilities": ["onoff", "charging", "home"],
       "capabilitiesOptions": {
         "onoff": { "title": { "en": "Notifications", "nl": "Meldingen" } }
       },
@@ -66,6 +86,7 @@
     ]
   },
   "api": {
-    "test": { "method": "POST", "path": "/test" }
+    "test": { "method": "POST", "path": "/test" },
+    "report": { "method": "POST", "path": "/report" }
   }
 }

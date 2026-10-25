@@ -214,3 +214,61 @@ enum SharedConfigurationError: LocalizedError {
     }
   }
 }
+
+/// Welk telefoon-apparaat in Stulp deze iPhone is, en waar thuis ligt. Gedeeld
+/// met de extensies en de Opdrachten-acties via de app-group.
+struct StulpPresenceSettings: Codable, Equatable, Sendable {
+  var phoneId: String
+  var phoneName: String
+  var latitude: Double?
+  var longitude: Double?
+  /// Binnenkomen binnen deze straal: thuis. Ruim, zodat het alarm eraf kan
+  /// vóór je bij de deur bent en hij niet loeit (25-10).
+  var arriveRadius: Double = 300
+  /// Deze straal verlaten: weg.
+  var leaveRadius: Double = 150
+
+  private static let key = "presence-settings"
+
+  static func load() -> StulpPresenceSettings? {
+    guard let data = try? sharedDefaults().data(forKey: key) else { return nil }
+    return try? JSONDecoder().decode(StulpPresenceSettings.self, from: data)
+  }
+
+  func save() throws {
+    try sharedDefaults().set(JSONEncoder().encode(self), forKey: Self.key)
+  }
+
+  static func remove() {
+    try? sharedDefaults().removeObject(forKey: key)
+  }
+}
+
+/// Eén melding van de telefoon naar Stulp (lader, thuis), vanuit de app of een
+/// Opdrachten-actie. Zonder gekozen toestel of verbinding gebeurt er niets.
+enum StulpPresenceReport {
+  static func send(_ values: [String: Bool], source: String) async throws {
+    guard let connection = try SharedStulpConfiguration.load() else {
+      throw StulpPresenceError.notConnected
+    }
+    guard let settings = StulpPresenceSettings.load(), !settings.phoneId.isEmpty else {
+      throw StulpPresenceError.noPhone
+    }
+    let client = StulpClient(connection: connection, logSource: source)
+    try await client.report(deviceId: settings.phoneId, values: values)
+    let text = values.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+    client.trace("gemeld: \(text)")
+  }
+}
+
+enum StulpPresenceError: LocalizedError {
+  case notConnected
+  case noPhone
+
+  var errorDescription: String? {
+    switch self {
+    case .notConnected: "Verbind de Stulp-app eerst met je Manage-link."
+    case .noPhone: "Kies in de Stulp-app eerst welk toestel dit is."
+    }
+  }
+}

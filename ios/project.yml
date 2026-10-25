@@ -35,6 +35,8 @@ targets:
           - _matterc._udp
           - _matterd._udp
         NSLocalNetworkUsageDescription: Stulp gebruikt je lokale netwerk om het nieuwe Matter-apparaat rechtstreeks aan je eigen controller toe te voegen.
+        NSLocationWhenInUseUsageDescription: Stulp gebruikt je locatie om je thuis in te stellen.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Stulp meldt aan je eigen controller wanneer je thuiskomt of weggaat, ook als de app niet open is. Je locatie zelf gaat nergens heen.
         StulpAppGroup: group.com.xinix00.stulp
         StulpKeychainAccessGroup: $(AppIdentifierPrefix)com.xinix00.stulp.shared
         UIApplicationSceneManifest:

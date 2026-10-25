@@ -107,6 +107,8 @@ struct ContentView: View {
         progress
       }
 
+      presenceCard
+
       Text(
         "Thread werkt wanneer iOS het default Thread-netwerk kent en Stulp dat via een blijvende border router kan bereiken, meestal een Apple TV of HomePod."
       )
@@ -129,6 +131,46 @@ struct ContentView: View {
 }
 
 extension ContentView {
+  /// Dit toestel in Stulp, en thuis/weg via de geofence.
+  fileprivate var presenceCard: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Thuis en weg").font(.headline)
+      Menu {
+        ForEach(model.phones) { phone in
+          Button(phone.name) { model.choosePhone(phone) }
+        }
+      } label: {
+        Label(
+          model.presence.map { "Dit toestel: \($0.phoneName)" } ?? "Kies welk toestel dit is",
+          systemImage: "iphone")
+      }
+      .task { await model.loadPhones() }
+
+      if model.presence != nil {
+        Button {
+          Task { await model.setHomeHere() }
+        } label: {
+          Label(
+            model.presence?.latitude == nil ? "Stel thuis in op deze plek" : "Zet thuis opnieuw op deze plek",
+            systemImage: "house.fill")
+        }
+        .disabled(model.isWorking)
+        HStack {
+          Button("Meld thuis") { Task { await model.report(home: true) } }
+          Button("Meld weg") { Task { await model.report(home: false) } }
+        }
+        .font(.subheadline)
+        Text(
+          "Binnenkomen binnen 300 m meldt thuis, 150 m verlaten meldt weg; iOS doet dat ook als de app dicht is. Geef de app daarvoor locatie \"Altijd\". Aan de lader: maak in Opdrachten een automatisering op \"Lader is aangesloten\" en \"losgekoppeld\" met de actie \"Meld lader aan Stulp\"."
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      }
+    }
+    .padding(12)
+    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+  }
+
   /// De mijlpalen van de lopende koppeling, met de tijd sinds de start, en
   /// de waarschuwing plus annuleerknop zodra Apple's fase blijft hangen.
   fileprivate var progress: some View {

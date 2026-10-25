@@ -9,7 +9,7 @@ source = "git+https://github.com/xinix00/HopOS.git?tag=v3.0.13#ba0006d2159b0dcf4
 dependencies = [
  "bounded",
  "dev",
- "leancrypto",
+ "leancrypto 3.1.12",
 ]
 
 [[package]]
@@ -384,6 +384,16 @@ version = "3.1.12"
 source = "git+https://github.com/xinix00/lean.git?tag=v3.1.12#30dfbd73743a57b59ad42ed0258b7e3c10d04b20"
 
 [[package]]
+name = "leancrypto"
+version = "3.1.15"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.1.15#7bd46bbdd581caca068ccf6476d3e1ba0e09d3a9"
+
+[[package]]
+name = "leanh2"
+version = "3.1.15"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.1.15#7bd46bbdd581caca068ccf6476d3e1ba0e09d3a9"
+
+[[package]]
 name = "leanhttp"
 version = "3.1.12"
 source = "git+https://github.com/xinix00/lean.git?tag=v3.1.12#30dfbd73743a57b59ad42ed0258b7e3c10d04b20"
@@ -394,7 +404,7 @@ version = "3.1.12"
 source = "git+https://github.com/xinix00/lean.git?tag=v3.1.12#30dfbd73743a57b59ad42ed0258b7e3c10d04b20"
 dependencies = [
  "leanhttp",
- "leantls",
+ "leantls 3.1.12",
 ]
 
 [[package]]
@@ -407,7 +417,15 @@ name = "leantls"
 version = "3.1.12"
 source = "git+https://github.com/xinix00/lean.git?tag=v3.1.12#30dfbd73743a57b59ad42ed0258b7e3c10d04b20"
 dependencies = [
- "leancrypto",
+ "leancrypto 3.1.12",
+]
+
+[[package]]
+name = "leantls"
+version = "3.1.15"
+source = "git+https://github.com/xinix00/lean.git?tag=v3.1.15#7bd46bbdd581caca068ccf6476d3e1ba0e09d3a9"
+dependencies = [
+ "leancrypto 3.1.15",
 ]
 
 [[package]]
@@ -734,7 +752,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-controller"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "libm",
  "stulp-core",
@@ -746,31 +764,43 @@ dependencies = [
 
 [[package]]
 name = "stulp-core"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "types",
 ]
 
 [[package]]
 name = "stulp-device-tls"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "leanhttp",
  "leanhttps",
- "leantls",
+ "leantls 3.1.12",
+]
+
+[[package]]
+name = "stulp-h2"
+version = "3.0.33"
+dependencies = [
+ "leanh2",
+ "leanhttp",
+ "leantls 3.1.15",
+ "stulp-core",
+ "stulp-sdk",
 ]
 
 [[package]]
 name = "stulp-hopos"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "applib",
  "leanhttp",
  "leanhttps",
- "leantls",
+ "leantls 3.1.12",
  "stulp-controller",
  "stulp-core",
  "stulp-device-tls",
+ "stulp-h2",
  "stulp-matter",
  "stulp-platform",
  "stulp-protocol",
@@ -782,7 +812,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-hopos-app"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "applib",
  "stulp-core",
@@ -791,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-hopos-plugins"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "applib",
  "stulp-core",
@@ -810,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-host"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "leanhttp",
  "stulp-controller",
@@ -826,13 +856,13 @@ dependencies = [
 
 [[package]]
 name = "stulp-matter"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "aes",
  "der",
  "hkdf",
  "hmac",
- "leancrypto",
+ "leancrypto 3.1.12",
  "p256",
  "sha2",
  "stulp-core",
@@ -847,9 +877,9 @@ dependencies = [
 
 [[package]]
 name = "stulp-nibe"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
- "leancrypto",
+ "leancrypto 3.1.12",
  "stulp-core",
  "stulp-platform",
  "stulp-plugin-host",
@@ -860,7 +890,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-notify"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "stulp-core",
  "stulp-platform",
@@ -873,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-persist-check"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "applib",
  "stulp-core",
@@ -882,19 +912,20 @@ dependencies = [
 
 [[package]]
 name = "stulp-platform"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "stulp-plugin-host"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "leanhttp",
  "leanhttps",
  "stulp-core",
  "stulp-device-tls",
+ "stulp-h2",
  "stulp-platform",
  "stulp-protocol",
  "stulp-sdk",
@@ -903,16 +934,16 @@ dependencies = [
 
 [[package]]
 name = "stulp-protocol"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "leanbase64",
- "leancrypto",
+ "leancrypto 3.1.12",
  "stulp-core",
 ]
 
 [[package]]
 name = "stulp-runtime"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "stulp-core",
  "stulp-protocol",
@@ -920,7 +951,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-sdk"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "leanbase64",
  "rand_chacha",
@@ -933,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-sigenergy"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "aes",
  "stulp-core",
@@ -947,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-somfy"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "leancookie",
  "stulp-core",
@@ -960,9 +991,9 @@ dependencies = [
 
 [[package]]
 name = "stulp-spotify"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
- "leancrypto",
+ "leancrypto 3.1.12",
  "stulp-core",
  "stulp-platform",
  "stulp-plugin-host",
@@ -973,12 +1004,12 @@ dependencies = [
 
 [[package]]
 name = "stulp-transport"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "ed25519-dalek",
  "leanhttp",
  "leanhttps",
- "leantls",
+ "leantls 3.1.12",
  "p256",
  "p384",
  "rand_chacha",
@@ -992,10 +1023,10 @@ dependencies = [
 
 [[package]]
 name = "stulp-unifi"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "leanbase64",
- "leancrypto",
+ "leancrypto 3.1.12",
  "stulp-core",
  "stulp-platform",
  "stulp-plugin-host",
@@ -1006,7 +1037,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-virtualdevices"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "stulp-core",
  "stulp-platform",
@@ -1018,7 +1049,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-weather"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "stulp-core",
  "stulp-platform",
@@ -1030,16 +1061,16 @@ dependencies = [
 
 [[package]]
 name = "stulp-web"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
- "leancrypto",
+ "leancrypto 3.1.12",
  "stulp-core",
  "stulp-protocol",
 ]
 
 [[package]]
 name = "stulp-webpush"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "aes-gcm",
  "hkdf",
@@ -1054,7 +1085,7 @@ dependencies = [
 
 [[package]]
 name = "stulp-wiim"
-version = "3.0.32"
+version = "3.0.33"
 dependencies = [
  "stulp-core",
  "stulp-platform",

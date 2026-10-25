@@ -6,17 +6,31 @@ import SwiftUI
 struct ContentView: View {
   @ObservedObject var model: StulpAppModel
   @ObservedObject private var push = PushCenter.shared
+  @Environment(\.horizontalSizeClass) private var width
   @State private var tab = ContentView.initialTab
+  @State private var adding = false
 
   var body: some View {
     if let connection = model.connection {
       TabView(selection: $tab) {
-        HomeView(model: model, connection: connection)
+        HomeView(model: model, connection: connection, adding: $adding, floating: width != .regular)
           .tabItem { Label("Thuis", systemImage: "house.fill") }
           .tag("home")
         SettingsView(model: model, connection: connection)
           .tabItem { Label("Instellingen", systemImage: "gearshape.fill") }
           .tag("settings")
+      }
+      // Breed (iPad, Duo open) staan de tabbladen bovenin; toevoegen staat
+      // dan rechts in die rij, naast het menu in plaats van over Manage.
+      .overlay(alignment: .topTrailing) {
+        if width == .regular && tab == "home" {
+          AddDeviceButton { adding = true }
+            .padding(.trailing, 20)
+        }
+      }
+      .sheet(isPresented: $adding) {
+        AddDeviceView(model: model)
+          .presentationDetents([.medium, .large])
       }
       .onChange(of: push.openDevice) { _, id in
         if id != nil { tab = "home" }
@@ -44,39 +58,58 @@ private struct HomeView: View {
   @ObservedObject var model: StulpAppModel
   @ObservedObject private var push = PushCenter.shared
   let connection: StulpConnection
-  @State private var adding = false
+  @Binding var adding: Bool
+  /// Smal (iPhone, Duo dicht) zweeft de knop boven de tabbalk.
+  let floating: Bool
   @State private var reloadToken = 0
 
   var body: some View {
     // Manage heeft zijn eigen kop; daar komt geen iOS-balk boven. De pagina
-    // loopt door tot onder de statusbalk in Manage's eigen achtergrond, en
-    // Matter toevoegen is één zwevende knop boven de tabbalk.
+    // loopt door tot onder de statusbalk in Manage's eigen achtergrond.
     StulpWebView(connection: connection, reloadToken: $reloadToken, openDevice: $push.openDevice)
       .background(Self.manageBackground.ignoresSafeArea())
       .overlay(alignment: .bottomTrailing) {
-        Button {
-          adding = true
-        } label: {
-          Image(systemName: "plus")
-            .font(.title2.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(width: 56, height: 56)
-            .background(Color.accentColor, in: Circle())
-            .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
+        if floating {
+          Button {
+            adding = true
+          } label: {
+            Image(systemName: "plus")
+              .font(.title2.weight(.semibold))
+              .foregroundStyle(.white)
+              .frame(width: 56, height: 56)
+              .background(Color.accentColor, in: Circle())
+              .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
+          }
+          .padding(.trailing, 20)
+          .padding(.bottom, 16)
+          .accessibilityLabel("Matter-apparaat toevoegen")
+          .accessibilityIdentifier("add-device")
         }
-        .padding(.trailing, 20)
-        .padding(.bottom, 16)
-        .accessibilityLabel("Matter-apparaat toevoegen")
-        .accessibilityIdentifier("add-device")
-      }
-      .sheet(isPresented: $adding) {
-        AddDeviceView(model: model)
-          .presentationDetents([.medium, .large])
       }
   }
 
   /// Manage's `--bg`.
   static let manageBackground = Color(red: 0x0B / 255, green: 0x0B / 255, blue: 0x0C / 255)
+}
+
+/// De plus in de tabbladenrij van de brede weergave, even hoog als die rij.
+private struct AddDeviceButton: View {
+  let action: () -> Void
+
+  var body: some View {
+    let button = Button(action: action) {
+      Image(systemName: "plus")
+        .font(.title3.weight(.semibold))
+        .frame(width: 30, height: 30)
+    }
+    .accessibilityLabel("Matter-apparaat toevoegen")
+    .accessibilityIdentifier("add-device")
+    if #available(iOS 26, *) {
+      button.buttonStyle(.glass).buttonBorderShape(.circle)
+    } else {
+      button.foregroundStyle(.white).background(Color.accentColor, in: Circle())
+    }
+  }
 }
 
 // MARK: - Apparaat toevoegen

@@ -42,6 +42,17 @@ impl Dial {
             device: false,
         }
     }
+    /// APNs: één HTTP/2-verzoek met een eigen TLS-sessie (`stulp_h2`) over
+    /// de TCP van de slot, op de wandklok en uit de DRBG van deze werker.
+    pub(crate) async fn h2(
+        &mut self,
+        request: &stulp_sdk::HttpRequest,
+    ) -> stulp_sdk::Result<stulp_sdk::HttpResponse> {
+        let mut seed = [0; stulp_h2::ENTROPY];
+        self.random.fill(&mut seed);
+        let now = self.app.wall_ns().map(|ns| ns / 1_000_000_000);
+        stulp_h2::send(&mut dialer(), now, &mut seed, request).await
+    }
 }
 impl leanhttp::Dial for Dial {
     type Conn = Connection;

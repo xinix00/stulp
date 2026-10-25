@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+stulp-h2 = { path = "../h2" }
 stulp-transport = { path = "../transport" }
 stulp-platform = { path = "../platform" }
 stulp-sdk = { path = "../sdk" }

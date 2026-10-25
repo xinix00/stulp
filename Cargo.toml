@@ -4,6 +4,7 @@ members = [
     "crates/controller",
     "crates/core",
     "crates/device-tls",
+    "crates/h2",
     "crates/hopos",
     "crates/hopos-app",
     "crates/hopos-plugins",
@@ -30,7 +31,7 @@ members = [
 ]
 
 [workspace.package]
-version = "3.0.32"
+version = "3.0.33"
 edition = "2024"
 rust-version = "1.93"
 license = "MIT"

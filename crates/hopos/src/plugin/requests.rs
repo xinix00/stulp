@@ -129,12 +129,6 @@ impl Requests {
         }
     }
     pub(super) fn http(&mut self, r: HttpRequest) -> Result {
-        // Zie plugin-host: liever een duidelijke fout dan HTTP/1.1 naar APNs.
-        if r.http2 {
-            return Err(stulp_sdk::Error::Invalid(
-                "HTTP/2 is op HopOS nog niet beschikbaar",
-            ));
-        }
         if self.http {
             let _ = take(&self.queues.http_out, self.generation, &mut self.http);
         }
@@ -295,6 +289,9 @@ pub(super) fn start(
         return Err(Error::Invalid("plugin I/O already started"));
     }
     let dial = crate::network::Dial::new(app, &env.random());
+    // APNs spreekt alleen HTTP/2: een eigen TLS-sessie met ALPN `h2`, buiten
+    // de keep-alive-pool, één verzoek per verbinding (zie stulp-h2).
+    let mut h2 = crate::network::Dial::new(app, &env.random());
     EXEC.get()
         .spawn(super::timed(app, index, "io", async move {
             // Keep-alive: de pool van leanhttp (twee ruststaande verbindingen
@@ -306,7 +303,11 @@ pub(super) fn start(
             loop {
                 let (id, r) = owner.http.recv().await;
                 let ms = r.timeout_ms;
-                let result = until(owner, HTTP, id, ms, http(&mut client, r)).await;
+                let result = if r.http2 {
+                    until(owner, HTTP, id, ms, h2.h2(&r)).await
+                } else {
+                    until(owner, HTTP, id, ms, http(&mut client, r)).await
+                };
                 answer(owner, &owner.http_out, id, result);
             }
         }))

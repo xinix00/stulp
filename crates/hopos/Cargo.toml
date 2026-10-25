@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+stulp-h2 = { path = "../h2" }
 leantls = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.12", features = ["mozilla-roots"] }
 stulp-core = { path = "../core" }
 stulp-controller = { path = "../controller" }

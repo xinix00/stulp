@@ -27,13 +27,6 @@ const DEVICE: Texts = Texts {
 };
 
 pub(super) fn execute(request: HttpRequest) -> Result<HttpResponse> {
-    // Als HTTP/1.1 versturen zou bij een HTTP/2-dienst (APNs) iets onleesbaars
-    // opleveren; liever een duidelijke fout tot de HTTP/2-client er is.
-    if request.http2 {
-        return Err(Error::Invalid(
-            "HTTP/2 is op deze host nog niet beschikbaar",
-        ));
-    }
     let timeout = Duration::from_millis(request.timeout_ms);
     // Eén budget voor verbinden, TLS, kop, body en elke redirect; de
     // termijn geldt ook per fase en als stilte per lees of schrijf.
@@ -44,7 +37,14 @@ pub(super) fn execute(request: HttpRequest) -> Result<HttpResponse> {
         Some(Instant::now() + timeout),
     );
     stulp_platform::host::block_on(async {
-        if request.device_certificate {
+        if request.http2 {
+            // APNs: een eigen TLS-sessie met ALPN `h2`, één verzoek over leanh2.
+            let mut seed = stulp_platform::host::entropy()
+                .map_err(|_| Error::Transport("HTTP/2: geen entropie"))?;
+            let now = stulp_platform::host::unix_seconds();
+            let mut tcp = tcp;
+            stulp_h2::send(&mut tcp, now, &mut seed, &request).await
+        } else if request.device_certificate {
             send(web::device(tcp), &request, timeout, &DEVICE).await
         } else {
             send(web::web(tcp), &request, timeout, &CLOUD).await

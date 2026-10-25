@@ -1,0 +1,18 @@
+[package]
+name = "stulp-h2"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+stulp-sdk = { path = "../sdk" }
+stulp-core = { path = "../core" }
+# De TCP-kant op de leanhttp van applib; TLS en HTTP/2 op v3.1.15 (zie lib.rs).
+leanhttp = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.12" }
+leantls = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.15", features = ["mozilla-roots"] }
+leanh2 = { git = "https://github.com/xinix00/lean.git", tag = "v3.1.15" }
+
+[lints]
+workspace = true

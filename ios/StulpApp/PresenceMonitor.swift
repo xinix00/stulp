@@ -18,6 +18,7 @@ final class PresenceMonitor: NSObject, ObservableObject, CLLocationManagerDelega
   private let manager = CLLocationManager()
   private let logger = Logger(subsystem: "software.haas.stulp", category: "Presence")
   private var monitor: CLMonitor?
+  private var creating: Task<CLMonitor, Never>?
   private var listening: Task<Void, Never>?
   private var locating: CheckedContinuation<CLLocation, any Error>?
 
@@ -78,8 +79,16 @@ final class PresenceMonitor: NSObject, ObservableObject, CLLocationManagerDelega
 
   private func ensureMonitor() async throws -> CLMonitor {
     if let monitor { return monitor }
-    let created = await CLMonitor("stulp-presence")
+    // Eén aanmaak, ook als start() en setHome() tegelijk vragen: een tweede
+    // CLMonitor met dezelfde naam in één proces is niet toegestaan.
+    if let creating { return await creating.value }
+    // Alleen letters en cijfers: met een streepje stopt CoreLocation de app
+    // met "Monitor name is not valid" (25-10, crash direct bij de start).
+    let task = Task { await CLMonitor("StulpPresence") }
+    creating = task
+    let created = await task.value
     monitor = created
+    creating = nil
     return created
   }
 

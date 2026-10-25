@@ -5,7 +5,7 @@ import AppIntents
 struct ReportChargerIntent: AppIntent {
   static let title: LocalizedStringResource = "Meld lader aan Stulp"
   static let description = IntentDescription(
-    "Meldt aan Stulp of deze iPhone aan de lader ligt. Gebruik hem in een automatisering op 'Lader is aangesloten' en 'Lader is losgekoppeld'.")
+    "Meldt aan Stulp of dit toestel aan de lader ligt. Gebruik hem in een automatisering op 'Lader is aangesloten' en 'Lader is losgekoppeld'.")
   static let openAppWhenRun = false
 
   @Parameter(title: "Aan de lader", default: true)
@@ -24,7 +24,7 @@ struct ReportChargerIntent: AppIntent {
 /// Handmatig thuis of weg melden, als aanvulling op de geofence.
 struct ReportHomeIntent: AppIntent {
   static let title: LocalizedStringResource = "Meld thuis aan Stulp"
-  static let description = IntentDescription("Meldt aan Stulp of deze iPhone thuis is.")
+  static let description = IntentDescription("Meldt aan Stulp of dit toestel thuis is.")
   static let openAppWhenRun = false
 
   @Parameter(title: "Thuis", default: true)

@@ -418,7 +418,7 @@ impl Plugin for WeatherPlugin {
                 let args = json::get(params, "args").unwrap_or(&Value::Null);
                 let id = json::text(params, "id");
                 match json::text(params, "kind") {
-                    "trigger" | "device-trigger" => Ok(Value::Bool(trigger_filter(
+                    "trigger" => Ok(Value::Bool(trigger_filter(
                         id,
                         args,
                         json::get(params, "state").unwrap_or(&Value::Null),
@@ -485,7 +485,7 @@ async fn fire<T: Transport>(
         .call(
             "flow.trigger",
             &json::fields(&[
-                ("kind", json::string("device-trigger")?),
+                ("kind", json::string("trigger")?),
                 ("id", json::string(card)?),
                 ("tokens", weather.tokens()?),
                 ("state", state),

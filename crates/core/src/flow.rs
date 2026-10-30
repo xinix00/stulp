@@ -11,11 +11,18 @@ pub const MAX_EDGES: usize = 256;
 
 /// De genormaliseerde soort van een kaart.
 pub fn kind(node: &Value) -> &str {
-    match json::get(node, "step")
-        .map(|s| json::text(s, "cardType"))
-        .unwrap_or("")
-    {
-        "device-trigger" | "trigger" => "trigger",
+    card_kind(
+        json::get(node, "step")
+            .map(|s| json::text(s, "cardType"))
+            .unwrap_or(""),
+    )
+}
+
+/// Er is één soort trigger; het apparaat op de kaart bepaalt welk apparaat telt.
+/// Een oudere versie bewaarde soms "device-trigger", dat leest nog als trigger.
+pub fn card_kind(card_type: &str) -> &str {
+    match card_type {
+        "trigger" | "device-trigger" => "trigger",
         "condition" => "condition",
         "action" => "action",
         _ => "",

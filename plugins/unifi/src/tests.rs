@@ -229,3 +229,80 @@ fn smart_detections_set_motion_and_trigger_once_per_kind() {
         .collect();
     assert_eq!(kinds, ["person", "vehicle", "person"]);
 }
+#[test]
+fn a_detection_starts_the_flow_built_from_the_card_list() {
+    // 30-10: de plugin vuurde netjes, maar geen enkele Flow startte; de kaart
+    // in de editor en het event dat binnenkwam spraken een ander soortwoord.
+    // Hier loopt de hele keten: Protect-event, plugin, triggerrij, Flow, filter.
+    use stulp_core::store::{Memory, Store};
+    use stulp_runtime::flows::{Effect, Run};
+    let registrations = stulp_sdk::registrations(
+        &json::parse(Unifi::default().manifest())
+            .map_err(stulp_core::Error::from)
+            .unwrap(),
+    )
+    .unwrap();
+    let card_type = |id: &str| {
+        let card = json::array(&registrations, "flows")
+            .iter()
+            .find(|r| json::text(r, "id") == id)
+            .unwrap_or_else(|| panic!("{id} is not in the card list"));
+        String::from(json::text(card, "type"))
+    };
+    let flow = |card: &str, kind: &str| {
+        value(&alloc::format!(
+            r#"{{"id":"f","name":"Alarm","enabled":true,"nodes":[
+              {{"id":"t","step":{{"appId":"com.stulp.unifi","cardType":"{}","cardId":"{card}","args":{{"device":{{"$device":"d"}},"kind":"{kind}"}}}}}},
+              {{"id":"a","step":{{"appId":"stulp","cardType":"action","cardId":"notification","args":{{"excerpt":"alarm"}}}}}}],
+              "edges":[{{"from":"t","to":"a"}}]}}"#,
+            card_type(card)
+        ))
+    };
+    let (mut p, mut c) = setup("camera", r#"{"id":"cam1"}"#, "{}", "{}");
+    let cases = [
+        (
+            r#"{"type":"add","item":{"id":"e1","modelKey":"event","type":"smartDetectZone","start":1,"device":"cam1","smartDetectTypes":["person"]}}"#,
+            "smart_detection",
+            "person",
+        ),
+        (
+            r#"{"type":"add","item":{"id":"e2","modelKey":"event","type":"smartAudioDetect","start":2,"device":"cam1","smartDetectTypes":["alrmSpeak"]}}"#,
+            "audio_detection",
+            "speaking",
+        ),
+        (
+            r#"{"type":"add","item":{"id":"e3","modelKey":"event","type":"ring","start":3,"device":"cam1"}}"#,
+            "doorbell_pressed",
+            "",
+        ),
+    ];
+    for (event, _, _) in &cases {
+        stulp_platform::host::block_on(p.message(&mut c, 1, &value(event))).unwrap();
+    }
+    let mut w = c.into_transport();
+    let mut fired = Vec::new();
+    while let Some(event) = w.store.take_trigger() {
+        fired.push(event);
+    }
+    assert_eq!(fired.len(), cases.len());
+    let mut c = w.reconnect("com.stulp.unifi", p.manifest());
+    for ((_, card, kind), fired) in cases.iter().zip(&fired) {
+        let definition = flow(card, kind);
+        let mut run = Run::triggered(&definition, fired, 0, "2026-10-30T12:00:00Z")
+            .unwrap()
+            .unwrap_or_else(|| panic!("{card} did not start its Flow"));
+        let store = Store::open(br#"{"version":2}"#, Memory).unwrap();
+        // Het triggerfilter is een echte callback naar deze plugin.
+        let Effect::Call { method, params, .. } = run.advance(&store, 0).unwrap() else {
+            panic!("{card}: filter callback missing")
+        };
+        let passed = stulp_platform::host::block_on(p.handle(&mut c, method, &params)).unwrap();
+        assert_eq!(passed, Value::Bool(true), "{card} rejected its own event");
+        assert!(matches!(run.advance(&store, 1).unwrap(), Effect::Waiting));
+        run.complete(passed, 2).unwrap();
+        assert!(
+            matches!(run.advance(&store, 3).unwrap(), Effect::Notification(_)),
+            "{card}: the action did not run"
+        );
+    }
+}

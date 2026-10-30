@@ -251,7 +251,6 @@
           "cardType": {
             "enum": [
               "trigger",
-              "device-trigger",
               "condition",
               "action"
             ],
@@ -444,7 +443,6 @@
                     "cardType": {
                       "enum": [
                         "trigger",
-                        "device-trigger",
                         "condition",
                         "action"
                       ],
@@ -609,7 +607,6 @@
                     "cardType": {
                       "enum": [
                         "trigger",
-                        "device-trigger",
                         "condition",
                         "action"
                       ],

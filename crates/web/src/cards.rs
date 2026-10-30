@@ -86,17 +86,10 @@ pub fn catalog<S: Storage>(store: &Store<S>, registrations: &Value) -> Result<Va
                 .filter(|c| !json::text(c, "id").is_empty())
             {
                 let cid = json::text(c, "id");
-                let device = json::array(regs, "flows").iter().find(|r| {
-                    json::text(r, "id") == cid && json::text(r, "type") == "device-trigger"
-                });
-                let registration = if typ == "trigger" && device.is_some() {
-                    device
-                } else {
-                    json::array(regs, "flows")
-                        .iter()
-                        .find(|r| json::text(r, "id") == cid && json::text(r, "type") == typ)
-                }
-                .unwrap_or(&Value::Null);
+                let registration = json::array(regs, "flows")
+                    .iter()
+                    .find(|r| json::text(r, "id") == cid && json::text(r, "type") == typ)
+                    .unwrap_or(&Value::Null);
                 let actual_type = if registration.is_null() {
                     typ
                 } else {

@@ -13,7 +13,7 @@ fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
 fn argument_units<S: Storage>(store: &Store<S>, step: &Value) -> Result<Value> {
     let app = json::text(step, "appId");
     let id = json::text(step, "cardId");
-    let kind = json::text(step, "cardType").trim_start_matches("device-");
+    let kind = stulp_core::flow::card_kind(json::text(step, "cardType"));
     let mut out = json::object();
     if let Some(m) = store.manifest(app) {
         let list = match kind {

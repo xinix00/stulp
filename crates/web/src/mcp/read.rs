@@ -300,7 +300,7 @@ fn devices<S: Storage>(store: &Store<S>, args: &Value) -> Result<Value> {
     )
 }
 pub(super) fn card<'a>(cards: &'a Value, step: &Value) -> Option<&'a Value> {
-    let kind = json::text(step, "cardType").trim_start_matches("device-");
+    let kind = stulp_core::flow::card_kind(json::text(step, "cardType"));
     let list = match kind {
         "trigger" => "triggers",
         "condition" => "conditions",
@@ -310,7 +310,7 @@ pub(super) fn card<'a>(cards: &'a Value, step: &Value) -> Option<&'a Value> {
     json::array(cards, list).iter().find(|c| {
         json::text(c, "appId") == json::text(step, "appId")
             && json::text(c, "id") == json::text(step, "cardId")
-            && json::text(c, "type") == json::text(step, "cardType")
+            && json::text(c, "type") == kind
     })
 }
 pub(super) fn allows(card: &Value, id: &str) -> bool {

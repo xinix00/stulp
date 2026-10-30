@@ -354,7 +354,7 @@ fn flow_catalog_uses_actual_listeners_device_filters_and_display_units() {
     let mut store=Store::open(r#"{"version":2,"system":{"units":{"temperature":"°F"}},"apps":[{"id":"a","enabled":true},{"id":"b","enabled":true}],"devices":[{"id":"lamp","appId":"a","driverId":"lamp","class":"light","capabilities":["onoff.left","measure_temperature","button"]},{"id":"other","appId":"b","driverId":"lamp","class":"light","capabilities":["onoff"]}]}"#.as_bytes(),Memory).unwrap();
     store.announce("a",json::parse(r#"{"id":"a","sdk":3,"version":"1","name":{"nl":"Lampen"},"drivers":[{"id":"lamp"}],"flow":{"actions":[{"id":"set","title":{"nl":"Instellen"},"args":[{"name":"device","type":"device","filter":"app_id=a&driver_id=lamp|socket&capabilities=onoff&future=ok"},{"name":"temperature","type":"number","units":"°C","min":0,"max":40,"step":0.5}]}],"triggers":[{"id":"press","title":"Pressed","args":[{"name":"device","type":"device","filter":{"app_id":["a"],"class":"light"}}]}]}}"#.as_bytes()).unwrap()).unwrap();
     store.set_app_status("a", "running").unwrap();
-    let regs=json::parse(br#"{"a":{"flows":[{"id":"set","type":"action","runListener":true,"autocomplete":["name"]},{"id":"press","type":"device-trigger","runListener":true,"autocomplete":[]}]}}"#).unwrap();
+    let regs=json::parse(br#"{"a":{"flows":[{"id":"set","type":"action","runListener":true,"autocomplete":["name"]},{"id":"press","type":"trigger","runListener":true,"autocomplete":[]}]}}"#).unwrap();
     let before = store.manifest("a").unwrap().try_clone().unwrap();
     let cards = stulp_web::flow_cards(&store, &regs).unwrap();
     let set = json::array(&cards, "actions")
@@ -378,7 +378,7 @@ fn flow_catalog_uses_actual_listeners_device_filters_and_display_units() {
         .iter()
         .find(|v| json::text(v, "id") == "press")
         .unwrap();
-    assert_eq!(json::text(press, "type"), "device-trigger");
+    assert_eq!(json::text(press, "type"), "trigger");
     assert_eq!(json::array(press, "deviceIds").len(), 1);
     let held = json::array(&cards, "triggers")
         .iter()

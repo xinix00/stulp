@@ -11,7 +11,7 @@ impl<S: Storage> Store<S> {
         }
         let id = json::text(params, "id");
         let kind = json::text(params, "kind");
-        if id.is_empty() || id.len() > 256 || !matches!(kind, "trigger" | "device-trigger") {
+        if id.is_empty() || id.len() > 256 || kind != "trigger" {
             return Err(Error::Invalid("invalid flow trigger"));
         }
         let state = json::get(params, "state")
@@ -30,9 +30,6 @@ impl<S: Storage> Store<S> {
             && json::text(self.document.record("devices", device)?, "appId") != app
         {
             return Err(Error::Invalid("trigger device belongs to another app"));
-        }
-        if kind == "device-trigger" && device.is_empty() {
-            return Err(Error::Invalid("device trigger requires deviceId"));
         }
         let event = json::fields(&[
             (

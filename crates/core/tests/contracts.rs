@@ -379,10 +379,18 @@ fn flow_events_are_owned_transient_bounded_and_capability_changes_are_deduplicat
         .unwrap();
     assert!(s.take_trigger().is_none());
     let p = value(
-        r#"{"id":"button","kind":"device-trigger","state":{"deviceId":"d"},"tokens":{"number":18446744073709551615}}"#,
+        r#"{"id":"button","kind":"trigger","state":{"deviceId":"d"},"tokens":{"number":18446744073709551615}}"#,
     );
     put(&mut s, "apps", r#"{"id":"foreign","enabled":true}"#);
     assert!(s.trigger("foreign", &p).is_err());
+    // Er is één soort trigger; een tweede woord ervoor matchte nooit een Flow.
+    assert!(
+        s.trigger(
+            "app",
+            &value(r#"{"id":"button","kind":"device-trigger","state":{"deviceId":"d"}}"#)
+        )
+        .is_err()
+    );
     let before = s.document().encode().unwrap();
     for _ in 0..stulp_core::store::MAX_TRIGGERS {
         s.trigger("app", &p).unwrap();

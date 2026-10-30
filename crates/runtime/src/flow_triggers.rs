@@ -148,6 +148,9 @@ impl Run {
         if !json::boolean(definition, "enabled") {
             return Ok(None);
         }
+        if json::text(input, "kind") != "trigger" {
+            return Ok(None);
+        }
         let mut matched = Vec::new();
         let mut filters = Vec::new();
         for node in json::array(definition, "nodes") {
@@ -155,7 +158,6 @@ impl Run {
             if flow::kind(node) != "trigger"
                 || json::text(step, "appId") != json::text(input, "appId")
                 || json::text(step, "cardId") != json::text(input, "id")
-                || json::text(step, "cardType") != json::text(input, "kind")
             {
                 continue;
             }
@@ -212,7 +214,7 @@ impl Run {
                 app: json::copy(json::text(&step, "appId"))?,
                 method: "flow.run",
                 params: json::fields(&[
-                    ("kind", json::string(json::text(&step, "cardType"))?),
+                    ("kind", json::string("trigger")?),
                     ("id", json::string(json::text(&step, "cardId"))?),
                     ("args", args),
                     ("state", state),

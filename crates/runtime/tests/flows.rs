@@ -219,11 +219,12 @@ fn automatic_trigger_filters_device_and_threshold_and_preserves_integer_tokens()
 }
 #[test]
 fn automatic_plugin_filter_is_awaited_before_actions() {
+    // Een oudere versie bewaarde deze kaart als "device-trigger"; die Flow blijft werken.
     let definition = value(
         r#"{"id":"f","name":"Filtered","enabled":true,"nodes":[{"id":"t","step":{"appId":"plugin","cardType":"device-trigger","cardId":"motion","args":{"device":{"$device":"d"},"threshold":"{{value}}"}}},{"id":"a","step":{"appId":"stulp","cardType":"action","cardId":"notification","args":{"excerpt":"motion"}}}],"edges":[{"from":"t","to":"a"}]}"#,
     );
     let input = value(
-        r#"{"appId":"plugin","kind":"device-trigger","id":"motion","tokens":{"value":42},"state":{"deviceId":"d"}}"#,
+        r#"{"appId":"plugin","kind":"trigger","id":"motion","tokens":{"value":42},"state":{"deviceId":"d"}}"#,
     );
     for matched in [false, true] {
         let mut run = Run::triggered(&definition, &input, 0, NOW)
@@ -232,7 +233,7 @@ fn automatic_plugin_filter_is_awaited_before_actions() {
         let Effect::Call { params, .. } = run.advance(&store(), 0).unwrap() else {
             panic!("filter callback missing")
         };
-        assert_eq!(json::text(&params, "kind"), "device-trigger");
+        assert_eq!(json::text(&params, "kind"), "trigger");
         assert_eq!(
             json::uint(json::get(&params, "args").unwrap(), "threshold"),
             42
@@ -244,6 +245,43 @@ fn automatic_plugin_filter_is_awaited_before_actions() {
             matched
         );
     }
+}
+#[test]
+fn a_device_bound_trigger_starts_only_the_flow_for_its_device() {
+    // 30-10: UniFi en weer vuurden "device-trigger", de editor bewaart "trigger",
+    // en geen camera-Flow startte ooit. Er is nu één soort; het apparaat filtert.
+    let definition = value(
+        r#"{"id":"f","name":"Persoon","enabled":true,"nodes":[{"id":"t","step":{"appId":"plugin","cardType":"trigger","cardId":"smart_detection","args":{"device":{"$device":"d"},"kind":"person"}}},{"id":"a","step":{"appId":"stulp","cardType":"action","cardId":"notification","args":{"excerpt":"persoon"}}}],"edges":[{"from":"t","to":"a"}]}"#,
+    );
+    let input = |device: &str| {
+        value(&format!(
+            r#"{{"appId":"plugin","kind":"trigger","id":"smart_detection","tokens":{{"kind":"person"}},"state":{{"deviceId":"{device}","kind":"person"}}}}"#
+        ))
+    };
+    assert!(
+        Run::triggered(&definition, &input("other"), 0, NOW)
+            .unwrap()
+            .is_none()
+    );
+    let mut run = Run::triggered(&definition, &input("d"), 0, NOW)
+        .unwrap()
+        .unwrap();
+    let Effect::Call { params, .. } = run.advance(&store(), 0).unwrap() else {
+        panic!("filter callback missing")
+    };
+    assert_eq!(json::text(&params, "id"), "smart_detection");
+    assert_eq!(
+        json::text(json::get(&params, "args").unwrap(), "kind"),
+        "person"
+    );
+    let bogus = value(
+        r#"{"appId":"plugin","kind":"action","id":"smart_detection","state":{"deviceId":"d"}}"#,
+    );
+    assert!(
+        Run::triggered(&definition, &bogus, 0, NOW)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

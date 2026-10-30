@@ -356,7 +356,7 @@ async fn trigger<T: Transport>(
     c.call(
         "flow.trigger",
         &json::fields(&[
-            ("kind", json::string("device-trigger")?),
+            ("kind", json::string("trigger")?),
             ("id", json::string(card)?),
             ("tokens", tokens),
             ("state", state),

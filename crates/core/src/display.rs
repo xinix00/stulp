@@ -109,8 +109,8 @@ pub fn wants_number<S: Storage>(store: &Store<S>, step: &Value, name: &str) -> b
     let Some(m) = store.manifest(json::text(step, "appId")) else {
         return false;
     };
-    let list = match json::text(step, "cardType") {
-        "trigger" | "device-trigger" => "triggers",
+    let list = match crate::flow::card_kind(json::text(step, "cardType")) {
+        "trigger" => "triggers",
         "condition" => "conditions",
         _ => "actions",
     };

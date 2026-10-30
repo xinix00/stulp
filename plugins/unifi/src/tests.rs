@@ -177,3 +177,55 @@ fn camera_setting_rejection_does_not_persist_or_retry_the_write() {
         30
     );
 }
+#[test]
+fn smart_detections_set_motion_and_trigger_once_per_kind() {
+    // 30-10, op de LicheeRV: Protect stuurde alleen smartDetectZone-events,
+    // een add en daarna vijf updates, en alarm_motion bleef leeg.
+    let (mut p, mut c) = setup("camera", r#"{"id":"cam1"}"#, "{}", "{}");
+    let motion = |c: &Client<Wire>| {
+        field(
+            field(c.state().device("d").unwrap(), "state"),
+            "alarm_motion",
+        )
+        .as_bool()
+    };
+    let message = |p: &mut Unifi, c: &mut Client<Wire>, body: &str| {
+        stulp_platform::host::block_on(p.message(c, 1, &value(body))).unwrap();
+    };
+    message(
+        &mut p,
+        &mut c,
+        r#"{"type":"add","item":{"id":"e1","modelKey":"event","type":"smartDetectZone","start":1,"device":"cam1","smartDetectTypes":["person"]}}"#,
+    );
+    assert_eq!(motion(&c), Some(true));
+    message(
+        &mut p,
+        &mut c,
+        r#"{"type":"update","item":{"id":"e1","type":"smartDetectZone","start":1,"device":"cam1","smartDetectTypes":["person"]}}"#,
+    );
+    message(
+        &mut p,
+        &mut c,
+        r#"{"type":"update","item":{"id":"e1","type":"smartDetectZone","start":1,"device":"cam1","smartDetectTypes":["person","vehicle"]}}"#,
+    );
+    message(
+        &mut p,
+        &mut c,
+        r#"{"type":"update","item":{"id":"e1","type":"smartDetectZone","start":1,"end":2,"device":"cam1","smartDetectTypes":["person","vehicle"]}}"#,
+    );
+    assert_eq!(motion(&c), Some(false));
+    // Een volgend event mag dezelfde soort weer melden.
+    message(
+        &mut p,
+        &mut c,
+        r#"{"type":"add","item":{"id":"e2","modelKey":"event","type":"smartDetectZone","start":3,"device":"cam1","smartDetectTypes":["person"]}}"#,
+    );
+    let w = c.into_transport();
+    let kinds: Vec<_> = w
+        .sent
+        .iter()
+        .filter(|v| json::text(v, "m") == "flow.trigger")
+        .map(|v| String::from(json::text(field(field(v, "p"), "tokens"), "kind")))
+        .collect();
+    assert_eq!(kinds, ["person", "vehicle", "person"]);
+}

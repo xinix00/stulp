@@ -24,6 +24,11 @@ struct Device {
     next: u64,
     retry: u64,
     motion_off: u64,
+    /// Het slimme-detectie-event dat nu loopt, en de soorten waarvoor de
+    /// flowkaart al afging: Protect stuurt per event een add en daarna
+    /// updates met dezelfde soorten, en elke update mag geen nieuwe flow zijn.
+    smart_event: String,
+    smart_kinds: Vec<String>,
 }
 struct Pair {
     id: String,
@@ -274,7 +279,10 @@ impl Unifi {
                 continue;
             }
             let kind = json::text(item, "type");
-            if kind == "motion" {
+            // Een camera die alleen slimme detecties meldt (persoon, voertuig;
+            // 30-10: geen enkel `motion`-event), beweegt toch: die events
+            // zetten alarm_motion net zo, naast hun eigen flowkaart.
+            if matches!(kind, "motion" | "smartDetectZone" | "smartDetectLine") {
                 let active = if json::text(p, "type") == "add" {
                     Some(true)
                 } else if number(field(item, "end")).is_some_and(|v| v != 0.) {
@@ -294,7 +302,8 @@ impl Unifi {
                         0
                     };
                 }
-            } else {
+            }
+            if kind != "motion" {
                 let card = match kind {
                     "ring" if json::text(p, "type") == "add" => "doorbell_pressed",
                     "smartDetectZone" => "smart_detection",
@@ -304,10 +313,20 @@ impl Unifi {
                 if card == "doorbell_pressed" {
                     trigger(c, &d.id, card, json::object(), json::object()).await?;
                 } else {
+                    let event = json::text(item, "id");
+                    if !event.is_empty() && event != d.smart_event {
+                        d.smart_event = json::copy(event)?;
+                        d.smart_kinds.clear();
+                    }
                     for raw in json::array(item, "smartDetectTypes") {
                         let Some(raw) = raw.as_str() else {
                             continue;
                         };
+                        // Eén keer per soort per event; een update herhaalt ze.
+                        if d.smart_kinds.iter().any(|k| k == raw) {
+                            continue;
+                        }
+                        json::push(&mut d.smart_kinds, json::copy(raw)?, 16)?;
                         let kind = if card == "audio_detection" {
                             observe::audio(raw)
                         } else {
@@ -389,6 +408,8 @@ impl Plugin for Unifi {
                     next: c.now().saturating_add(2000),
                     retry: 2000,
                     motion_off: 0,
+                    smart_event: String::new(),
+                    smart_kinds: Vec::new(),
                 };
                 self.devices.retain(|d| d.id != id);
                 let is_camera = entry.driver == "camera";
